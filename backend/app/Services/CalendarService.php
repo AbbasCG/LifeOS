@@ -209,8 +209,13 @@ class CalendarService
         foreach ($series as $event) {
             $items->push(...$this->expand($event, $from, $to, $exceptions->get($event->id, collect())));
         }
+        // A connected calendar often mirrors a LifeOS block (e.g. an exported plan); keep the editable LifeOS copy only.
+        $own = $items->mapWithKeys(fn (array $o) => [CalendarSyncService::fingerprint((string) $o['title'], $o['starts_at'], $o['ends_at']) => true]);
         foreach ($this->sources as $source) {
             foreach ($source($user, $from, $to) as $occurrence) {
+                if (isset($own[$occurrence['fingerprint'] ?? ''])) {
+                    continue;
+                }
                 $items->push($occurrence);
             }
         }

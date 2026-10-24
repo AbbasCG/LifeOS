@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AssistantProposal;
 use App\Models\CalendarEvent;
+use App\Models\Goal;
 use App\Models\Task;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -18,13 +19,15 @@ use Illuminate\Validation\ValidationException;
  */
 class AssistantActions
 {
-    public const ACTION_TYPES = ['create_event', 'move_event'];
+    public const ACTION_TYPES = ['create_event', 'move_event', 'create_task', 'reschedule_task'];
+
+    public const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 
     public const TTL_HOURS = 24;
 
     public const MAX_BLOCK_MINUTES = 480;
 
-    public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit) {}
+    public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit, private GoalIntelligence $goals) {}
 
     /**
      * Place activities into the free time of one day.
@@ -172,6 +175,102 @@ class AssistantActions
     }
 
     /**
+     * Turn a goal into concrete, dated tasks: steps from the provider, the goal's unfinished milestones, or a short
+     * template. Due dates are spread between now and the goal deadline (weekly when there is none).
+     *
+     * @param  list<array{title: string, estimated_minutes?: int|null}>  $steps
+     */
+    public function proposeGoalPlan(User $user, Goal $goal, array $steps, bool $ar, string $provider): AssistantProposal
+    {
+        $c = $this->planning->config($user);
+        $now = CarbonImmutable::now($c['tz']);
+        $health = $this->goals->goals($user)->firstWhere('id', $goal->id);
+        $explanation = collect($health['reasons'] ?? [])->map(fn (array $r) => $r[$ar ? 'ar' : 'en'])->all();
+        $existing = Task::where('user_id', $user->id)->where('goal_id', $goal->id)->whereNotIn('status', ['completed', 'cancelled'])->pluck('title')->map(fn (string $t) => mb_strtolower($t))->all();
+
+        if ($steps !== []) {
+            $explanation[] = $ar ? 'الخطوات مقترحة من مزود الذكاء الاصطناعي، وتحققت منها وحددت مواعيدها من بياناتك.' : 'Steps were suggested by the AI provider; dates and checks come from your own data.';
+        } elseif (! empty($health['suggested_tasks']) && count($health['suggested_tasks']) > 0) {
+            $steps = collect($health['suggested_tasks'])->map(fn (array $m) => ['title' => $m['title'], 'estimated_minutes' => 60])->all();
+            $explanation[] = $ar ? 'حوّلت المعالم غير المنجزة لهذا الهدف إلى مهام.' : 'Turned this goal’s unfinished milestones into tasks.';
+        } else {
+            $steps = $ar
+                ? [['title' => "حدّد المعلم القابل للقياس التالي لـ «{$goal->title}»", 'estimated_minutes' => 30], ['title' => "أنجز أول خطوة عملية نحو «{$goal->title}»", 'estimated_minutes' => 90], ['title' => "راجع التقدم في «{$goal->title}» وعدّل الخطة", 'estimated_minutes' => 30]]
+                : [['title' => "Define the next measurable milestone for “{$goal->title}”", 'estimated_minutes' => 30], ['title' => "Do the first concrete step toward “{$goal->title}”", 'estimated_minutes' => 90], ['title' => "Review progress on “{$goal->title}” and adjust the plan", 'estimated_minutes' => 30]];
+            $explanation[] = $ar ? 'لا توجد معالم لهذا الهدف، فاقترحت خطوات عامة. أضف معالم للهدف لاقتراحات أدق.' : 'This goal has no milestones, so these are general steps. Add milestones to the goal for sharper suggestions.';
+        }
+        $steps = collect($steps)->map(fn (array $s) => ['title' => trim(mb_substr((string) $s['title'], 0, 200)), 'estimated_minutes' => (int) max(5, min(480, $s['estimated_minutes'] ?? 60))])
+            ->filter(fn (array $s) => $s['title'] !== '' && ! in_array(mb_strtolower($s['title']), $existing, true))->unique('title')->take(8)->values();
+
+        $deadline = $goal->due_at && $goal->due_at->isAfter($now->addDays(2)) ? CarbonImmutable::instance($goal->due_at)->setTimezone($c['tz']) : null;
+        $span = $deadline ? max(1, (int) floor($now->diffInDays($deadline) / max(1, $steps->count()))) : 7;
+        $priority = in_array($health['status'] ?? null, ['at_risk', 'behind', 'overdue'], true) ? 'high' : 'medium';
+        $actions = $steps->map(fn (array $s, int $i) => [
+            'id' => 'a'.($i + 1), 'type' => 'create_task', 'title' => $s['title'], 'goal_id' => $goal->id, 'priority' => $priority,
+            'estimated_minutes' => $s['estimated_minutes'], 'minutes' => $s['estimated_minutes'],
+            'due_at' => min($deadline ?? $now->addYear(), $now->startOfDay()->addDays(($i + 1) * $span)->setTimeFromTimeString($c['work_end']))->utc()->toIso8601String(),
+        ])->all();
+        $explanation[] = $deadline
+            ? ($ar ? "وزّعت المواعيد بالتساوي حتى موعد الهدف ({$deadline->toDateString()})." : "Spread due dates evenly up to the goal deadline ({$deadline->toDateString()}).")
+            : ($ar ? 'لا يوجد موعد قريب للهدف، فجعلت المواعيد أسبوعية.' : 'The goal has no upcoming deadline, so steps are a week apart.');
+        if ($priority === 'high') {
+            $explanation[] = $ar ? 'أولوية عالية لأن الهدف يحتاج اهتماماً.' : 'High priority because the goal needs attention.';
+        }
+        $summary = $actions === []
+            ? ($ar ? "كل الخطوات المقترحة لـ «{$goal->title}» موجودة بالفعل كمهام." : "Every suggested step for “{$goal->title}” already exists as a task.")
+            : ($ar ? 'خطة لـ «'.$goal->title.'»: '.count($actions).' مهام مؤرخة. راجعها واختر ما تريد إنشاءه.' : 'Plan for “'.$goal->title.'”: '.count($actions).' dated task(s). Review and choose which to create.');
+
+        return $this->store($user, 'goal_plan', $provider, $summary, $explanation, $actions);
+    }
+
+    /**
+     * Give overdue tasks realistic new deadlines on the next work days that still have free time for them.
+     */
+    public function proposeTriage(User $user, bool $ar, string $provider): AssistantProposal
+    {
+        $c = $this->planning->config($user);
+        $now = CarbonImmutable::now($c['tz']);
+        $overdue = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->where('due_at', '<', now())->limit(100)->get();
+        $ranked = BriefingService::rank($overdue, $now, $this->goals->pressure($user))->take(8)->values();
+        $days = collect($this->planning->summary($user, $now->startOfDay(), 10, [], [], $c)['days'])->where('work_day', true)->values()->all();
+        $actions = [];
+        $explanation = [];
+        $unplaced = [];
+        foreach ($ranked as $row) {
+            $task = $row['task'];
+            $need = max(15, $task->estimated_minutes - (int) $task->actual_minutes);
+            $placed = false;
+            foreach ($days as $i => $day) {
+                $end = CarbonImmutable::parse($day['date'], $c['tz'])->setTimeFromTimeString($c['work_end']);
+                if ($end <= $now->addMinutes(30) || $day['free_minutes'] < $need) {
+                    continue;
+                }
+                $days[$i]['free_minutes'] -= $need;
+                $actions[] = ['id' => 'a'.(count($actions) + 1), 'type' => 'reschedule_task', 'task_id' => $task->id, 'title' => $task->title, 'from_due_at' => $task->due_at->toIso8601String(), 'due_at' => $end->utc()->toIso8601String(), 'minutes' => $need];
+                $placed = true;
+                break;
+            }
+            if (! $placed) {
+                $unplaced[] = $task->title;
+            }
+        }
+        if ($actions !== []) {
+            $explanation[] = $ar ? 'رتّبت المهام المتأخرة حسب الأولوية، وأعطيت كلاً منها أقرب يوم عمل فيه وقت فارغ يكفي لما تبقى منها.' : 'Ordered overdue tasks by priority and gave each the first work day with enough free time for the remaining work.';
+            $explanation[] = $ar ? 'الموعد الجديد هو نهاية ساعات العمل في ذلك اليوم.' : 'The new deadline is the end of your working hours that day.';
+        }
+        if ($unplaced) {
+            $explanation[] = $ar ? 'لا يتسع الوقت خلال الأيام العشرة القادمة لـ: '.implode('، ', $unplaced).'. فكّر في تقسيمها أو إلغائها.' : 'No room in the next 10 days for: '.implode(', ', $unplaced).'. Consider splitting or dropping them.';
+        }
+        $summary = match (true) {
+            $overdue->isEmpty() => $ar ? 'لا توجد مهام متأخرة لإعادة جدولتها.' : 'Nothing is overdue, so there is nothing to reschedule.',
+            $actions === [] => $ar ? 'لا يوجد وقت فارغ كافٍ لإعادة جدولة المهام المتأخرة خلال الأيام القادمة.' : 'There isn’t enough free time in the coming days to reschedule your overdue tasks.',
+            default => $ar ? 'أقترح مواعيد جديدة لـ '.count($actions).' مهمة متأخرة. راجعها واختر ما تريد تطبيقه.' : 'I suggest new deadlines for '.count($actions).' overdue task(s). Review and choose which to apply.',
+        };
+
+        return $this->store($user, 'triage', $provider, $summary, $explanation, $actions);
+    }
+
+    /**
      * Execute the approved subset of a proposal atomically. Any invalid action aborts everything.
      *
      * @param  list<string>  $actionIds
@@ -220,6 +319,9 @@ class AssistantActions
         if (! in_array($action['type'] ?? null, self::ACTION_TYPES, true)) {
             $fail('This change is not allowed.');
         }
+        if (in_array($action['type'], ['create_task', 'reschedule_task'], true)) {
+            return $this->executeTask($user, $action, $fail);
+        }
         $start = CarbonImmutable::parse($action['starts_at'])->utc();
         $end = CarbonImmutable::parse($action['ends_at'])->utc();
         if ($end <= $start || $start->diffInMinutes($end) > self::MAX_BLOCK_MINUTES || $start < now()->subMinutes(5)) {
@@ -247,6 +349,50 @@ class AssistantActions
         $event->update(['starts_at' => $start, 'ends_at' => $end]);
 
         return ['action_id' => $action['id'], 'type' => 'move_event', 'event_id' => $event->id];
+    }
+
+    /**
+     * Task actions are re-validated against current data: ownership, open status, unchanged deadline, sane values.
+     *
+     * @param  array<string, mixed>  $action
+     * @return array<string, mixed>
+     */
+    private function executeTask(User $user, array $action, callable $fail): array
+    {
+        $due = isset($action['due_at']) ? CarbonImmutable::parse($action['due_at'])->utc() : null;
+        if ($due && $due < now()->subMinutes(5)) {
+            $fail('This deadline is already in the past.');
+        }
+
+        if ($action['type'] === 'create_task') {
+            $title = trim(mb_substr((string) ($action['title'] ?? ''), 0, 200));
+            $minutes = (int) ($action['estimated_minutes'] ?? 0);
+            if ($title === '' || $minutes < 5 || $minutes > self::MAX_BLOCK_MINUTES || ! in_array($action['priority'] ?? null, self::PRIORITIES, true)) {
+                $fail('This task suggestion is not valid.');
+            }
+            $goalId = $action['goal_id'] ?? null;
+            if ($goalId && ! Goal::where('user_id', $user->id)->whereKey($goalId)->exists()) {
+                $fail('The goal no longer exists.');
+            }
+            if (Task::where('user_id', $user->id)->where('goal_id', $goalId)->whereNotIn('status', ['completed', 'cancelled'])->whereRaw('lower(title) = ?', [mb_strtolower($title)])->exists()) {
+                $fail('A task with this title already exists for the goal.');
+            }
+            $task = Task::create(['user_id' => $user->id, 'goal_id' => $goalId, 'title' => $title, 'priority' => $action['priority'], 'estimated_minutes' => $minutes, 'due_at' => $due, 'status' => 'todo']);
+
+            return ['action_id' => $action['id'], 'type' => 'create_task', 'task_id' => $task->id];
+        }
+
+        $task = Task::where('user_id', $user->id)->whereKey($action['task_id'] ?? 0)->lockForUpdate()->first();
+        if (! $task || in_array($task->status, ['completed', 'cancelled'], true)) {
+            $fail('This task is no longer open.');
+        }
+        $from = isset($action['from_due_at']) ? CarbonImmutable::parse($action['from_due_at']) : null;
+        if (! $due || ! $from || ! $task->due_at?->equalTo($from)) {
+            $fail('This task changed since the suggestion was made.');
+        }
+        $task->update(['due_at' => $due]);
+
+        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id];
     }
 
     private function assertFree(User $user, CarbonImmutable $start, CarbonImmutable $end, ?int $ignore, callable $fail): void

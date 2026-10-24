@@ -10,6 +10,7 @@ use App\Models\AutomationRun;
 use App\Models\CalendarEvent;
 use App\Models\CalendarEventException;
 use App\Models\Category;
+use App\Models\DailyCheckin;
 use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Habit;
@@ -30,7 +31,7 @@ use Illuminate\Validation\ValidationException;
 
 class WorkspaceController extends Controller
 {
-    public const DASHBOARD_WIDGETS = ['suggestions', 'stats', 'next_moves', 'agenda', 'habits', 'goals', 'focus', 'weekly', 'review'];
+    public const DASHBOARD_WIDGETS = ['today', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'];
 
     public const MODELS = ['tasks' => Task::class, 'projects' => Project::class, 'categories' => Category::class, 'events' => CalendarEvent::class, 'goals' => Goal::class, 'habits' => Habit::class];
 
@@ -183,7 +184,7 @@ class WorkspaceController extends Controller
 
     public function saveSettings(Request $request): JsonResponse
     {
-        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean']);
+        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'ai_connected_data' => 'sometimes|boolean', 'checkins_enabled' => 'sometimes|boolean', 'buffer_minutes' => 'sometimes|integer|min:0|max:60', 'study_start' => 'nullable|date_format:H:i', 'study_end' => 'nullable|date_format:H:i|required_with:study_start', 'personal_start' => 'nullable|date_format:H:i', 'personal_end' => 'nullable|date_format:H:i|required_with:personal_start', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean']);
         $record = UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
         $prefs = array_replace($record->preferences, $data);
         if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {
@@ -222,6 +223,7 @@ class WorkspaceController extends Controller
         } $data['settings'] = UserSetting::where('user_id', $request->user()->id)->first()?->preferences;
         $data['focus_sessions'] = FocusSession::where('user_id', $request->user()->id)->get()->makeHidden('user_id');
         $data['event_exceptions'] = CalendarEventException::whereIn('calendar_event_id', CalendarEvent::where('user_id', $request->user()->id)->select('id'))->get();
+        $data['daily_checkins'] = DailyCheckin::where('user_id', $request->user()->id)->orderBy('date')->get();
         $data['assistant_proposals'] = AssistantProposal::where('user_id', $request->user()->id)->get();
         $data['automation_rules'] = AutomationRule::where('user_id', $request->user()->id)->get();
         $data['automation_runs'] = AutomationRun::where('user_id', $request->user()->id)->latest()->limit(1000)->get();

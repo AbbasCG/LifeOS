@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { CalendarPlus, ArrowRight, CheckCircle2, X, Lightbulb, Clock } from 'lucide-react'
+import { CalendarPlus, ArrowRight, CheckCircle2, X, Lightbulb, Clock, ListPlus, CalendarClock } from 'lucide-react'
 import { api, type AssistantProposal } from '../../lib/api'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
@@ -18,6 +18,8 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
   const day = (iso: string) => new Date(iso).toLocaleDateString(language, { weekday: 'short', day: 'numeric', month: 'short' })
   const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
   const range = (start: string, end: string) => `${day(start)} · ${time(start)}–${time(end)}`
+  const taskKind = proposal.kind === 'goal_plan' || proposal.kind === 'triage'
+  const dueLabel = (iso: string) => `${day(iso)} · ${time(iso)}`
   const toggle = (id: string) => setSelected(list => list.includes(id) ? list.filter(x => x !== id) : [...list, id])
 
   async function run(path: 'apply' | 'dismiss') {
@@ -25,15 +27,19 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
     try {
       const next = await api<AssistantProposal>(`/api/assistant/proposals/${proposal.id}/${path}`, 'POST', path === 'apply' ? { action_ids: selected } : undefined)
       setProposal(next)
-      if (path === 'apply') toast(t(`${next.results?.length ?? 0} change(s) applied to your calendar.`, `طُبّق ${next.results?.length ?? 0} تغيير على تقويمك.`))
+      if (path === 'apply') toast(taskKind
+        ? t(`${next.results?.length ?? 0} task change(s) applied.`, `طُبّق ${next.results?.length ?? 0} تغيير على المهام.`)
+        : t(`${next.results?.length ?? 0} change(s) applied to your calendar.`, `طُبّق ${next.results?.length ?? 0} تغيير على تقويمك.`))
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
   if (proposal.actions.length === 0) return null
   const verb = proposal.kind === 'rebalance' ? t('Move', 'انقل') : t('Add', 'أضف')
+  const heading = { rebalance: t('Suggested changes', 'تغييرات مقترحة'), goal_plan: t('Proposed tasks', 'مهام مقترحة'), triage: t('New deadlines', 'مواعيد جديدة') }[proposal.kind] ?? t('Proposed schedule', 'جدول مقترح')
+  const applyLabel = proposal.kind === 'goal_plan' ? t(`Create ${selected.length} task(s)`, `أنشئ ${selected.length} مهمة`) : proposal.kind === 'triage' ? t(`Reschedule ${selected.length} task(s)`, `أعد جدولة ${selected.length} مهمة`) : `${verb} ${selected.length} ${t('to calendar', 'إلى التقويم')}`
   return <div className={`proposal-card state-${proposal.status}`}>
     <div className="proposal-head">
-      <strong>{proposal.kind === 'rebalance' ? t('Suggested changes', 'تغييرات مقترحة') : t('Proposed schedule', 'جدول مقترح')}</strong>
+      <strong>{heading}</strong>
       <span className={`badge proposal-${proposal.status}`}>{{ pending: t('Needs your approval', 'بانتظار موافقتك'), applied: t('Applied', 'طُبّق'), dismissed: t('Dismissed', 'رُفض'), expired: t('Expired', 'منتهي') }[proposal.status]}</span>
     </div>
     <ul className="proposal-actions">
@@ -45,8 +51,10 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
             <span className="proposal-title">{action.title}</span>
           </label>
           <span className="proposal-time">
+            {action.type === 'create_task' && <><ListPlus size={13} />{action.estimated_minutes} {t('min', 'د')}{action.due_at && <> · {t('due', 'الموعد')} {dueLabel(action.due_at)}</>}</>}
+            {action.type === 'reschedule_task' && action.due_at && <>{action.from_due_at && <><s>{dueLabel(action.from_due_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}<CalendarClock size={13} />{dueLabel(action.due_at)}</>}
             {action.type === 'move_event' && action.from_starts_at && action.from_ends_at && <><s>{range(action.from_starts_at, action.from_ends_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}
-            <Clock size={13} />{range(action.starts_at, action.ends_at)}
+            {action.starts_at && action.ends_at && <><Clock size={13} />{range(action.starts_at, action.ends_at)}</>}
           </span>
         </li>
       })}
@@ -57,10 +65,12 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
     </details>}
     <ErrorMessage error={error} />
     {open && <div className="toolbar">
-      <button className="primary" disabled={busy || selected.length === 0} onClick={() => void run('apply')}><CalendarPlus size={16} />{verb} {selected.length} {t('to calendar', 'إلى التقويم')}</button>
+      <button className="primary" disabled={busy || selected.length === 0} onClick={() => void run('apply')}>{taskKind ? <ListPlus size={16} /> : <CalendarPlus size={16} />}{applyLabel}</button>
       <button className="quiet" disabled={busy} onClick={() => void run('dismiss')}><X size={16} />{t('Not now', 'ليس الآن')}</button>
     </div>}
-    {proposal.status === 'applied' && <Link className="quiet" to="/calendar">{t('Open calendar', 'فتح التقويم')}</Link>}
-    {open && <p className="muted small">{t('Nothing changes until you approve. Times are re-checked against your calendar when you apply.', 'لن يتغير شيء قبل موافقتك. يُعاد التحقق من الأوقات مقابل تقويمك عند التطبيق.')}</p>}
+    {proposal.status === 'applied' && (taskKind ? <Link className="quiet" to="/tasks">{t('Open tasks', 'فتح المهام')}</Link> : <Link className="quiet" to="/calendar">{t('Open calendar', 'فتح التقويم')}</Link>)}
+    {open && <p className="muted small">{taskKind
+      ? t('Nothing changes until you approve. Each task is re-checked when you apply, and stale suggestions are refused.', 'لن يتغير شيء قبل موافقتك. يُعاد التحقق من كل مهمة عند التطبيق، وتُرفض الاقتراحات القديمة.')
+      : t('Nothing changes until you approve. Times are re-checked against your calendar when you apply.', 'لن يتغير شيء قبل موافقتك. يُعاد التحقق من الأوقات مقابل تقويمك عند التطبيق.')}</p>}
   </div>
 }

@@ -10,6 +10,7 @@ use App\Models\AutomationRun;
 use App\Models\CalendarEvent;
 use App\Models\CalendarEventException;
 use App\Models\Category;
+use App\Models\DailyCheckin;
 use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Habit;
@@ -22,6 +23,7 @@ use App\Models\User;
 use App\Models\UserSetting;
 use App\Models\WeeklyReview;
 use App\Services\AssistantActions;
+use App\Services\DayPlanner;
 use App\Services\PlanningService;
 use App\Services\WeeklyReviewService;
 use Carbon\CarbonImmutable;
@@ -31,6 +33,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Realistic, interconnected demo data for one local demo account.
@@ -93,10 +96,12 @@ class LifeOSDemoSeeder extends Seeder
             $this->habits();
             $this->calendar();
             $this->focus();
+            $this->checkins();
             $this->weeklyPlans();
             $this->reviews();
             $this->automations();
             $this->notifications();
+            $this->adaptive();
         });
         $this->command?->getOutput()?->writeln('  Demo data: '.collect($this->counts)->map(fn (int $n, string $k) => "{$k} {$n}")->implode(', '));
         if ($this->generatedPassword && $this->command && ! $this->command instanceof DemoData) {
@@ -133,6 +138,7 @@ class LifeOSDemoSeeder extends Seeder
             'language' => $this->language, 'theme' => 'system', 'timezone' => $this->tz,
             'work_start' => '09:00', 'work_end' => '17:30', 'work_days' => [1, 2, 3, 4, 5], 'week_start' => 1, 'time_format' => '24',
             'break_minutes' => 10, 'focus_block_minutes' => 60, 'focus_start' => '09:30', 'focus_end' => '12:00', 'daily_focus_limit' => 300,
+            'buffer_minutes' => 10, 'study_start' => '19:00', 'study_end' => '21:00', 'personal_start' => '07:00', 'personal_end' => '08:30', 'checkins_enabled' => true,
             'notifications' => true, 'quiet_start' => '22:00', 'quiet_end' => '07:00', 'event_remind_minutes' => 15,
             // The demo never sends data to an external AI provider, even when one is configured on the server.
             'assistant_external' => false,
@@ -142,7 +148,8 @@ class LifeOSDemoSeeder extends Seeder
     private function organisation(): void
     {
         foreach (DemoContent::CATEGORIES as $key => [$en, $ar, $color]) {
-            $this->categories[$key] = Category::create(['user_id' => $this->user->id, 'title' => $this->ar ? $ar : $en, 'color' => $color, 'created_at' => $this->today->subDays(90)])->id;
+            $area = ['work' => 'work', 'study' => 'study'][$key] ?? 'personal';
+            $this->categories[$key] = Category::create(['user_id' => $this->user->id, 'title' => $this->ar ? $ar : $en, 'color' => $color, 'area' => $area, 'created_at' => $this->today->subDays(90)])->id;
         }
         foreach (DemoContent::PROJECTS as $key => [$en, $ar, $descEn, $descAr, $color, $status, $due, $milestones]) {
             $this->projects[$key] = Project::create([
@@ -152,7 +159,8 @@ class LifeOSDemoSeeder extends Seeder
             ])->id;
         }
         foreach (DemoContent::GOALS as $key => [$en, $ar, $target, $progress, $due, $color]) {
-            $this->goals[$key] = Goal::create(['user_id' => $this->user->id, 'title' => $this->ar ? $ar : $en, 'target' => $target, 'progress' => $progress, 'due_at' => $this->at($due, '23:00'), 'color' => $color, 'created_at' => $this->today->subDays(120)])->id;
+            $milestones = array_map(fn (array $m) => ['title' => $this->ar ? $m[1] : $m[0], 'completed' => $m[2]], DemoContent::GOAL_MILESTONES[$key] ?? []);
+            $this->goals[$key] = Goal::create(['user_id' => $this->user->id, 'title' => $this->ar ? $ar : $en, 'target' => $target, 'progress' => $progress, 'due_at' => $this->at($due, '23:00'), 'color' => $color, 'milestones' => $milestones ?: null, 'created_at' => $this->today->subDays(120)])->id;
         }
         $this->counts += ['categories' => count($this->categories), 'projects' => count($this->projects), 'goals' => count($this->goals)];
     }
@@ -384,10 +392,22 @@ class LifeOSDemoSeeder extends Seeder
                     break;
                 }
                 $task = $this->taskActiveOn($pool, $date);
+                $kind = mt_rand(1, 100) <= 8 ? 'manual' : 'focus';
+                $mode = match ($duration) {
+                    1500 => 'pomodoro', 5400 => 'deep', default => 'custom'
+                };
+                $interruptions = [];
+                if ($kind === 'focus' && $sessions % 4 === 1) {
+                    for ($n = 0; $n < 1 + ($sessions % 3 === 0 ? 1 : 0); $n++) {
+                        $interruptions[] = ['at' => $start->addSeconds((int) ($elapsed * (0.3 + 0.3 * $n)))->utc()->toIso8601String(), 'reason' => FocusSession::DISTRACTIONS[($sessions + $n) % count(FocusSession::DISTRACTIONS)], 'note' => null, 'elapsed' => (int) ($elapsed * (0.3 + 0.3 * $n))];
+                    }
+                }
                 FocusSession::create([
-                    'user_id' => $this->user->id, 'task_id' => $task?->id, 'kind' => mt_rand(1, 100) <= 8 ? 'manual' : 'focus', 'status' => $cancelled ? 'cancelled' : 'completed',
+                    'user_id' => $this->user->id, 'task_id' => $task?->id, 'project_id' => $task?->project_id, 'kind' => $kind, 'status' => $cancelled ? 'cancelled' : 'completed',
+                    'mode' => $kind === 'manual' ? 'custom' : $mode, 'cycle' => $mode === 'pomodoro' ? $s + 1 : null,
+                    'interruptions' => $interruptions ?: null, 'notes' => ! $cancelled && $sessions % 9 === 4 ? DemoContent::FOCUS_NOTES[($sessions / 9) % count(DemoContent::FOCUS_NOTES)][$this->ar ? 1 : 0] : null,
                     'duration_seconds' => $duration, 'elapsed_seconds' => $elapsed, 'completed_at' => $cancelled ? null : $end->utc(),
-                    'created_at' => $start->utc(), 'updated_at' => $end->utc(),
+                    'started_at' => $start->utc(), 'created_at' => $start->utc(), 'updated_at' => $end->utc(),
                 ]);
                 $sessions++;
                 $clock = $end->addMinutes($s === 1 ? 60 : 15);
@@ -405,6 +425,61 @@ class LifeOSDemoSeeder extends Seeder
             }
         }
         $this->counts['focus_sessions'] = $sessions;
+    }
+
+    /**
+     * Daily check-ins for the last 60 days (some skipped). Energy follows the day's logged focus with a little
+     * deterministic noise, so the analytics show a real, explainable pattern. Today is left open to check in.
+     */
+    private function checkins(): void
+    {
+        $focus = FocusSession::where('user_id', $this->user->id)->where('status', 'completed')->get(['completed_at', 'elapsed_seconds'])
+            ->groupBy(fn (FocusSession $f) => $f->completed_at->setTimezone($this->tz)->toDateString())->map(fn ($g) => (int) floor($g->sum('elapsed_seconds') / 60));
+        $count = 0;
+        for ($d = 60; $d >= 1; $d--) {
+            $date = $this->today->subDays($d)->toDateString();
+            $hash = crc32($date);
+            if ($hash % 7 === 0) {
+                continue;
+            }
+            $minutes = $focus->get($date, 0);
+            $base = match (true) {
+                $minutes >= 180 => 5, $minutes >= 110 => 4, $minutes >= 50 => 3, $minutes > 0 => 2, default => 2
+            };
+            $clamp = fn (int $v) => max(1, min(5, $v));
+            $energy = $clamp($base + ($hash % 5 === 0 ? -1 : 0));
+            DailyCheckin::create([
+                'user_id' => $this->user->id, 'date' => $date, 'energy' => $energy, 'mood' => $clamp($energy + ($hash % 3) - 1), 'stress' => $clamp(6 - $energy + ($hash % 2)),
+                'workload' => $clamp(CarbonImmutable::parse($date)->isWeekend() ? 1 + $hash % 2 : 3 + $hash % 3 - ($hash % 4 === 0 ? 1 : 0)),
+                'sleep_minutes' => 330 + $energy * 20 + $hash % 40,
+                'reflection' => $hash % 6 === 1 ? DemoContent::REFLECTIONS[$hash % count(DemoContent::REFLECTIONS)][$this->ar ? 1 : 0] : null,
+                'created_at' => CarbonImmutable::parse($date, $this->tz)->setTime(21, 30)->utc(),
+            ]);
+            $count++;
+        }
+        $this->counts['checkins'] = $count;
+    }
+
+    /**
+     * V5 scenarios built through the real services: a "Plan my day" proposal for the next work day, a Copilot goal plan
+     * from milestones and an overdue-task triage, all pending the user's approval.
+     */
+    private function adaptive(): void
+    {
+        $next = $this->today->addDay();
+        while ($next->isWeekend()) {
+            $next = $next->addDay();
+        }
+        try {
+            app(DayPlanner::class)->choose($this->user, $next->toDateString(), 'balanced');
+            $this->counts['day_plans'] = 1;
+        } catch (ValidationException) {
+            $this->counts['day_plans'] = 0;
+        }
+        $actions = app(AssistantActions::class);
+        $actions->proposeGoalPlan($this->user, Goal::findOrFail($this->goals['app']), [], $this->ar, 'local');
+        $actions->proposeTriage($this->user, $this->ar, 'local');
+        $this->counts['pending_proposals'] = AssistantProposal::where('user_id', $this->user->id)->where('status', 'pending')->count();
     }
 
     private function weeklyPlans(): void

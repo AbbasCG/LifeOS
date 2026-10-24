@@ -1,5 +1,7 @@
 import { useEffect,useState } from 'react'
-import { Outlet } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
+import { m } from 'motion/react'
+import AmbientBackground from './AmbientBackground'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import MobileNav from './MobileNav'
@@ -7,4 +9,4 @@ import OfflineBanner from './OfflineBanner'
 import { api } from '../../lib/api'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useTheme } from '../../contexts/ThemeContext'
-export default function AppLayout(){const [sidebarOpen,setSidebarOpen]=useState(false);const {setLanguage}=useLanguage(),{setTheme}=useTheme();useEffect(()=>{api<{language?:'ar'|'en';theme?:'light'|'dark'|'system'}>('/api/settings').then(p=>{if(p.language)setLanguage(p.language);if(p.theme)setTheme(p.theme)}).catch(()=>{})},[setLanguage,setTheme]);return <div className={`app-shell ${sidebarOpen?'menu-open':''}`}><a href="#main" className="skip-link">Skip to content · تخطَّ إلى المحتوى</a><Sidebar open={sidebarOpen} onClose={()=>setSidebarOpen(false)}/><div className="app-content"><Topbar onMenuClick={()=>setSidebarOpen(v=>!v)}/><OfflineBanner/><main id="main" tabIndex={-1}><Outlet/></main></div><MobileNav onMore={()=>setSidebarOpen(true)}/></div>}
+export default function AppLayout(){const [sidebarOpen,setSidebarOpen]=useState(false);const section=useLocation().pathname.split('/')[1]||'home';const {setLanguage}=useLanguage(),{setTheme}=useTheme();useEffect(()=>{api<{language?:'ar'|'en';theme?:'light'|'dark'|'system'}>('/api/settings').then(p=>{if(p.language)setLanguage(p.language);if(p.theme)setTheme(p.theme)}).catch(()=>{})},[setLanguage,setTheme]);return <div className={`app-shell ${sidebarOpen?'menu-open':''}`}><AmbientBackground/><a href="#main" className="skip-link">Skip to content · تخطَّ إلى المحتوى</a><Sidebar open={sidebarOpen} onClose={()=>setSidebarOpen(false)}/><div className="app-content"><Topbar onMenuClick={()=>setSidebarOpen(v=>!v)}/><OfflineBanner/><main id="main" tabIndex={-1}><m.div key={section} className="page-motion" initial={{opacity:0,y:14,scale:.995}} animate={{opacity:1,y:0,scale:1}} transition={{type:'spring',stiffness:260,damping:30,mass:.8}}><Outlet/></m.div></main></div><MobileNav onMore={()=>setSidebarOpen(true)}/></div>}

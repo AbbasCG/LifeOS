@@ -13,6 +13,6 @@ class Goal extends Model
 
     protected function casts(): array
     {
-        return ['due_at' => 'immutable_datetime'];
+        return ['due_at' => 'immutable_datetime', 'milestones' => 'array'];
     }
 }

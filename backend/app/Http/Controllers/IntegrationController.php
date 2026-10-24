@@ -3,8 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Integrations\Calendar\CalendarProviders;
+use App\Integrations\Calendar\ConnectedProvider;
 use App\Integrations\Calendar\ProviderException;
+use App\Integrations\ConnectedCatalog;
 use App\Models\CalendarAccount;
+use App\Models\ExternalTask;
+use App\Models\Task;
 use App\Services\AuditLogger;
 use App\Services\CalendarSyncService;
 use Illuminate\Http\JsonResponse;
@@ -17,19 +21,36 @@ class IntegrationController extends Controller
 {
     public const STATE_TTL = 600;
 
-    public function __construct(private CalendarProviders $providers, private CalendarSyncService $sync, private AuditLogger $audit) {}
+    /** Implemented providers that can be connected (see CalendarProviders). */
+    public const PROVIDERS = ['google', 'outlook', 'google_tasks', 'microsoft_todo', 'todoist'];
 
+    public function __construct(private CalendarProviders $providers, private CalendarSyncService $sync, private AuditLogger $audit, private ConnectedCatalog $catalog) {}
+
+    /**
+     * The Connected Accounts Hub: implemented providers with their state and the user's accounts, grouped by category
+     * with the planned integrations. Never includes tokens.
+     */
     public function index(Request $request): JsonResponse
     {
         $accounts = CalendarAccount::where('user_id', $request->user()->id)->orderBy('created_at')->get()->groupBy('provider');
-
-        return response()->json(['providers' => collect($this->providers->all())->map(fn ($provider) => [
+        $present = fn (ConnectedProvider $provider) => [
             'provider' => $provider->name(),
             'label' => $provider->label(),
+            'category' => $provider->category() === 'tasks' ? 'tasks' : 'calendars',
+            'implemented' => true,
             'configured' => $provider->isConfigured(),
-            'redirect_uri' => config('services.'.($provider->name() === 'google' ? 'google_calendar' : 'microsoft_calendar').'.redirect'),
+            'status' => $provider->isConfigured() ? 'available' : 'needs_configuration',
+            'scopes' => $provider->scopeSummary(),
+            'env_keys' => $provider->envKeys(),
+            'redirect_uri' => $provider->redirectUri(),
             'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary())->values(),
-        ])->values()]);
+        ];
+
+        return response()->json([
+            'providers' => collect($this->providers->all())->map($present)->values(),
+            'categories' => $this->catalog->categories($present),
+            'ai_connected_data' => (bool) ($request->user()->preferences()['ai_connected_data'] ?? false),
+        ]);
     }
 
     public function connect(Request $request, string $provider): JsonResponse
@@ -72,6 +93,10 @@ class IntegrationController extends Controller
             return $back('error=exchange');
         }
         $account = CalendarAccount::firstOrNew(['user_id' => $request->user()->id, 'provider' => $provider, 'external_account_id' => $profile['id']]);
+        if (! $account->exists) {
+            // New connections start with only the primary calendar or list included; the user chooses the rest.
+            $account->collections = [];
+        }
         $account->fill([
             'email' => $profile['email'],
             'display_name' => $profile['name'],
@@ -107,6 +132,74 @@ class IntegrationController extends Controller
         return response()->json(['imported' => $imported, 'account' => $account->fresh()->summary()]);
     }
 
+    /**
+     * Choose which calendars or task lists of an account are imported. Excluded ones are removed on the next sync,
+     * which runs immediately.
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $account = CalendarAccount::where('user_id', $request->user()->id)->findOrFail($id);
+        $data = $request->validate(['included' => 'present|array|max:250', 'included.*' => 'string|max:512|distinct']);
+        $known = collect($account->collections ?? []);
+        if (collect($data['included'])->diff($known->pluck('id'))->isNotEmpty()) {
+            throw ValidationException::withMessages(['included' => ['Choose from the calendars or lists of this account.']]);
+        }
+        $account->collections = $known->map(fn (array $c) => ['included' => in_array($c['id'], $data['included'], true)] + $c)->values()->all();
+        $account->save();
+        $this->audit->log($request->user(), 'integration_collections_changed', $request, ['provider' => $account->provider, 'included' => count($data['included'])]);
+        try {
+            $imported = $account->status === 'revoked' ? 0 : $this->sync->sync($account);
+        } catch (ProviderException $e) {
+            return response()->json(['message' => $e->getMessage(), 'account' => $account->fresh()->summary()], 502);
+        }
+
+        return response()->json(['imported' => $imported, 'account' => $account->fresh()->summary()]);
+    }
+
+    /**
+     * Read-only tasks imported from connected apps that have not been copied into LifeOS yet.
+     */
+    public function tasks(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $copied = Task::where('user_id', $user->id)->whereNotNull('source_ref')->pluck('source_ref')->flip();
+        $tasks = ExternalTask::query()->join('calendar_accounts', 'calendar_accounts.id', '=', 'external_tasks.calendar_account_id')
+            ->where('external_tasks.user_id', $user->id)->where('calendar_accounts.status', '!=', 'revoked')
+            ->orderByRaw('external_tasks.due_at IS NULL, external_tasks.due_at ASC')->limit(300)
+            ->get(['external_tasks.*', 'calendar_accounts.provider', 'calendar_accounts.email as account_email'])
+            ->reject(fn (ExternalTask $t) => $copied->has($t->sourceRef($t->provider)))
+            ->map(fn (ExternalTask $t) => [
+                'id' => $t->id, 'provider' => $t->provider, 'source' => $this->providers->get($t->provider)?->label() ?? $t->provider, 'account' => $t->account_email,
+                'list' => $t->list_name, 'title' => $t->title, 'due_at' => $t->due_at?->toIso8601String(), 'due_is_date' => $t->due_is_date, 'priority' => $t->priority, 'url' => $t->url,
+            ])->values();
+
+        return response()->json($tasks);
+    }
+
+    /**
+     * Copy an imported task into LifeOS so it can be planned and completed here. The source is never changed, and
+     * copying twice returns the existing LifeOS task instead of creating a duplicate.
+     */
+    public function copyTask(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $external = ExternalTask::where('user_id', $user->id)->with('account')->findOrFail($id);
+        $ref = $external->sourceRef($external->account->provider);
+        $existing = Task::where('user_id', $user->id)->where('source_ref', $ref)->first();
+        if ($existing) {
+            return response()->json($existing);
+        }
+        $label = $this->providers->get($external->account->provider)?->label() ?? $external->account->provider;
+        $task = Task::create([
+            'user_id' => $user->id, 'title' => mb_substr($external->title, 0, 200), 'status' => 'todo', 'priority' => $external->priority ?? 'medium',
+            'estimated_minutes' => 30, 'due_at' => $external->due_at, 'source_ref' => $ref, 'tags' => [mb_strtolower(str_replace(' ', '-', $label))],
+            'notes' => $external->url ? "Copied from {$label}: {$external->url}" : "Copied from {$label}.",
+        ]);
+        $this->audit->log($user, 'connected_task_copied', $request, ['provider' => $external->account->provider]);
+
+        return response()->json($task, 201);
+    }
+
     public function destroy(Request $request, int $id): JsonResponse
     {
         $account = CalendarAccount::where('user_id', $request->user()->id)->findOrFail($id);
@@ -120,6 +213,6 @@ class IntegrationController extends Controller
         $account->delete();
         $this->audit->log($request->user(), 'integration_disconnected', $request, ['provider' => $provider]);
 
-        return response()->json(['message' => 'Disconnected. Imported events were removed.']);
+        return response()->json(['message' => 'Disconnected. Imported events and tasks were removed.']);
     }
 }

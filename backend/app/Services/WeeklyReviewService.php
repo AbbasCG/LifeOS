@@ -99,6 +99,7 @@ class WeeklyReviewService
             'focus_by_day' => collect($focusByDay)->map(fn (int $minutes, string $date) => ['date' => $date, 'minutes' => $minutes])->values(),
             'planned_vs_actual' => $plannedVsActual,
             'goals' => $goals,
+            'goal_health' => app(GoalIntelligence::class)->goals($user)->whereNotIn('status', ['completed'])->map(fn (array $g) => ['id' => $g['id'], 'title' => $g['title'], 'status' => $g['status'], 'percent' => $g['percent'], 'reasons' => $g['reasons'], 'next_action' => $g['next_actions'][0] ?? null])->values(),
             'habits' => $habits,
             'achievements' => $this->achievements($metrics, $habits->all(), $plannedVsActual['totals']),
             'improvements' => $this->improvements($metrics, $habits->all(), $plannedVsActual['totals'], $unfinished->filter(fn (Task $t) => $t->due_at?->isPast())->count()),

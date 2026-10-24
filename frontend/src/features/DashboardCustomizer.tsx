@@ -11,6 +11,12 @@ export default function DashboardCustomizer({ layout, onClose, onSaved }: { layo
   const [order, setOrder] = useState<WidgetId[]>(layout.order), [hidden, setHidden] = useState<WidgetId[]>(layout.hidden), [busy, setBusy] = useState(false), [dragging, setDragging] = useState<WidgetId | null>(null)
   const list = useRef<HTMLOListElement>(null)
   const names: Record<WidgetId, [string, string]> = {
+    today: [t('Briefing & evening summary', 'الإحاطة وملخص المساء'), t('What matters today, and how it went.', 'ما يهم اليوم، وكيف سار.')],
+    progress: [t('Today’s progress', 'تقدم اليوم'), t('Tasks, focus and habits at a glance.', 'المهام والتركيز والعادات بنظرة.')],
+    focus_time: [t('Available focus time', 'وقت التركيز المتاح'), t('Free slots left today.', 'الفترات المتاحة المتبقية اليوم.')],
+    checkin: [t('Daily check-in', 'التسجيل اليومي'), t('Energy, mood and workload.', 'الطاقة والمزاج وعبء العمل.')],
+    deadlines: [t('Upcoming deadlines', 'المواعيد القادمة'), t('Tasks, projects and goals due soon.', 'المهام والمشاريع والأهداف المستحقة قريباً.')],
+    actions: [t('Quick actions', 'إجراءات سريعة'), t('One tap to capture, focus or plan.', 'نقرة واحدة للإضافة أو التركيز أو التخطيط.')],
     suggestions: [t('Smart suggestions', 'اقتراحات ذكية'), t('Actionable nudges based on your day.', 'تنبيهات عملية حسب يومك.')],
     stats: [t('Today at a glance', 'اليوم بنظرة'), t('Completed, focus, overdue and day load.', 'المنجز والتركيز والمتأخر وحمل اليوم.')],
     next_moves: [t('Your next moves', 'خطواتك التالية'), t('Top tasks ranked with reasons.', 'أهم المهام مرتبة مع الأسباب.')],
