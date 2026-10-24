@@ -1,118 +1,199 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { ChevronLeft, ChevronRight, Plus, GripVertical } from 'lucide-react'
-import { api, type RecordItem } from '../lib/api'
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { ChevronLeft, ChevronRight, Plus, GripVertical, Lock, AlertTriangle, MousePointerClick, X, Eye, EyeOff } from 'lucide-react'
+import { api, type Availability, type RecordItem } from '../lib/api'
 import { useRecords, localDate } from '../lib/hooks'
+import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useToast } from '../lib/toast'
+import { minutesLabel } from '../lib/dates'
 import { RecordForm, useStatusLabel } from './ResourcePage'
-import { Empty, ErrorMessage, Dialog } from '../components/ui/Shared'
-import { layoutLanes } from '../lib/calendar'
+import { Empty, ErrorMessage } from '../components/ui/Shared'
+import { atMinutes, findConflict, layoutLanes, minutesInto, movePreview, overlappingIds, resizePreview, snap } from '../lib/calendar'
 
 const HOUR = 52
-const SNAP = 15
-function minutesFromPointer(e: DragEvent<HTMLElement> | React.MouseEvent<HTMLElement>, offset = 0) {
-  const rect = e.currentTarget.getBoundingClientRect()
-  const minutes = (e.clientY - rect.top - offset) / HOUR * 60
-  return Math.max(0, Math.min(24 * 60 - SNAP, Math.round(minutes / SNAP) * SNAP))
-}
+type Drag = { item: RecordItem; mode: 'move' | 'resize'; locked: boolean; pointerId: number; startX: number; startY: number; origStart: Date; origEnd: Date; origDay: Date; moved: boolean }
+type Preview = { id: number; start: Date; end: Date; dayIndex: number; conflict?: RecordItem }
 
 export default function CalendarPage() {
-  const t = useText(), { language } = useLanguage(), label = useStatusLabel()
+  const t = useText(), { language } = useLanguage(), ar = language === 'ar', label = useStatusLabel(), toast = useToast()
   const [date, setDate] = useState(localDate()), [view, setView] = useState(() => window.innerWidth < 700 ? 'day' : 'week')
-  const [editing, setEditing] = useState<Partial<RecordItem> | null>(null), [moving, setMoving] = useState<{ item: RecordItem; start: Date; end: Date } | null>(null)
-  const [now, setNow] = useState(() => new Date()), [busy, setBusy] = useState(false)
-  const scroller = useRef<HTMLDivElement>(null), grab = useRef(0)
+  const [editing, setEditing] = useState<Partial<RecordItem> | null>(null)
+  const [now, setNow] = useState(() => new Date()), [busy, setBusy] = useState(false), [showFree, setShowFree] = useState(true)
+  const [preview, setPreview] = useState<Preview | null>(null), [placing, setPlacing] = useState<RecordItem | null>(null), [dropHint, setDropHint] = useState<{ dayIndex: number; minutes: number } | null>(null)
+  const scroller = useRef<HTMLDivElement>(null), columns = useRef<(HTMLDivElement | null)[]>([]), drag = useRef<Drag | null>(null), previewRef = useRef<Preview | null>(null), suppressClick = useRef(false)
   const start = new Date(`${date}T00:00`)
   if (view === 'month') start.setDate(1); else if (view === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
   const end = new Date(start); end.setDate(end.getDate() + (view === 'month' ? new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate() : view === 'day' ? 1 : 7))
   const data = useRecords('events', `per_page=100&from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`)
   const tasks = useRecords('tasks', 'per_page=50&due=open&sort=priority')
   const days = Array.from({ length: Math.round((end.getTime() - start.getTime()) / 86400000) }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return d })
+  const availability = useApi<Availability>(`/api/availability?date=${localDate(start)}&days=${days.length}`)
   const timed = view === 'day' || view === 'week'
   const scheduledTaskIds = new Set(data.items.map(e => e.task_id).filter(Boolean))
   const unscheduled = tasks.items.filter(task => !scheduledTaskIds.has(task.id))
+  const overlaps = overlappingIds(data.items)
 
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(id) }, [])
   useEffect(() => { if (timed && scroller.current) scroller.current.scrollTop = 7 * HOUR }, [timed])
 
   function shift(direction: number) { const d = new Date(`${date}T12:00`); if (view === 'month') d.setMonth(d.getMonth() + direction); else d.setDate(d.getDate() + direction * (view === 'day' ? 1 : 7)); setDate(localDate(d)) }
-  function at(day: Date, minutes: number) { const d = new Date(day); d.setHours(0, minutes, 0, 0); return d }
   function eventsOn(day: Date) { const next = new Date(day); next.setDate(next.getDate() + 1); return data.items.filter(i => new Date(i.starts_at!) < next && new Date(i.ends_at!) > day) }
-  async function save(fn: () => Promise<unknown>) { setBusy(true); try { await fn(); data.setError(''); await data.reload() } catch (e) { data.setError((e as Error).message) } finally { setBusy(false) } }
-  function dropOnDay(e: DragEvent<HTMLElement>, day: Date, minutes: number | null) {
-    e.preventDefault()
-    const payload = e.dataTransfer.getData('text/plain')
-    if (payload.startsWith('task:')) {
-      const task = tasks.items.find(i => i.id === Number(payload.slice(5)))
-      if (!task) return
-      const s = at(day, minutes ?? 9 * 60), length = Math.max(15, task.estimated_minutes || 30)
-      void save(() => api('/api/events', 'POST', { title: task.title, task_id: task.id, kind: 'flexible', starts_at: s.toISOString(), ends_at: new Date(s.getTime() + length * 60000).toISOString() }))
-      return
-    }
-    const item = data.items.find(i => i.id === Number(payload))
-    if (!item) return
-    const old = new Date(item.starts_at!), duration = new Date(item.ends_at!).getTime() - old.getTime()
-    const next = minutes === null ? (() => { const d = new Date(day); d.setHours(old.getHours(), old.getMinutes()); return d })() : at(day, minutes)
-    if (next.getTime() !== old.getTime()) setMoving({ item, start: next, end: new Date(next.getTime() + duration) })
+  function refresh() { void data.reload(); availability.reload() }
+  async function save(fn: () => Promise<unknown>, success?: string) {
+    setBusy(true)
+    try { await fn(); data.setError(''); if (success) toast(success); refresh(); return true } catch (e) { toast((e as Error).message, 'error'); refresh(); return false } finally { setBusy(false) }
   }
-  const time = (iso: string | Date) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = (value: string | Date) => new Date(value).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+
+  /** Persist a moved/resized block optimistically, with undo. */
+  async function commit(item: RecordItem, nextStart: Date, nextEnd: Date) {
+    const conflict = findConflict(data.items, item.id, nextStart, nextEnd)
+    if (conflict) { toast(t(`That time overlaps “${conflict.title}”. The block was not moved.`, `هذا الوقت يتداخل مع «${conflict.title}». لم يتم نقل الفترة.`), 'error'); return }
+    const before = { starts_at: item.starts_at!, ends_at: item.ends_at! }
+    data.setItems(data.items.map(i => i.id === item.id ? { ...i, starts_at: nextStart.toISOString(), ends_at: nextEnd.toISOString() } : i))
+    const ok = await save(() => api(`/api/events/${item.id}`, 'PATCH', { starts_at: nextStart.toISOString(), ends_at: nextEnd.toISOString() }))
+    if (ok) toast(t(`“${item.title}” now ${time(nextStart)} – ${time(nextEnd)}.`, `«${item.title}» الآن ${time(nextStart)} – ${time(nextEnd)}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void save(() => api(`/api/events/${item.id}`, 'PATCH', before), t('Change undone.', 'تم التراجع عن التغيير.')) })
+  }
+
+  function dayIndexAt(clientX: number, fallback: number) {
+    const index = columns.current.findIndex(col => { if (!col) return false; const r = col.getBoundingClientRect(); return clientX >= r.left && clientX <= r.right })
+    return index >= 0 ? index : fallback
+  }
+  function beginDrag(e: ReactPointerEvent<HTMLElement>, item: RecordItem, mode: Drag['mode'], dayIndex: number) {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { item, mode, locked: item.kind === 'fixed', pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origStart: new Date(item.starts_at!), origEnd: new Date(item.ends_at!), origDay: days[dayIndex], moved: false }
+  }
+  function moveDrag(e: ReactPointerEvent<HTMLElement>) {
+    const d = drag.current
+    if (!d || e.pointerId !== d.pointerId) return
+    const dy = e.clientY - d.startY
+    if (!d.moved && Math.hypot(e.clientX - d.startX, dy) < 5) return
+    d.moved = true
+    if (d.locked) { drag.current = null; toast(t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.'), 'info'); return }
+    const delta = dy / HOUR * 60
+    const origIndex = days.findIndex(day => localDate(day) === localDate(d.origDay))
+    const dayIndex = d.mode === 'move' ? dayIndexAt(e.clientX, origIndex) : origIndex
+    const next = d.mode === 'move' ? movePreview(d.origStart, d.origEnd, d.origDay, days[dayIndex], delta) : resizePreview(d.origStart, d.origEnd, d.origDay, delta)
+    const p = { id: d.item.id, ...next, dayIndex, conflict: findConflict(data.items, d.item.id, next.start, next.end) }
+    previewRef.current = p
+    setPreview(p)
+  }
+  function endDrag(e: ReactPointerEvent<HTMLElement>) {
+    const d = drag.current, p = previewRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    drag.current = null; previewRef.current = null; setPreview(null)
+    if (!d.moved) return
+    suppressClick.current = true
+    setTimeout(() => { suppressClick.current = false }, 0)
+    if (!p) return
+    if (p.start.getTime() === d.origStart.getTime() && p.end.getTime() === d.origEnd.getTime()) return
+    void commit(d.item, p.start, p.end)
+  }
+  function cancelDrag() { drag.current = null; previewRef.current = null; setPreview(null) }
+  function onEventKey(e: KeyboardEvent<HTMLElement>, item: RecordItem, day: Date) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(item); return }
+    if (!e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return
+    e.preventDefault()
+    if (item.kind === 'fixed') { toast(t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.'), 'info'); return }
+    const delta = e.key === 'ArrowUp' ? -15 : 15, s = new Date(item.starts_at!), en = new Date(item.ends_at!)
+    const next = e.shiftKey ? resizePreview(s, en, day, delta) : movePreview(s, en, day, day, delta)
+    void commit(item, next.start, next.end)
+  }
+  function createTaskBlock(task: RecordItem, s: Date) {
+    const length = Math.max(15, task.estimated_minutes || 30), e = new Date(s.getTime() + length * 60000)
+    const conflict = findConflict(data.items, undefined, s, e)
+    if (conflict) { toast(t(`That time overlaps “${conflict.title}”. Pick a free slot.`, `هذا الوقت يتداخل مع «${conflict.title}». اختر وقتاً متاحاً.`), 'error'); return }
+    setPlacing(null)
+    void save(() => api('/api/events', 'POST', { title: task.title, task_id: task.id, kind: 'flexible', starts_at: s.toISOString(), ends_at: e.toISOString() }), t(`Time blocked for “${task.title}”.`, `حُجز وقت لـ«${task.title}».`))
+  }
+  function pointerMinutes(e: { clientY: number; currentTarget: HTMLElement }) { return snap((e.clientY - e.currentTarget.getBoundingClientRect().top) / HOUR * 60) }
+  function dropOnDay(e: DragEvent<HTMLElement>, day: Date, minutes: number | null) {
+    e.preventDefault(); setDropHint(null)
+    const payload = e.dataTransfer.getData('text/plain')
+    if (!payload.startsWith('task:')) return
+    const task = tasks.items.find(i => i.id === Number(payload.slice(5)))
+    if (task) createTaskBlock(task, atMinutes(day, Math.max(0, Math.min(23 * 60 + 45, minutes ?? 9 * 60))))
+  }
+  function slotClick(day: Date, hour: number) {
+    const s = atMinutes(day, hour * 60)
+    if (placing) { createTaskBlock(placing, s); return }
+    setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString(), kind: 'flexible' })
+  }
+  const freeFor = (day: Date) => availability.data?.days.find(d => d.date === localDate(day))
 
   return <section className="page calendar-page">
-    <header className="page-heading reveal"><div><p className="eyebrow">{t('Calendar', 'التقويم')}</p><h1>{t('Make space for your day', 'امنح يومك مساحة')}</h1><p className="muted">{t('Drag tasks onto the grid to block time. Drag flexible blocks to move them. Times use this device’s timezone.', 'اسحب المهام إلى الجدول لحجز وقت لها، واسحب الفترات المرنة لنقلها. الأوقات حسب المنطقة الزمنية للجهاز.')}</p></div><button className="primary" onClick={() => { const s = new Date(); s.setMinutes(0, 0, 0); s.setHours(s.getHours() + 1); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}><Plus size={18} />{t('New event', 'موعد جديد')}</button></header>
+    <header className="page-heading reveal"><div><p className="eyebrow">{t('Calendar', 'التقويم')}</p><h1>{t('Make space for your day', 'امنح يومك مساحة')}</h1><p className="muted">{t('Drag flexible blocks to move them, pull the bottom edge to resize, and drop tasks into free time. Fixed commitments stay put.', 'اسحب الفترات المرنة لنقلها، واسحب حافتها السفلية لتغيير مدتها، وأفلت المهام في الوقت المتاح. الالتزامات الثابتة تبقى في مكانها.')}</p></div><button className="primary" onClick={() => { const s = new Date(); s.setMinutes(0, 0, 0); s.setHours(s.getHours() + 1); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}><Plus size={18} />{t('New event', 'موعد جديد')}</button></header>
     <div className="toolbar calendar-toolbar">
       <button className="icon-button" aria-label={t('Previous', 'السابق')} onClick={() => shift(-1)}><ChevronLeft className="flip-rtl" /></button>
       <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)} aria-label={t('Date', 'التاريخ')} />
       <button className="icon-button" aria-label={t('Next', 'التالي')} onClick={() => shift(1)}><ChevronRight className="flip-rtl" /></button>
       <button className="quiet" onClick={() => setDate(localDate())}>{t('Today', 'اليوم')}</button>
       <strong className="calendar-range">{start.toLocaleDateString(language, { month: 'long', year: 'numeric' })}</strong>
+      <button className="quiet" aria-pressed={showFree} onClick={() => setShowFree(v => !v)}>{showFree ? <EyeOff size={16} /> : <Eye size={16} />}{showFree ? t('Hide free time', 'إخفاء الوقت المتاح') : t('Show free time', 'إظهار الوقت المتاح')}</button>
       <div className="segmented" role="radiogroup" aria-label={t('Calendar view', 'عرض التقويم')}>{[['day', t('Day', 'يوم')], ['week', t('Week', 'أسبوع')], ['month', t('Month', 'شهر')], ['agenda', t('Agenda', 'جدول')]].map(([key, name]) => <button key={key} role="radio" aria-checked={view === key} className={view === key ? 'active' : ''} onClick={() => setView(key)}>{name}</button>)}</div>
     </div>
     <ErrorMessage error={data.error || tasks.error} />
+    {overlaps.size > 0 && <p className="banner warning" role="status"><AlertTriangle size={18} />{t(`${overlaps.size} events in this view overlap. Overlapping blocks are outlined in red.`, `${overlaps.size} مواعيد في هذا العرض متداخلة. الفترات المتداخلة محددة باللون الأحمر.`)}</p>}
+    {placing && <div className="banner placing" role="status"><MousePointerClick size={18} /><p>{t(`Tap a time slot to schedule “${placing.title}” (${placing.estimated_minutes} min).`, `اضغط على وقت لجدولة «${placing.title}» (${placing.estimated_minutes} د).`)}</p><button className="icon-button" aria-label={t('Cancel placing', 'إلغاء الجدولة')} onClick={() => setPlacing(null)}><X size={16} /></button></div>}
     <div className={`calendar-layout ${timed ? 'with-tray' : ''}`}>
-      {timed ? <div className={`time-grid ${view}`} style={{ ['--days' as string]: days.length }}>
-        <div className="time-grid-head"><span />{days.map(day => <div key={localDate(day)} className={localDate(day) === localDate(now) ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong></div>)}</div>
+      {timed ? <div className={`time-grid ${view} ${preview ? 'dragging' : ''} ${placing ? 'placing' : ''}`} style={{ ['--days' as string]: days.length }}>
+        <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === localDate(now) ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
         <div className="time-grid-body" ref={scroller}>
           <div className="time-gutter">{Array.from({ length: 24 }, (_, h) => <span key={h} style={{ top: h * HOUR }}>{h ? time(new Date(2026, 0, 1, h)) : ''}</span>)}</div>
-          {days.map(day => {
-            const isToday = localDate(day) === localDate(now)
-            return <div key={localDate(day)} className={`time-column ${isToday ? 'today' : ''}`} style={{ height: 24 * HOUR }}
-              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-              onDrop={e => dropOnDay(e, day, minutesFromPointer(e, grab.current))}
-              onDoubleClick={e => { if (e.target !== e.currentTarget) return; const s = at(day, Math.floor(minutesFromPointer(e) / 30) * 30); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>
-              {Array.from({ length: 24 }, (_, h) => <button key={h} className="slot" style={{ top: h * HOUR, height: HOUR }} aria-label={t(`Add event at ${h}:00`, `إضافة موعد الساعة ${h}:00`)} onClick={() => { const s = at(day, h * 60); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }} />)}
+          {days.map((day, dayIndex) => {
+            const isToday = localDate(day) === localDate(now), free = freeFor(day)
+            return <div key={localDate(day)} ref={el => { columns.current[dayIndex] = el }} className={`time-column ${isToday ? 'today' : ''}`} style={{ height: 24 * HOUR }}
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropHint({ dayIndex, minutes: pointerMinutes(e) }) }}
+              onDragLeave={() => setDropHint(null)}
+              onDrop={e => dropOnDay(e, day, pointerMinutes(e))}>
+              {showFree && free?.slots.map(slot => { const top = minutesInto(day, new Date(slot.starts_at)) / 60 * HOUR, height = slot.minutes / 60 * HOUR; return <div key={slot.starts_at} className="free-band" style={{ top, height }} aria-hidden="true">{height >= 26 && <span>{t(`Free ${minutesLabel(slot.minutes, false)}`, `متاح ${minutesLabel(slot.minutes, true)}`)}</span>}</div> })}
+              {Array.from({ length: 24 }, (_, h) => <button key={h} className="slot" style={{ top: h * HOUR, height: HOUR }} aria-label={placing ? t(`Schedule at ${h}:00`, `جدولة الساعة ${h}:00`) : t(`Add event at ${h}:00`, `إضافة موعد الساعة ${h}:00`)} onClick={() => slotClick(day, h)} />)}
+              {dropHint?.dayIndex === dayIndex && <div className="drop-hint" style={{ top: dropHint.minutes / 60 * HOUR }}><span>{time(atMinutes(day, dropHint.minutes))}</span></div>}
               {layoutLanes(eventsOn(day)).map(({ item, lane, lanes }) => {
-                const s = new Date(item.starts_at!), e = new Date(item.ends_at!)
+                const s = new Date(item.starts_at!), en = new Date(item.ends_at!)
                 const dayStart = day.getTime(), dayEnd = dayStart + 86400000
                 const top = (Math.max(s.getTime(), dayStart) - dayStart) / 3600000 * HOUR
-                const height = Math.max(22, (Math.min(e.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
-                return <article key={item.id} className={`grid-event kind-${item.kind} ${height < 44 ? 'compact' : ''}`} style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
-                  draggable={item.kind === 'flexible'} onDragStart={ev => { ev.dataTransfer.setData('text/plain', String(item.id)); grab.current = ev.clientY - ev.currentTarget.getBoundingClientRect().top }} onDragEnd={() => { grab.current = 0 }}>
-                  <button className="text-button" onClick={() => setEditing(item)}><strong>{item.title}</strong><small>{time(s)} – {time(e)}</small></button>
+                const height = Math.max(22, (Math.min(en.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
+                const flexible = item.kind !== 'fixed', active = preview?.id === item.id
+                return <article key={item.id} role="button" tabIndex={0} aria-label={`${item.title}, ${time(s)} – ${time(en)}${flexible ? '' : `, ${t('fixed', 'ثابت')}`}`} aria-describedby="calendar-keyboard-help"
+                  className={`grid-event kind-${item.kind} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
+                  style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
+                  onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
+                  onClick={() => { if (!suppressClick.current) setEditing(item) }} onKeyDown={e => onEventKey(e, item, day)}>
+                  {flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : <Lock size={11} className="lock" aria-hidden="true" />}
+                  <strong>{item.title}</strong><small>{time(s)} – {time(en)}</small>
+                  {flexible && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
                 </article>
               })}
+              {preview && preview.dayIndex === dayIndex && <div className={`drag-ghost ${preview.conflict ? 'bad' : ''}`} style={{ top: minutesInto(day, preview.start) / 60 * HOUR, height: Math.max(22, (preview.end.getTime() - preview.start.getTime()) / 3600000 * HOUR - 2) }} aria-live="polite">
+                <strong>{time(preview.start)} – {time(preview.end)}</strong><small>{preview.conflict ? t(`Overlaps “${preview.conflict.title}”`, `يتداخل مع «${preview.conflict.title}»`) : minutesLabel(Math.round((preview.end.getTime() - preview.start.getTime()) / 60000), ar)}</small>
+              </div>}
               {isToday && <div className="now-line" style={{ top: (now.getHours() * 60 + now.getMinutes()) / 60 * HOUR }} aria-hidden="true" />}
             </div>
           })}
         </div>
+        <p id="calendar-keyboard-help" className="sr-only">{t('Press Enter to edit. Alt plus arrow keys move a flexible block by 15 minutes; add Shift to change its length.', 'اضغط Enter للتعديل. Alt مع الأسهم ينقل الفترة المرنة ١٥ دقيقة، ومع Shift يغيّر مدتها.')}</p>
       </div> : data.loading ? <Empty>{t('Loading…', 'جارٍ التحميل…')}</Empty> : <div className={`calendar-grid ${view}`}>{days.map(day => {
-        const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!))
+        const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day)
         if (view === 'agenda' && !events.length) return null
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === localDate(now) ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
-          <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong><button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
-          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind}`} draggable={item.kind === 'flexible'} onDragStart={e => e.dataTransfer.setData('text/plain', String(item.id))}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)} – {time(item.ends_at!)}</small><strong>{item.title}</strong><small>{item.kind === 'fixed' ? t('Fixed', 'ثابت') : t('Flexible', 'مرن')}</small></button><button className="quiet" onClick={() => setMoving({ item, start: new Date(item.starts_at!), end: new Date(new Date(item.ends_at!).getTime() + 15 * 60000) })}>{t('+15 min', '+١٥ دقيقة')}</button></article>)}
+          <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
+          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)} – {time(item.ends_at!)}</small><strong>{item.title}</strong><small>{item.kind === 'fixed' ? <><Lock size={10} /> {t('Fixed', 'ثابت')}</> : t('Flexible', 'مرن')}</small></button>{item.kind !== 'fixed' && <button className="quiet" disabled={busy} onClick={() => void commit(item, new Date(item.starts_at!), new Date(new Date(item.ends_at!).getTime() + 15 * 60000))}>{t('+15 min', '+١٥ دقيقة')}</button>}</article>)}
           {events.length === 0 && <p className="free-slot">{t('Open time', 'وقت متاح')}</p>}
         </section>
       })}{view === 'agenda' && data.items.length === 0 && <Empty>{t('Nothing scheduled in this period.', 'لا شيء مجدول في هذه الفترة.')}</Empty>}</div>}
       {timed && <aside className="panel task-tray" aria-label={t('Unscheduled tasks', 'مهام غير مجدولة')}>
         <h2>{t('Unscheduled', 'غير مجدولة')}</h2>
-        <p className="muted">{t('Drag a task onto the calendar to reserve time for it.', 'اسحب مهمة إلى التقويم لحجز وقت لها.')}</p>
-        {!unscheduled.length ? <p className="muted empty-small">{t('Everything open has a time. Nice.', 'كل المهام المفتوحة لها وقت. رائع.')}</p> : <ul>{unscheduled.slice(0, 20).map(task => <li key={task.id} draggable className={`tray-task priority-edge-${task.priority}`} onDragStart={e => { e.dataTransfer.setData('text/plain', `task:${task.id}`); e.dataTransfer.effectAllowed = 'copyMove'; grab.current = 0 }}>
+        <p className="muted">{t('Drag a task onto the calendar, or tap “Place” and then a time slot.', 'اسحب مهمة إلى التقويم، أو اضغط «جدولة» ثم اختر وقتاً.')}</p>
+        {!unscheduled.length ? <p className="muted empty-small">{t('Everything open has a time. Nice.', 'كل المهام المفتوحة لها وقت. رائع.')}</p> : <ul>{unscheduled.slice(0, 20).map(task => <li key={task.id} draggable className={`tray-task priority-edge-${task.priority} ${placing?.id === task.id ? 'selected' : ''}`} onDragStart={e => { e.dataTransfer.setData('text/plain', `task:${task.id}`); e.dataTransfer.effectAllowed = 'copyMove' }} onDragEnd={() => setDropHint(null)}>
           <GripVertical size={14} aria-hidden="true" /><span><strong>{task.title}</strong><small className="muted">{label(task.priority || 'medium')} · {task.estimated_minutes} {t('min', 'د')}</small></span>
-          <button className="icon-button" disabled={busy} aria-label={t(`Schedule “${task.title}” in the next free hour`, `جدولة «${task.title}» في الساعة المتاحة التالية`)} onClick={() => { const s = new Date(); s.setMinutes(s.getMinutes() < 30 ? 30 : 60, 0, 0); void save(() => api('/api/events', 'POST', { title: task.title, task_id: task.id, kind: 'flexible', starts_at: s.toISOString(), ends_at: new Date(s.getTime() + Math.max(15, task.estimated_minutes || 30) * 60000).toISOString() })) }}><Plus size={15} /></button>
+          <button className="chip-button small" aria-pressed={placing?.id === task.id} onClick={() => setPlacing(placing?.id === task.id ? null : task)}>{placing?.id === task.id ? t('Cancel', 'إلغاء') : t('Place', 'جدولة')}</button>
         </li>)}</ul>}
       </aside>}
     </div>
-    {editing && <RecordForm resource="events" item={editing} onSave={() => void data.reload()} onClose={() => setEditing(null)} />}
-    {moving && <Dialog title={t('Confirm schedule change', 'تأكيد تغيير الجدول')} onClose={() => setMoving(null)}><p><strong>{moving.item.title}</strong></p><p className="muted">{moving.start.toLocaleDateString(language, { weekday: 'long', month: 'short', day: 'numeric' })} · {time(moving.start)} – {time(moving.end)}</p><div className="toolbar"><button className="quiet" onClick={() => setMoving(null)}>{t('Cancel', 'إلغاء')}</button><button className="primary" disabled={busy} onClick={() => { const m = moving; setMoving(null); void save(() => api(`/api/events/${m.item.id}`, 'PATCH', { starts_at: m.start.toISOString(), ends_at: m.end.toISOString() })) }}>{t('Save change', 'حفظ التغيير')}</button></div></Dialog>}
+    {editing && <RecordForm resource="events" item={editing} onSave={refresh} onClose={() => setEditing(null)} />}
   </section>
 }

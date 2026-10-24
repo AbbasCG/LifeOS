@@ -19,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
 )
 import './styles/workspace.css'
 import './styles/premium.css'
+import './styles/experience.css'
 import '@fontsource/inter/400.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
