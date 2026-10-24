@@ -1,0 +1,44 @@
+
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Dependencies
+**/node_modules/
+**/vendor/
+
+# Build output
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+
+# Laravel generated files
+backend/bootstrap/cache/*.php
+backend/storage/logs/*
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/public/storage
+backend/public/hot
+
+!backend/storage/logs/.gitignore
+!backend/storage/framework/**/.gitignore
+
+# Local files
+*.sqlite
+*.sqlite3
+*.db
+*.log
+*.bak
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
