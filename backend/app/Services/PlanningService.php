@@ -88,7 +88,7 @@ class PlanningService
             $occupied = CalendarEvent::where('user_id', $user->id)->get();
             foreach ($proposal->items as $item) {
                 $task = Task::where('user_id', $user->id)->find($item['task_id']);
-                if ($task && !isset($validated[$task->id])) {
+                if ($task && ! isset($validated[$task->id])) {
                     $total = collect($proposal->items)->where('task_id', $task->id)->sum(fn ($part) => CarbonImmutable::parse($part['starts_at'])->diffInMinutes(CarbonImmutable::parse($part['ends_at'])));
                     if (abs($total - $task->estimated_minutes) > 0.01 || (isset($item['task_version']) && $item['task_version'] !== $task->updated_at->toISOString())) {
                         throw ValidationException::withMessages(['proposal' => ['A task changed after this proposal. Generate a fresh plan.']]);
@@ -99,7 +99,7 @@ class PlanningService
                 $end = CarbonImmutable::parse($item['ends_at']);
                 $localStart = $start->setTimezone($prefs['timezone'] ?? 'UTC');
                 $localEnd = $end->setTimezone($prefs['timezone'] ?? 'UTC');
-                if (!in_array($localStart->dayOfWeek, $prefs['work_days'] ?? [1,2,3,4,5]) || $localStart->toDateString() !== $localEnd->toDateString() || $localStart->format('H:i') < ($prefs['work_start'] ?? '09:00') || $localEnd->format('H:i') > ($prefs['work_end'] ?? '17:00') || $end <= $start) {
+                if (! in_array($localStart->dayOfWeek, $prefs['work_days'] ?? [1, 2, 3, 4, 5]) || $localStart->toDateString() !== $localEnd->toDateString() || $localStart->format('H:i') < ($prefs['work_start'] ?? '09:00') || $localEnd->format('H:i') > ($prefs['work_end'] ?? '17:00') || $end <= $start) {
                     throw ValidationException::withMessages(['proposal' => ['Availability changed. Generate a fresh proposal.']]);
                 }
                 if (! $task || in_array($task->status, ['completed', 'cancelled']) || $start->isPast() || ($task->due_at && $end > $task->due_at)) {
@@ -110,7 +110,7 @@ class PlanningService
                         throw ValidationException::withMessages(['proposal' => ['The calendar changed. Generate a new plan to avoid conflicts.']]);
                     }
                 }
-                $event = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $task->id, 'task_version' => $task->updated_at->toISOString(), 'title' => $task->title, 'starts_at' => $start->utc(), 'ends_at' => $end->utc(), 'kind' => 'flexible']);
+                $event = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $task->id, 'title' => $task->title, 'starts_at' => $start->utc(), 'ends_at' => $end->utc(), 'kind' => 'flexible']);
                 $occupied->push($event);
                 $task->update(['scheduled_start' => $task->scheduled_start ? min($task->scheduled_start, $start) : $start, 'scheduled_end' => $end]);
             }
@@ -120,6 +120,3 @@ class PlanningService
         });
     }
 }
-
-
-

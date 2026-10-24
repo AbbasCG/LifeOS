@@ -33,7 +33,7 @@ class FocusController extends Controller
                 Task::whereKey($session->task_id)->increment('actual_minutes', (int) floor($session->duration_seconds / 60));
             }
 
-return $session;
+            return $session;
         });
 
         return response()->json($session, 201);
@@ -70,7 +70,7 @@ return $session;
                 if ($s->task_id && $s->kind === 'focus') {
                     Task::whereKey($s->task_id)->increment('actual_minutes', (int) floor($s->elapsed_seconds / 60));
                 }
-                InboxNotification::firstOrCreate(['deduplication_key' => 'focus:'.$s->id], ['user_id' => $request->user()->id, 'title' => 'Focus session completed']);
+                InboxNotification::firstOrCreate(['deduplication_key' => 'focus:'.$s->id], ['user_id' => $request->user()->id, 'kind' => 'focus', 'link' => '/focus', 'title' => ($request->user()->preferences()['language'] ?? 'en') === 'ar' ? 'اكتملت جلسة التركيز' : 'Focus session completed']);
             }
             $s->save();
 
