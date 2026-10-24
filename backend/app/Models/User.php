@@ -29,4 +29,22 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    /**
+     * Stored workspace preferences, or an empty array when the user has not saved any.
+     *
+     * @return array<string, mixed>
+     */
+    public function preferences(): array
+    {
+        return UserSetting::where('user_id', $this->id)->first()?->preferences ?? [];
+    }
+
+    /**
+     * The planning timezone, defaulting to UTC.
+     */
+    public function timezone(): string
+    {
+        return $this->preferences()['timezone'] ?? 'UTC';
+    }
 }

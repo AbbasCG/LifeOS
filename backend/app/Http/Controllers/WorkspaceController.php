@@ -10,12 +10,12 @@ use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Habit;
 use App\Models\HabitEntry;
-use App\Models\InboxNotification;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\UserSetting;
 use App\Policies\OwnedResourcePolicy;
+use App\Services\HabitStreaks;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +46,8 @@ class WorkspaceController extends Controller
     {
         $query = $this->model($resource)::where('user_id', $request->user()->id);
         if ($request->filled('search')) {
-            $query->where('title', 'like', '%'.mb_substr($request->string('search'), 0, 200).'%');
+            $term = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower(mb_substr($request->string('search'), 0, 200))).'%';
+            $query->where(fn ($q) => $q->whereRaw("LOWER(title) LIKE ? ESCAPE '!'", [$term])->orWhereRaw("LOWER(COALESCE(description, '')) LIKE ? ESCAPE '!'", [$term]));
         }
         if ($resource === 'tasks') {
             if ($request->filled('status')) {
@@ -58,6 +59,22 @@ class WorkspaceController extends Controller
             if ($request->filled('project_id')) {
                 $query->where('project_id', $request->integer('project_id'));
             }
+            if ($request->filled('category_id')) {
+                $query->where('category_id', $request->integer('category_id'));
+            }
+            if ($request->filled('due')) {
+                $tz = $request->user()->timezone();
+                $dayStart = CarbonImmutable::now($tz)->startOfDay();
+                $open = fn ($q) => $q->whereNotIn('status', ['completed', 'cancelled']);
+                match ($request->string('due')->toString()) {
+                    'overdue' => $open($query)->where('due_at', '<', now()),
+                    'today' => $query->whereBetween('due_at', [$dayStart->utc(), $dayStart->addDay()->utc()]),
+                    'week' => $open($query)->whereBetween('due_at', [$dayStart->utc(), $dayStart->addDays(7)->utc()]),
+                    'none' => $query->whereNull('due_at'),
+                    'open' => $open($query),
+                    default => null,
+                };
+            }
         }
         if ($resource === 'events') {
             $request->validate(['from' => 'sometimes|date', 'to' => 'sometimes|date|after:from']);
@@ -67,12 +84,26 @@ class WorkspaceController extends Controller
                 $query->where('starts_at', '<', $request->date('to'));
             }
         }
-        $sort = in_array($request->input('sort'), ['title', 'created_at']) ? $request->input('sort') : 'created_at';
-        $page = $query->orderBy($sort, $sort === 'title' ? 'asc' : 'desc')->paginate(min(100, max(1, $request->integer('per_page', 50))));
+        $sort = $request->input('sort');
+        match (true) {
+            $sort === 'title' => $query->orderBy('title'),
+            $sort === 'updated_at' => $query->orderByDesc('updated_at'),
+            $sort === 'due_at' && in_array($resource, ['tasks', 'projects', 'goals']) => $query->orderByRaw('due_at IS NULL, due_at ASC'),
+            $sort === 'priority' && $resource === 'tasks' => $query->orderByRaw("CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")->orderByRaw('due_at IS NULL, due_at ASC'),
+            $resource === 'events' => $query->orderBy('starts_at'),
+            default => $query->orderByDesc('created_at'),
+        };
+        $page = $query->orderByDesc('id')->paginate(min(100, max(1, $request->integer('per_page', 50))));
         if ($resource === 'habits') {
             $ids = $page->pluck('id');
-            $entries = HabitEntry::whereIn('habit_id', $ids)->where('date', '>=', now()->subDays(365)->toDateString())->get()->groupBy('habit_id');
-            $page->getCollection()->each(fn ($h) => $h->setAttribute('entries', $entries->get($h->id, collect())));
+            $today = CarbonImmutable::now($request->user()->timezone())->startOfDay();
+            $entries = HabitEntry::whereIn('habit_id', $ids)->where('date', '>=', $today->subDays(400)->toDateString())->get()->groupBy('habit_id');
+            $streaks = app(HabitStreaks::class);
+            $page->getCollection()->each(function ($habit) use ($entries, $streaks, $today) {
+                $habitEntries = $entries->get($habit->id, collect());
+                $habit->setAttribute('entries', $habitEntries->map(fn ($entry) => ['date' => substr((string) $entry->date, 0, 10)])->values());
+                $habit->forceFill($streaks->calculate($habitEntries->map(fn ($entry) => substr((string) $entry->date, 0, 10)), $habit->recurrence, $today));
+            });
         }
 
         return WorkspaceResource::collection($page);
@@ -179,7 +210,7 @@ class WorkspaceController extends Controller
         $tasks = Task::where('user_id', $uid);
         $completed = (clone $tasks)->where('status', 'completed')->count();
         $total = (clone $tasks)->count();
-        $sessions = FocusSession::where('user_id', $uid)->where('status', 'completed')->where('kind', 'focus')->where('completed_at', '>=', $start)->get();
+        $sessions = FocusSession::where('user_id', $uid)->where('status', 'completed')->whereIn('kind', ['focus', 'manual'])->where('completed_at', '>=', $start)->get();
         $days = collect(range(0, 6))->map(function ($i) use ($today, $sessions) {
             $date = $today->subDays(6 - $i)->toDateString();
 
@@ -189,26 +220,14 @@ class WorkspaceController extends Controller
         return response()->json(['total_tasks' => $total, 'completed_tasks' => $completed, 'completion_rate' => $total ? round($completed / $total * 100) : 0, 'overdue_tasks' => (clone $tasks)->whereNotIn('status', ['completed', 'cancelled'])->where('due_at', '<', now())->count(), 'focus_minutes' => (int) floor($sessions->sum('elapsed_seconds') / 60), 'estimated_minutes' => (clone $tasks)->sum('estimated_minutes'), 'actual_minutes' => (clone $tasks)->sum('actual_minutes'), 'days' => $days, 'today' => $today->toDateString()]);
     }
 
-    public function notifications(Request $request): mixed
-    {
-        return InboxNotification::where('user_id', $request->user()->id)->latest()->paginate(50);
-    }
-
-    public function readNotification(Request $request, int $id): JsonResponse
-    {
-        InboxNotification::where('user_id', $request->user()->id)->findOrFail($id)->update(['read_at' => now()]);
-
-        return response()->json(['message' => 'Read.']);
-    }
-
     public function export(Request $request): JsonResponse
     {
         $data = ['profile' => $request->user()->only('name', 'email'), 'exported_at' => now()->toIso8601String()];
         foreach (self::MODELS as $key => $model) {
             $data[$key] = $model::where('user_id', $request->user()->id)->get()->makeHidden('user_id');
         } $data['settings'] = UserSetting::where('user_id', $request->user()->id)->first()?->preferences;
-        $data['focus_sessions'] = FocusSession::where('user_id',$request->user()->id)->get()->makeHidden('user_id');
-        $data['habit_entries'] = HabitEntry::whereIn('habit_id',Habit::where('user_id',$request->user()->id)->select('id'))->get();
+        $data['focus_sessions'] = FocusSession::where('user_id', $request->user()->id)->get()->makeHidden('user_id');
+        $data['habit_entries'] = HabitEntry::whereIn('habit_id', Habit::where('user_id', $request->user()->id)->select('id'))->get();
 
         return response()->json($data);
     }

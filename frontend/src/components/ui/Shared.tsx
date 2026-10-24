@@ -7,3 +7,7 @@ export function Dialog({ title, children, onClose }: { title: string; children: 
 }
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div> }
 export function ErrorMessage({ error }: { error: string }) { return error ? <p role="alert" className="error">{error}</p> : null }
+export function Skeleton({ lines, height }: { lines?: number; height?: number }) {
+ if (lines) return <div className="skeleton-lines" aria-hidden="true">{Array.from({ length: lines }, (_, i) => <div key={i} className="skeleton" style={{ height: 18, width: `${92 - i * 14}%` }} />)}</div>
+ return <div className="skeleton" aria-hidden="true" style={{ height: height || 80 }} />
+}

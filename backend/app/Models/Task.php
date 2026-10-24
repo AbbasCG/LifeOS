@@ -13,6 +13,6 @@ class Task extends Model
 
     protected function casts(): array
     {
-        return ['due_at' => 'immutable_datetime', 'scheduled_start' => 'immutable_datetime', 'scheduled_end' => 'immutable_datetime', 'completed_at' => 'immutable_datetime', 'subtasks' => 'array', 'tags' => 'array'];
+        return ['due_at' => 'immutable_datetime', 'remind_at' => 'immutable_datetime', 'scheduled_start' => 'immutable_datetime', 'scheduled_end' => 'immutable_datetime', 'completed_at' => 'immutable_datetime', 'subtasks' => 'array', 'tags' => 'array'];
     }
 }
