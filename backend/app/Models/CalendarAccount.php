@@ -15,13 +15,19 @@ class CalendarAccount extends Model
 
     protected function casts(): array
     {
-        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime'];
+        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime', 'collections' => 'array'];
     }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return HasMany<ExternalTask, $this> */
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(ExternalTask::class);
     }
 
     /** @return HasMany<ExternalEvent, $this> */
@@ -46,6 +52,8 @@ class CalendarAccount extends Model
             'last_synced_at' => $this->last_synced_at?->toIso8601String(),
             'last_error' => $this->last_error,
             'events_count' => $this->events_count,
+            'collections' => $this->collections ?? [],
+            'collections_managed' => $this->collections !== null,
             'connected_at' => $this->created_at?->toIso8601String(),
         ];
     }

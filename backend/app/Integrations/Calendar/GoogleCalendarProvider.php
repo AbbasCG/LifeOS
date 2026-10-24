@@ -5,7 +5,7 @@ namespace App\Integrations\Calendar;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 
-class GoogleCalendarProvider extends OAuthProvider
+class GoogleCalendarProvider extends OAuthProvider implements CalendarProvider
 {
     public const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar.readonly';
 
@@ -17,6 +17,21 @@ class GoogleCalendarProvider extends OAuthProvider
     public function label(): string
     {
         return 'Google Calendar';
+    }
+
+    public function category(): string
+    {
+        return 'calendar';
+    }
+
+    public function scopeSummary(): string
+    {
+        return 'Read-only access to your calendars and events (calendar.readonly), plus your name and email address.';
+    }
+
+    public function envKeys(): array
+    {
+        return ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'];
     }
 
     protected function configKey(): string
@@ -52,11 +67,33 @@ class GoogleCalendarProvider extends OAuthProvider
         return ['id' => (string) $profile['sub'], 'email' => $profile['email'] ?? null, 'name' => $profile['name'] ?? null];
     }
 
-    public function events(string $accessToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone): iterable
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function calendarList(string $accessToken): array
     {
-        $calendars = $this->send(fn () => $this->http($accessToken)->get('https://www.googleapis.com/calendar/v3/users/me/calendarList', ['minAccessRole' => 'reader', 'maxResults' => 250]))->json('items') ?? [];
-        foreach ($calendars as $calendar) {
-            if (($calendar['selected'] ?? true) === false || ($calendar['hidden'] ?? false)) {
+        return $this->send(fn () => $this->http($accessToken)->get('https://www.googleapis.com/calendar/v3/users/me/calendarList', ['minAccessRole' => 'reader', 'maxResults' => 250]))->json('items') ?? [];
+    }
+
+    public function collections(string $accessToken): array
+    {
+        $list = $this->calendarList($accessToken);
+        $hasPrimary = collect($list)->contains(fn (array $c) => ($c['primary'] ?? false) === true);
+
+        return array_values(array_map(fn (array $c, int $i) => [
+            'id' => (string) $c['id'],
+            'name' => mb_substr((string) ($c['summaryOverride'] ?? $c['summary'] ?? $c['id']), 0, 200),
+            'color' => $c['backgroundColor'] ?? null,
+            'primary' => ($c['primary'] ?? false) === true || (! $hasPrimary && $i === 0),
+            'default_included' => ($c['selected'] ?? true) !== false && ! ($c['hidden'] ?? false),
+        ], $list, array_keys($list)));
+    }
+
+    public function events(string $accessToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone, ?array $calendarIds = null): iterable
+    {
+        foreach ($this->calendarList($accessToken) as $calendar) {
+            $included = $calendarIds === null ? (($calendar['selected'] ?? true) !== false && ! ($calendar['hidden'] ?? false)) : in_array((string) $calendar['id'], $calendarIds, true);
+            if (! $included) {
                 continue;
             }
             $calendarZone = $calendar['timeZone'] ?? $userTimezone;

@@ -31,6 +31,7 @@ class PlanningService
         'due_today' => ['due within a day', 'مستحقة خلال يوم'],
         'due_soon' => ['due in the next few days', 'مستحقة خلال أيام'],
         'quick_win' => ['quick win', 'إنجاز سريع'],
+        'goal' => ['moves a goal that needs attention', 'تدفع هدفاً يحتاج اهتماماً'],
         'focus_window' => ['placed in your focus hours', 'في ساعات تركيزك'],
         'rescheduled' => ['rescheduled from a missed block', 'أُعيدت جدولتها بعد فترة فائتة'],
         'priority_pick' => ['chosen as a weekly priority', 'مختارة كأولوية أسبوعية'],
@@ -56,7 +57,34 @@ class PlanningService
             'focus_start' => $prefs['focus_start'] ?? null,
             'focus_end' => $prefs['focus_end'] ?? null,
             'daily_limit' => isset($prefs['daily_focus_limit']) ? (int) $prefs['daily_focus_limit'] : null,
+            'buffer' => (int) ($prefs['buffer_minutes'] ?? 10),
+            'study_start' => $prefs['study_start'] ?? null,
+            'study_end' => $prefs['study_end'] ?? null,
+            'personal_start' => $prefs['personal_start'] ?? null,
+            'personal_end' => $prefs['personal_end'] ?? null,
         ];
+    }
+
+    /**
+     * Time boundaries for one local day: work (on work days), plus optional study and personal windows.
+     *
+     * @param  array<string, mixed>  $c
+     * @return array<string, array{0: CarbonImmutable, 1: CarbonImmutable}>
+     */
+    public function windows(array $c, CarbonImmutable $localDay): array
+    {
+        $day = $localDay->setTimezone($c['tz'])->startOfDay();
+        $windows = [];
+        if (in_array($day->dayOfWeek, $c['work_days'], true)) {
+            $windows['work'] = [$day->setTimeFromTimeString($c['work_start']), $day->setTimeFromTimeString($c['work_end'])];
+        }
+        foreach (['study', 'personal'] as $area) {
+            if (($c["{$area}_start"] ?? null) && ($c["{$area}_end"] ?? null) && $c["{$area}_start"] < $c["{$area}_end"]) {
+                $windows[$area] = [$day->setTimeFromTimeString($c["{$area}_start"]), $day->setTimeFromTimeString($c["{$area}_end"])];
+            }
+        }
+
+        return $windows;
     }
 
     /**
@@ -78,8 +106,9 @@ class PlanningService
             ->limit(500)->get();
         $futureMinutes = $this->futureScheduledMinutes($user, $open->pluck('id'));
         $missed = $this->missedBlocks($user)->pluck('task_id')->unique()->flip();
-        $ranked = $open->map(function (Task $task) use ($now, $priorityTaskIds) {
-            $score = BriefingService::score($task, $now->setTimezone('UTC'));
+        $goalPressure = app(GoalIntelligence::class)->pressure($user);
+        $ranked = $open->map(function (Task $task) use ($now, $priorityTaskIds, $goalPressure) {
+            $score = BriefingService::score($task, $now->setTimezone('UTC'), $goalPressure);
             if (in_array($task->id, $priorityTaskIds, true)) {
                 $score['score'] += self::PRIORITY_BOOST;
                 $score['reasons'][] = 'priority_pick';
@@ -494,6 +523,8 @@ class PlanningService
                 }
                 $autoPlanned = $parts->where('manual', false)->sum(fn (array $part) => CarbonImmutable::parse($part['starts_at'])->diffInMinutes(CarbonImmutable::parse($part['ends_at'])));
                 $remaining = max(0, $task->estimated_minutes - $task->actual_minutes - ($future[$task->id] ?? 0));
+                // Day plans may stretch an estimate by the user's measured accuracy (capped at 1.5x).
+                $remaining *= min(1.5, max(1.0, (float) $parts->max(fn (array $part) => $part['estimate_factor'] ?? 1.0)));
                 $stale = $parts->contains(fn (array $part) => isset($part['task_version']) && $part['task_version'] !== $task->updated_at->toISOString());
                 if ($stale || $autoPlanned > $remaining + 0.01) {
                     throw ValidationException::withMessages(['proposal' => ['A task changed after this proposal. Generate a fresh plan.']]);
@@ -506,7 +537,8 @@ class PlanningService
                 $manual = (bool) ($item['manual'] ?? false);
                 $localStart = $start->setTimezone($c['tz']);
                 $localEnd = $end->setTimezone($c['tz']);
-                $outsideHours = ! in_array($localStart->dayOfWeek, $c['work_days'], true) || $localStart->toDateString() !== $localEnd->toDateString() || $localStart->format('H:i') < $c['work_start'] || $localEnd->format('H:i') > $c['work_end'];
+                $window = $this->windows($c, $localStart)[$item['area'] ?? 'work'] ?? null;
+                $outsideHours = ! $window || $localStart->toDateString() !== $localEnd->toDateString() || $localStart < $window[0] || $localEnd > $window[1];
                 if ($end <= $start || (! $manual && $outsideHours)) {
                     throw ValidationException::withMessages(['proposal' => ['Availability changed. Generate a fresh proposal.']]);
                 }

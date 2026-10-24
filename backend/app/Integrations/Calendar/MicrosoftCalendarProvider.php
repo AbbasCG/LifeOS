@@ -4,7 +4,7 @@ namespace App\Integrations\Calendar;
 
 use Carbon\CarbonImmutable;
 
-class MicrosoftCalendarProvider extends OAuthProvider
+class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvider
 {
     public const SCOPES = 'openid email profile offline_access User.Read Calendars.Read';
 
@@ -21,6 +21,31 @@ class MicrosoftCalendarProvider extends OAuthProvider
     protected function configKey(): string
     {
         return 'microsoft_calendar';
+    }
+
+    public function category(): string
+    {
+        return 'calendar';
+    }
+
+    public function scopeSummary(): string
+    {
+        return 'Read-only access to your calendars (Calendars.Read), your basic profile (User.Read) and offline access to keep syncing.';
+    }
+
+    public function envKeys(): array
+    {
+        return ['MICROSOFT_CLIENT_ID', 'MICROSOFT_CLIENT_SECRET', 'MICROSOFT_TENANT', 'MICROSOFT_REDIRECT_URI'];
+    }
+
+    public function collections(string $accessToken): array
+    {
+        $calendars = $this->send(fn () => $this->http($accessToken)->get('https://graph.microsoft.com/v1.0/me/calendars', ['$select' => 'id,name,hexColor,isDefaultCalendar', '$top' => 100]))->json('value') ?? [];
+
+        return array_values(array_map(fn (array $c) => [
+            'id' => (string) $c['id'], 'name' => mb_substr((string) ($c['name'] ?? 'Calendar'), 0, 200), 'color' => ($c['hexColor'] ?? '') ?: null,
+            'primary' => (bool) ($c['isDefaultCalendar'] ?? false), 'default_included' => (bool) ($c['isDefaultCalendar'] ?? false),
+        ], $calendars));
     }
 
     protected function tokenUrl(): string
@@ -50,14 +75,25 @@ class MicrosoftCalendarProvider extends OAuthProvider
         return ['id' => (string) $me['id'], 'email' => $me['mail'] ?? $me['userPrincipalName'] ?? null, 'name' => $me['displayName'] ?? null];
     }
 
-    public function events(string $accessToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone): iterable
+    public function events(string $accessToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone, ?array $calendarIds = null): iterable
     {
-        $url = 'https://graph.microsoft.com/v1.0/me/calendarView?'.http_build_query([
+        $query = http_build_query([
             'startDateTime' => $from->toIso8601ZuluString(),
             'endDateTime' => $to->toIso8601ZuluString(),
             '$top' => 500,
             '$select' => 'id,subject,start,end,isAllDay,showAs,isCancelled',
         ]);
+        // null: the default calendar only (behaviour before calendar selection); otherwise each chosen calendar.
+        foreach ($calendarIds === null ? [null] : $calendarIds as $calendarId) {
+            yield from $this->calendarView($accessToken, $calendarId === null ? "https://graph.microsoft.com/v1.0/me/calendarView?{$query}" : 'https://graph.microsoft.com/v1.0/me/calendars/'.rawurlencode($calendarId)."/calendarView?{$query}", $calendarId, $userTimezone);
+        }
+    }
+
+    /**
+     * @return iterable<array<string, mixed>>
+     */
+    private function calendarView(string $accessToken, string $url, ?string $calendarId, string $userTimezone): iterable
+    {
         while ($url) {
             $page = $this->send(fn () => $this->http($accessToken)->withHeaders(['Prefer' => 'outlook.timezone="UTC"'])->get($url))->json();
             foreach ($page['value'] ?? [] as $item) {
@@ -70,7 +106,7 @@ class MicrosoftCalendarProvider extends OAuthProvider
                 $end = $allDay ? CarbonImmutable::parse(substr($item['end']['dateTime'], 0, 10), $userTimezone) : CarbonImmutable::parse($item['end']['dateTime'], 'UTC');
                 yield [
                     'id' => (string) $item['id'],
-                    'calendar_id' => null,
+                    'calendar_id' => $calendarId,
                     'title' => mb_substr($item['subject'] ?? '(busy)', 0, 500),
                     'starts_at' => $start->utc(),
                     'ends_at' => $end->utc(),

@@ -203,7 +203,10 @@ class CalendarIntegrationTest extends TestCase
         Http::fake([
             'login.microsoftonline.com/*' => Http::response(['access_token' => 'm-access', 'refresh_token' => 'm-refresh', 'expires_in' => 3600]),
             'graph.microsoft.com/v1.0/me?*' => Http::response(['id' => 'ms-1', 'mail' => 'me@outlook.com', 'displayName' => 'Me']),
-            'graph.microsoft.com/v1.0/me/calendarView?*' => Http::response(['value' => [['id' => 'o1', 'subject' => 'Standup', 'start' => ['dateTime' => '2027-01-05T08:30:00.0000000'], 'end' => ['dateTime' => '2027-01-05T08:45:00.0000000'], 'showAs' => 'busy']], '@odata.nextLink' => 'https://graph.microsoft.com/v1.0/me/calendarView/page2']),
+            // Only the default calendar is included for a new connection; "Birthdays" stays excluded until chosen.
+            'graph.microsoft.com/v1.0/me/calendars?*' => Http::response(['value' => [['id' => 'cal-1', 'name' => 'Calendar', 'isDefaultCalendar' => true], ['id' => 'cal-2', 'name' => 'Birthdays', 'isDefaultCalendar' => false]]]),
+            'graph.microsoft.com/v1.0/me/calendars/cal-2/*' => Http::response(['value' => [['id' => 'b1', 'subject' => 'Birthday', 'start' => ['dateTime' => '2027-01-05T00:00:00'], 'end' => ['dateTime' => '2027-01-05T01:00:00'], 'showAs' => 'busy']]]),
+            'graph.microsoft.com/v1.0/me/calendars/cal-1/calendarView?*' => Http::response(['value' => [['id' => 'o1', 'subject' => 'Standup', 'start' => ['dateTime' => '2027-01-05T08:30:00.0000000'], 'end' => ['dateTime' => '2027-01-05T08:45:00.0000000'], 'showAs' => 'busy']], '@odata.nextLink' => 'https://graph.microsoft.com/v1.0/me/calendarView/page2']),
             'graph.microsoft.com/v1.0/me/calendarView/page2' => Http::response(['value' => [['id' => 'o2', 'subject' => 'Holiday', 'isAllDay' => true, 'start' => ['dateTime' => '2027-01-07T00:00:00.0000000'], 'end' => ['dateTime' => '2027-01-08T00:00:00.0000000'], 'showAs' => 'oof'], ['id' => 'o3', 'subject' => 'Free', 'showAs' => 'free', 'start' => ['dateTime' => '2027-01-05T10:00:00'], 'end' => ['dateTime' => '2027-01-05T11:00:00']]]]),
         ]);
         $url = $this->postJson('/api/integrations/outlook/connect')->json('authorization_url');
@@ -216,6 +219,8 @@ class CalendarIntegrationTest extends TestCase
         $this->assertSame('2027-01-05T08:30:00+00:00', ExternalEvent::where('external_id', 'o1')->first()->starts_at->toIso8601String());
         $this->assertSame('2027-01-06T23:00:00+00:00', ExternalEvent::where('external_id', 'o2')->first()->starts_at->toIso8601String());
         Http::assertSent(fn (HttpRequest $r) => str_contains($r->url(), 'calendarView') && $r->header('Prefer') === ['outlook.timezone="UTC"']);
+        Http::assertNotSent(fn (HttpRequest $r) => str_contains($r->url(), 'cal-2'));
+        $this->assertSame([true, false], array_column(CalendarAccount::firstOrFail()->collections, 'included'));
     }
 
     public function test_accounts_are_private_and_disconnect_removes_imported_events(): void

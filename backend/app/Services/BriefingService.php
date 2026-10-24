@@ -15,14 +15,16 @@ class BriefingService
 {
     public const PRIORITY_WEIGHTS = ['urgent' => 40, 'high' => 28, 'medium' => 16, 'low' => 6];
 
-    public function __construct(private HabitStreaks $streaks, private CalendarService $calendar) {}
+    public function __construct(private HabitStreaks $streaks, private CalendarService $calendar, private GoalIntelligence $goalIntelligence) {}
 
     /**
      * Rank an open task by urgency and importance. Reasons are stable keys the client translates.
+     * $goalPressure (goal_id => boost, from GoalIntelligence::pressure) lifts tasks that serve goals needing attention.
      *
+     * @param  array<int, int>  $goalPressure
      * @return array{score: int, reasons: list<string>}
      */
-    public static function score(Task $task, CarbonImmutable $now): array
+    public static function score(Task $task, CarbonImmutable $now, array $goalPressure = []): array
     {
         $score = self::PRIORITY_WEIGHTS[$task->priority] ?? 16;
         $reasons = in_array($task->priority, ['urgent', 'high']) ? [$task->priority] : [];
@@ -43,6 +45,10 @@ class BriefingService
                 $reasons[] = 'due_soon';
             }
         }
+        if ($task->goal_id && isset($goalPressure[$task->goal_id])) {
+            $score += $goalPressure[$task->goal_id];
+            $reasons[] = 'goal';
+        }
         if ($task->estimated_minutes <= 30) {
             $score += 3;
             $reasons[] = 'quick_win';
@@ -55,11 +61,12 @@ class BriefingService
      * Open tasks ordered by score, highest first.
      *
      * @param  Collection<int, Task>  $tasks
+     * @param  array<int, int>  $goalPressure
      * @return Collection<int, array{task: Task, score: int, reasons: list<string>}>
      */
-    public static function rank(Collection $tasks, CarbonImmutable $now): Collection
+    public static function rank(Collection $tasks, CarbonImmutable $now, array $goalPressure = []): Collection
     {
-        return $tasks->map(fn (Task $task) => ['task' => $task] + self::score($task, $now))
+        return $tasks->map(fn (Task $task) => ['task' => $task] + self::score($task, $now, $goalPressure))
             ->sortByDesc('score')
             ->values();
     }
@@ -77,7 +84,7 @@ class BriefingService
         $dayStart = $now->startOfDay();
         $dayEnd = $dayStart->addDay();
         $openTasks = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->limit(500)->get();
-        $ranked = self::rank($openTasks, $now);
+        $ranked = self::rank($openTasks, $now, $this->goalIntelligence->pressure($user));
         $events = $this->calendar->occurrences($user, $dayStart->utc(), $dayEnd->utc());
         $completedToday = Task::where('user_id', $user->id)->where('status', 'completed')->whereBetween('completed_at', [$dayStart->utc(), $dayEnd->utc()])->count();
         $focusMinutes = (int) floor(FocusSession::where('user_id', $user->id)->whereIn('kind', ['focus', 'manual'])->where('status', 'completed')->whereBetween('completed_at', [$dayStart->utc(), $dayEnd->utc()])->sum('elapsed_seconds') / 60);

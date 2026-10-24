@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ArrowUpRight, Check, CalendarDays, Timer, Sparkles, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck } from 'lucide-react'
+import { ArrowUpRight, Check, Timer, Sparkles, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck } from 'lucide-react'
 import { api, type Briefing, type PlannedVsActual, type Suggestion } from '../lib/api'
 import { FULL_WIDTH, normalizeLayout, type DashboardLayout, type WidgetId } from '../lib/dashboard'
 import { mondayOf } from '../lib/dates'
@@ -12,6 +12,11 @@ import { useReasonLabel } from '../lib/labels'
 import { useApi } from '../lib/useApi'
 import { localDate } from '../lib/hooks'
 import { Empty, ErrorMessage, Skeleton } from '../components/ui/Shared'
+import { CommandHero } from './today/CommandHero'
+import { HabitBurst } from './progress/Journey'
+import { DayDial } from './today/DayDial'
+import { BriefingWidget, CheckinWidget, DeadlinesWidget, FocusTimeWidget, ProgressWidget, QuickActionsWidget } from './today/TodayWidgets'
+import type { TodayData } from '../lib/api'
 
 export type Overview={total_tasks:number;completed_tasks:number;completion_rate:number;overdue_tasks:number;focus_minutes:number;estimated_minutes:number;actual_minutes:number;days:{date:string;minutes:number}[]}
 export function useOverview(){const [data,setData]=useState<Overview|null>(null),[error,setError]=useState('');async function reload(){try{setData(await api<Overview>('/api/overview'))}catch(e){setError((e as Error).message)}}useEffect(()=>{let active=true;api<Overview>('/api/overview').then(v=>{if(active)setData(v)}).catch(e=>{if(active)setError(e.message)});return()=>{active=false}},[]);return{data,error,reload}}
@@ -51,18 +56,23 @@ function ReviewWidget() {
 
 export default function Dashboard() {
   const t = useText(), auth = useAuth(), { language } = useLanguage(), reason = useReasonLabel()
-  const briefing = useApi<Briefing>('/api/briefing'), overview = useOverview()
-  const [error, setError] = useState(''), [busy, setBusy] = useState<number | null>(null), [customizing, setCustomizing] = useState(false)
+  const briefing = useApi<Briefing>('/api/briefing'), overview = useOverview(), today = useApi<TodayData>('/api/today')
+  const [error, setError] = useState(''), [busy, setBusy] = useState<number | null>(null), [burst, setBurst] = useState<number | null>(null), [customizing, setCustomizing] = useState(false)
   const settings = useApi<{ dashboard?: Partial<DashboardLayout> }>('/api/settings')
   const layout = normalizeLayout(settings.data?.dashboard)
   const data = briefing.data
   const greeting = data?.period === 'evening' ? t('Good evening', 'مساء الخير') : data?.period === 'afternoon' ? t('Good afternoon', 'نهارك سعيد') : t('Good morning', 'صباح الخير')
   async function act(id: number, fn: () => Promise<unknown>) {
     setBusy(id); setError('')
-    try { await fn(); briefing.reload(); await overview.reload() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
+    try { await fn(); briefing.reload(); today.reload(); await overview.reload() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
-  const [now] = useState(() => Date.now())
   const widgets: Record<WidgetId, ReactNode> = {
+    today: <BriefingWidget data={today.data} />,
+    progress: <ProgressWidget data={today.data} />,
+    focus_time: <FocusTimeWidget data={today.data} />,
+    checkin: <CheckinWidget data={today.data} onChange={() => { today.reload(); briefing.reload() }} />,
+    deadlines: <DeadlinesWidget data={today.data} />,
+    actions: <QuickActionsWidget />,
     suggestions: data && data.suggestions.length > 0 ? <div className="suggestions">{data.suggestions.map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div> : null,
     stats: <div className="stats-grid">
       {!data ? Array.from({ length: 4 }, (_, i) => <Skeleton key={i} height={112} />) : <>
@@ -81,19 +91,11 @@ export default function Dashboard() {
           <Link to={`/focus?task=${item.id}`} className="icon-button" aria-label={t('Focus on this task', 'ركّز على هذه المهمة')}><Play size={16} /></Link>
         </div>)}
       </section>,
-    agenda: <section className="panel reveal">
-        <header className="row"><h2>{t('Today, in perspective', 'نظرة على اليوم')}</h2><CalendarDays size={19} /></header>
-        {!data ? <Skeleton lines={3} /> : data.agenda.length === 0 ? <Empty>{t('Your calendar is open today.', 'تقويمك متاح اليوم.')}</Empty> : <ol className="agenda">{data.agenda.map(event => {
-          const start = new Date(event.starts_at).getTime(), end = new Date(event.ends_at).getTime()
-          const state = end < now ? 'past' : start <= now ? 'live' : ''
-          return <li className={`timeline-item ${state}`} key={event.id}><time>{new Date(event.starts_at).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })}</time><div className={`kind-${event.kind}`}><strong>{event.title}</strong><p className="muted">{state === 'live' ? t('Happening now', 'يحدث الآن') : event.kind === 'fixed' ? t('Fixed commitment', 'موعد ثابت') : t('Flexible time', 'وقت مرن')} · {Math.round((end - start) / 60000)} {t('min', 'د')}</p></div></li>
-        })}</ol>}
-        <Link className="quiet" to="/calendar">{t('Open calendar', 'فتح التقويم')}</Link>
-      </section>,
+    agenda: <DayDial data={today.data} />,
     habits: <section className="panel reveal">
         <header className="row"><h2>{t('Habits today', 'عادات اليوم')}</h2><Link to="/habits">{t('Manage', 'إدارة')}</Link></header>
-        {!data ? <Skeleton lines={2} /> : !data.habits.length ? <Empty>{t('Small routines create big change. Add your first habit.', 'الروتين الصغير يصنع تغييراً كبيراً. أضف أول عادة.')}</Empty> : <div className="habit-list">{data.habits.map(habit => <button key={habit.id} className={`habit-chip ${habit.done_today ? 'done' : ''} ${habit.at_risk ? 'risk' : ''}`} aria-pressed={habit.done_today} disabled={busy === -habit.id} onClick={() => void act(-habit.id, () => api(`/api/habits/${habit.id}/entry`, 'PUT', { date: localDate(), completed: !habit.done_today }))}>
-          <span className="habit-check">{habit.done_today && <Check size={14} />}</span><span className="habit-name">{habit.title}</span><span className="streak" title={t('Current streak', 'السلسلة الحالية')}><Flame size={14} />{habit.current_streak}</span>
+        {!data ? <Skeleton lines={2} /> : !data.habits.length ? <Empty>{t('Small routines create big change. Add your first habit.', 'الروتين الصغير يصنع تغييراً كبيراً. أضف أول عادة.')}</Empty> : <div className="habit-list">{data.habits.map(habit => <button key={habit.id} className={`habit-chip ${habit.done_today ? 'done' : ''} ${habit.at_risk ? 'risk' : ''}`} aria-pressed={habit.done_today} disabled={busy === -habit.id} onClick={() => void act(-habit.id, async () => { await api(`/api/habits/${habit.id}/entry`, 'PUT', { date: localDate(), completed: !habit.done_today }); if (!habit.done_today) { setBurst(habit.id); window.setTimeout(() => setBurst(b => b === habit.id ? null : b), 700) } })}>
+          {burst === habit.id && <HabitBurst />}<span className="habit-check">{habit.done_today && <Check size={14} />}</span><span className="habit-name">{habit.title}</span><span className="streak" title={t('Current streak', 'السلسلة الحالية')}><Flame size={14} />{habit.current_streak}</span>
         </button>)}</div>}
       </section>,
     goals: <section className="panel reveal">
@@ -106,19 +108,15 @@ export default function Dashboard() {
     review: <ReviewWidget />,
   }
   return <section className="page dashboard">
-    <header className="daily-header reveal">
-      <div>
-        <p className="eyebrow">{new Date().toLocaleDateString(language, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-        <h1>{greeting}{t(', ','، ')}{auth.user?.name.split(' ')[0]}<span className="accent-dot">.</span></h1>
-        <p className="muted">{data ? t(`${data.focus.length} priorities · ${data.agenda.length} on your calendar · ${data.stats.focus_minutes_today} focus minutes today`, `${data.focus.length} أولويات · ${data.agenda.length} في تقويمك · ${data.stats.focus_minutes_today} دقيقة تركيز اليوم`) : t('A clear view of what matters today.', 'نظرة واضحة على ما يهمك اليوم.')}</p>
-      </div>
-      <div className="toolbar">
+    <CommandHero today={today.data}
+      greeting={<>{greeting}{t(', ', '، ')}{auth.user?.name.split(' ')[0]}<span className="accent-dot">.</span></>}
+      summary={data ? t(`${data.focus.length} priorities · ${data.agenda.length} on your calendar · ${data.stats.focus_minutes_today} focus minutes today`, `${data.focus.length} أولويات · ${data.agenda.length} في تقويمك · ${data.stats.focus_minutes_today} دقيقة تركيز اليوم`) : t('A clear view of what matters today.', 'نظرة واضحة على ما يهمك اليوم.')}
+      actions={<>
         <button className="icon-button" aria-label={t('Customize dashboard', 'تخصيص لوحة المعلومات')} title={t('Customize dashboard', 'تخصيص لوحة المعلومات')} onClick={() => setCustomizing(true)}><SlidersHorizontal size={19} /></button>
         <Link className="quiet" to="/focus"><Timer size={18} />{t('Focus', 'تركيز')}</Link>
-        <Link className="primary" to="/planning"><Sparkles size={18} />{t('Plan my day', 'خطط يومي')}</Link>
-      </div>
-    </header>
-    <ErrorMessage error={error || briefing.error || overview.error} />
+        <Link className="primary" to="/today/plan"><Sparkles size={18} />{t('Plan my day', 'خطط يومي')}</Link>
+      </>} />
+    <ErrorMessage error={error || briefing.error || overview.error || today.error} />
     <div className="dashboard-grid">
       {layout.order.filter(id => !layout.hidden.includes(id) && widgets[id] !== null).map(id => <div key={id} className={`widget widget-${id} ${FULL_WIDTH.includes(id) ? 'span-full' : ''}`}>{widgets[id]}</div>)}
     </div>

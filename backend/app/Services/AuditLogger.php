@@ -15,8 +15,8 @@ class AuditLogger
         'login', 'login_failed', 'logout', 'password_changed', 'email_changed', 'password_reset',
         'two_factor_enabled', 'two_factor_disabled', 'two_factor_challenge_failed', 'recovery_codes_regenerated', 'recovery_code_used',
         'session_revoked', 'other_sessions_revoked', 'data_exported',
-        'integration_connected', 'integration_disconnected', 'integration_revoked',
-        'push_subscribed', 'push_unsubscribed', 'ai_action_executed', 'automation_changed',
+        'integration_connected', 'integration_disconnected', 'integration_revoked', 'integration_collections_changed', 'connected_task_copied',
+        'push_subscribed', 'push_unsubscribed', 'ai_action_executed', 'automation_changed', 'checkins_deleted',
     ];
 
     /**

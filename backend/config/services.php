@@ -45,6 +45,26 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', rtrim((string) env('FRONTEND_URL', 'http://localhost:5173'), '/').'/api/integrations/google/callback'),
     ],
 
+    // Task services reuse the Google / Microsoft OAuth clients with their own redirect URI and narrower read-only scopes.
+    'google_tasks' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_TASKS_REDIRECT_URI', rtrim((string) env('FRONTEND_URL', 'http://localhost:5173'), '/').'/api/integrations/google_tasks/callback'),
+    ],
+
+    'microsoft_todo' => [
+        'client_id' => env('MICROSOFT_CLIENT_ID'),
+        'client_secret' => env('MICROSOFT_CLIENT_SECRET'),
+        'tenant' => env('MICROSOFT_TENANT', 'common'),
+        'redirect' => env('MICROSOFT_TODO_REDIRECT_URI', rtrim((string) env('FRONTEND_URL', 'http://localhost:5173'), '/').'/api/integrations/microsoft_todo/callback'),
+    ],
+
+    'todoist' => [
+        'client_id' => env('TODOIST_CLIENT_ID'),
+        'client_secret' => env('TODOIST_CLIENT_SECRET'),
+        'redirect' => env('TODOIST_REDIRECT_URI', rtrim((string) env('FRONTEND_URL', 'http://localhost:5173'), '/').'/api/integrations/todoist/callback'),
+    ],
+
     'microsoft_calendar' => [
         'client_id' => env('MICROSOFT_CLIENT_ID'),
         'client_secret' => env('MICROSOFT_CLIENT_SECRET'),

@@ -5,7 +5,7 @@ export function useReasonLabel() {
   const t = useText()
   return (reason: string) => ({
     urgent: t('Urgent', 'عاجلة'), high: t('High priority', 'أولوية عالية'), in_progress: t('In progress', 'قيد التنفيذ'),
-    overdue: t('Overdue', 'متأخرة'), due_today: t('Due today', 'مستحقة اليوم'), due_soon: t('Due soon', 'مستحقة قريباً'), quick_win: t('Quick win', 'إنجاز سريع'),
+    overdue: t('Overdue', 'متأخرة'), due_today: t('Due today', 'مستحقة اليوم'), due_soon: t('Due soon', 'مستحقة قريباً'), quick_win: t('Quick win', 'إنجاز سريع'), goal: t('Moves a goal', 'تدفع هدفاً'),
   }[reason] || reason)
 }
 

@@ -125,10 +125,11 @@ describe('security', () => {
 })
 
 describe('calendar integrations', () => {
-  const providers = { providers: [
-    { provider: 'google', label: 'Google Calendar', configured: false, redirect_uri: 'https://app/api/integrations/google/callback', accounts: [] },
-    { provider: 'outlook', label: 'Outlook Calendar', configured: true, redirect_uri: 'https://app/api/integrations/outlook/callback', accounts: [{ id: 3, provider: 'outlook', email: 'me@outlook.com', display_name: null, status: 'revoked', last_synced_at: null, last_error: 'Outlook Calendar access was revoked or has expired.', events_count: 0, connected_at: null }] },
-  ] }
+  const google = { provider: 'google', label: 'Google Calendar', category: 'calendars', implemented: true, configured: false, status: 'needs_configuration', scopes: 'Read-only calendars', env_keys: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], redirect_uri: 'https://app/api/integrations/google/callback', accounts: [] }
+  const outlook = { provider: 'outlook', label: 'Outlook Calendar', category: 'calendars', implemented: true, configured: true, status: 'available', scopes: 'Calendars.Read', env_keys: [], redirect_uri: 'https://app/api/integrations/outlook/callback', accounts: [{ id: 3, provider: 'outlook', email: 'me@outlook.com', display_name: null, status: 'revoked', last_synced_at: null, last_error: 'Outlook Calendar access was revoked or has expired.', events_count: 0, connected_at: null, collections: [], collections_managed: true }] }
+  const todoist = { provider: 'todoist', label: 'Todoist', category: 'tasks', implemented: true, configured: true, status: 'available', scopes: 'data:read', env_keys: [], redirect_uri: '', accounts: [{ id: 4, provider: 'todoist', email: 'me@todoist.test', display_name: null, status: 'active', last_synced_at: null, last_error: null, events_count: 2, connected_at: null, collections_managed: true, collections: [{ id: 'inbox', name: 'Inbox', color: null, primary: true, included: true }, { id: 'p2', name: 'Side project', color: null, primary: false, included: false }] }] }
+  const notion = { provider: 'notion', label: 'Notion', category: 'productivity', implemented: false, configured: false, status: 'planned', scopes: '', note: { en: 'Planned: import pages from one database you pick.', ar: '' }, accounts: [] }
+  const providers = { providers: [google, outlook, todoist], ai_connected_data: false, categories: [{ key: 'calendars', providers: [google, outlook] }, { key: 'tasks', providers: [todoist] }, { key: 'productivity', providers: [notion] }, { key: 'email', providers: [] }, { key: 'future', providers: [] }] }
   it('explains setup for unconfigured providers and never pretends to be connected', async () => {
     mockApi([user, { match: /\/api\/integrations$/, body: providers }])
     render(wrap(<IntegrationsSettings />))
@@ -137,13 +138,26 @@ describe('calendar integrations', () => {
     expect(screen.queryByRole('button', { name: 'Connect Google Calendar' })).not.toBeInTheDocument()
     expect(screen.getByText('Access revoked')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument()
+    // Planned integrations explain themselves and cannot be connected.
+    expect(screen.getByText('Planned: import pages from one database you pick.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Notion' })).not.toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Share connected data with an external AI provider' })).not.toBeChecked()
+  })
+  it('lets the user choose which lists are imported', async () => {
+    const fetcher = mockApi([user, { match: /\/api\/integrations$/, body: providers }, { match: /\/api\/integrations\/accounts\/4$/, method: 'PATCH', body: { imported: 3 } }])
+    render(wrap(<IntegrationsSettings />))
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Side project/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save and sync' }))
+    await waitFor(() => expect(fetcher.mock.calls.some(c => c[1]?.method === 'PATCH')).toBe(true))
+    const call = fetcher.mock.calls.find(c => c[1]?.method === 'PATCH')!
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ included: ['inbox', 'p2'] })
   })
   it('starts OAuth by navigating to the provider URL returned by the server', async () => {
     const assign = vi.fn()
     vi.stubGlobal('location', { ...window.location, assign })
     mockApi([user, { match: /\/api\/integrations$/, body: providers }, { match: /\/api\/integrations\/outlook\/connect$/, method: 'POST', body: { authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?state=abc' } }])
     render(wrap(<IntegrationsSettings />))
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect another account' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect another Outlook Calendar account' }))
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://login.microsoftonline.com/common/oauth2/v2.0/authorize?state=abc'))
   })
 })

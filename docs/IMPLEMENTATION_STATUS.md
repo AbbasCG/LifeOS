@@ -359,3 +359,341 @@ Sign in at `/login` with `demo@lifeos.local` and the password you chose. Without
 - Times are formatted in the browser's timezone; the demo assumes the browser and the demo timezone match (Europe/Amsterdam by default — set `LIFEOS_DEMO_TIMEZONE` to yours).
 - Demo content is static per language; switching the interface language does not translate already-seeded titles (re-seed with `--lang`).
 - Thmanyah fonts must be installed locally on each machine/build server (not in Git); public web serving requires confirmation from Thmanyah.
+
+---
+
+# V5 — Adaptive Intelligence & Daily Experience
+
+Branch: `claude/magical-johnson-1s7q7b`, restarted from `main` at `ab0c797` (V4/V4.1 merged as PR #3).
+
+**Audit summary.** Reused rather than duplicated: `BriefingService` (ranking, agenda, habits, goals), `CalendarService` (recurring + imported occurrences), `PlanningService` (work hours, free intervals, overload summary, missed blocks, `ScheduleProposal` + accept flow), `AssistantService`/`AssistantActions` (providers, approval-gated proposals, audit), `AnalyticsService`, `HabitStreaks`, `WeeklyReviewService`, `AutomationEngine`, `Notifier`, focus-session API and the demo seeder. Missing before V5: self-reported check-ins, focus notes/distractions/modes/dedupe, goal milestones and goal/project/habit intelligence, energy- and boundary-aware day planning with alternatives, evening summary, analytics date ranges/project filter/energy correlation, copilot query/goal-planning/reflection skills.
+
+### V5-C Energy, mood & workload check-ins (done)
+- Migration `create_daily_checkins` (additive): one optional row per user and local date — energy, mood, stress, workload (1–5), sleep minutes (manual), reflection.
+- `CheckinService`: daily series joining check-ins with the user's focus minutes and completed tasks; observational findings (energy vs focus, sleep vs focus, workload vs completed tasks, stress vs focus) only when each group has ≥ 3 days, with sample sizes shown and a "not medical advice" note; 7-day trends.
+- Endpoints: `GET /api/checkins?days=`, `PUT /api/checkins/{date}` (today or up to 30 days back, user timezone; 422 when the module is off), `DELETE /api/checkins/{date}`, `DELETE /api/checkins` (all history, requires password confirmation, audited `checkins_deleted`), `GET /api/checkins/insights?days=`. Preference `checkins_enabled` (default on); turning it off stops prompts and planning use but keeps history until deleted. Included in the data export; never sent to AI providers.
+- Frontend: accessible `CheckinCard` (radio-group scales, sleep hours, reflection); Settings → Wellbeing (toggle, today's check-in, patterns, history, delete-all with password confirmation).
+- Tests: `CheckinTest` (4), 2 frontend tests.
+
+### V5-D Advanced focus experience (done)
+- Migration `add_focus_details` (additive): `focus_sessions.mode` (pomodoro|deep|custom), `project_id`, `cycle`, `notes`, `interruptions` (JSON log), `started_at`, `client_id` (unique per user) + index.
+- API (backward compatible): `POST /api/focus-sessions` accepts `mode`, `cycle`, `project_id` (owned; derived from the task when omitted), `notes`, `client_id` — a retried request with the same `client_id` returns the existing session instead of creating a duplicate; manual time entries that overlap already-logged time are rejected. `PATCH` adds `interrupt` (reason phone|people|notifications|thought|other + note, max 50 per session) and `note` (edit notes, also after completion); `notes` can be sent with `finish`. Time is only added to a task once (status checked under a row lock). `GET /api/focus-sessions` now includes task/project titles. New `GET /api/focus-sessions/insights?days=` (`FocusInsights`): minutes, sessions, average, deep-work minutes, completion rate, planned vs actual, focus days, consistency, streak, distractions per hour and top reasons, peak hour/weekday, typical uninterrupted length, per-day/hour/project breakdowns, tips.
+- Frontend: rebuilt Focus page — Pomodoro (25/5, long 15-minute break every 4th round with "next step" prompts), Deep work (90), Custom, Log time; task or project linking; large accessible dial (SVG, RTL-aware, reduced motion); pause/resume (Space shortcut), finish, discard; distraction logging with quick reasons; session notes; live remaining time in the tab title; optional browser notifications when the user grants permission (falls back silently when unsupported/denied); 30-day insights and history. Pure helpers in `lib/focus.ts` (incl. a UUID fallback for non-secure contexts).
+- Tests: `FocusExperienceTest` (4: linking + idempotent retries + ownership, distractions/notes/pauses with time counted once, manual overlap rejection, insights maths), existing focus tests unchanged; 3 frontend tests.
+
+### V5-F Goals, projects & habits intelligence (done)
+- Migration `add_milestones_to_goals` (additive JSON `goals.milestones`, validated like project milestones; editable in the goal form).
+- `GoalIntelligence` service:
+  - **Goals** — percent vs expected pace (time used between creation and deadline), status `on_track | behind | at_risk | overdue | no_deadline | completed` with bilingual reasons, milestone progress and next milestone, linked-task counts, 14-day completion trend vs the previous 14 days, focus minutes (30 days), ranked next actions, recommendations (add a next step / block time / adjust an overdue goal), and goal-to-task suggestions from unfinished milestones not already present as tasks.
+  - **Projects** — health `healthy | attention | at_risk | paused` from overdue tasks, inactivity, deadline vs milestone progress and missing next steps, with reasons.
+  - **Habits** — 30-day consistency vs the previous 30 days, trend, current/longest streak, streak-at-risk flag, best weekday, suggestion.
+- **Goal-aware prioritization**: `BriefingService::score/rank` accept goal pressure (at risk +25, overdue +30, behind +12, deadline within 14 days +8) with a new `goal` reason; used by the daily briefing, the weekly planner and the assistant. Weekly review data now includes `goal_health`.
+- Endpoint: `GET /api/insights/progress` (`goals`, `projects`, `habits`).
+- Frontend: `ProgressPanel` above the Goals (health cards with pace marker, reasons, trend, next action → Focus, recommendations, one-click "add milestone as task"), Projects (health list) and Habits (consistency, streak, trend, suggestions) lists.
+- Tests: `GoalIntelligenceTest` (4), 1 frontend test.
+
+### V5-B Adaptive daily planner (done)
+- `DayPlanner` service (read-only until approved):
+  - **Time budget** per day: boundary windows, committed time from `CalendarService` occurrences (recurring and imported events included), free time after **buffers** (`buffer_minutes`, default 10) around commitments, plannable capacity.
+  - **Boundaries**: work hours (work days) plus optional `study_start/end` and `personal_start/end`; tasks follow their category's new `area` (work | study | personal; migration `add_area_to_categories`).
+  - **Energy-aware**: today's check-in energy ≤ 2 → ~70% capacity and shorter blocks; 3 → 85%; peak focus window from the last 30 days of focus (best two hours) or the focus-hours setting; demanding/high-priority work goes there first.
+  - **Duration estimation**: user's measured actual/estimate ratio over the last 90 days (≥ 5 tasks, clamped 0.8–1.5) stretches block sizes; carried as `estimate_factor` and honoured on accept.
+  - **Priority-aware** ranking with goal pressure; **recovery**: missed blocks get a strong boost and are flagged `rescheduled`; **overload** detection when must-do work (overdue, due within ~2 days, urgent, missed) exceeds capacity, listing movable flexible events; **break recommendations** after 90+ minutes of continuous work; blocks shrink to fit gaps ≥ 30 min.
+  - **Alternatives**: Balanced, Deep focus first (90-minute blocks in peak hours, fewer switches), Light day (~60% capacity, must-dos and top priorities) with metrics, unscheduled must-dos and per-item/global explanations; a recommended option (Light on low energy, Deep when big work and peak hours exist).
+- `PlanningService`: config gains buffer and study/personal windows plus `windows()`; `accept()` now validates each block against its area's window and the estimate factor — the approval flow is unchanged and still re-checks conflicts, deadlines and task changes.
+- Endpoints: `GET /api/day-plan?date=&replan=` (today … +14 days; nothing saved), `POST /api/day-plan {date, variant}` → pending one-day `ScheduleProposal` (replaces an older pending plan for that day); accept via the existing `POST /api/plans/{id}/accept`. New settings: `buffer_minutes`, `study_start/end`, `personal_start/end`.
+- Frontend: `/today/plan` "Plan my day" — budget bar and stats, energy and peak hours, explanations, overload and recovery banners, three selectable plans with timeline preview, breaks and unscheduled must-dos, "Use this plan" → explicit "Add N blocks to calendar", "Replan from now", inline boundaries/buffer editor, today's fixed commitments (fixed/recurring/external icons). Category form gains a "Time boundary" field. "Plan my day" buttons now open this page.
+- Tests: `DayPlannerTest` (5: budget with buffers + recurring + imported events, study boundary + low energy + estimate accuracy, overload + recovery + alternatives, choose → pending → accept with personal window, privacy); existing planning tests unchanged; 1 frontend test.
+
+### V5-A Intelligent Today dashboard (done)
+- `TodayService` + `GET /api/today` (read-only, one request feeds all Today widgets):
+  - **Period-aware briefing**: morning/afternoon briefing (commitments and free time, top priority, deadlines, check-in nudge); after 18:00 or within 30 min of the end of work hours it becomes an **evening summary** (completed, carry-over, habits, tomorrow's first event) with a reflection prompt.
+  - **Energy & workload**: today's check-in, load percent (committed + must-do vs window) and level light/moderate/heavy; hidden when check-ins are disabled.
+  - **Available focus time**: free minutes and slots ≥ 30 min inside the day's boundary windows (reuses `PlanningService::windows/freeIntervals`, buffers after commitments), peak window and next best task.
+  - **Deadlines**: next 7 days across tasks, projects and goals, bucketed overdue/today/tomorrow/week.
+  - **Progress**: tasks done vs due today, focus minutes vs `daily_focus_limit` (default 240), habits done this period, overall.
+- Dashboard: new widgets `today`, `progress`, `focus_time`, `checkin`, `deadlines`, `actions` (quick actions: add task, start focus, plan my day, check in, ask Copilot, weekly review) added to the customizable layout (`WorkspaceController::DASHBOARD_WIDGETS`, `src/lib/dashboard.ts`); existing saved layouts get them appended automatically. Each widget has skeleton loading and empty states; the check-in widget reuses `CheckinCard` in compact mode.
+- Files: `app/Services/TodayService.php`, `InsightsController::today`, `src/features/today/TodayWidgets.tsx`, CSS in `experience.css`.
+- Tests: `TodayTest` (3: morning briefing + slots + deadlines + progress, evening summary + energy level, privacy + widget layout); 2 frontend tests; the existing customizer test now expects `today` first in the default order.
+
+### V5-E AI Personal Copilot v3 (done)
+- Same safety pipeline as V4 — **interpret → validate → structured proposal → shown → explicit approval → re-validated execution → audit** (`ai_action_executed`). Providers (OpenAI / Anthropic) only *interpret*: they return an intent plus structured filters/targets in a closed JSON schema; the server computes every fact, date and change from the user's own data. Without a provider (or when the user opts out, or the provider fails/refuses/returns off-schema output) the local assistant answers in English or Arabic.
+- New read-only intents (`CopilotService`):
+  - **query** — "Show high priority tasks for project Website due this week", "اعرض مهام مشروع Website", "Which goals are at risk?": tasks filtered by project, goal, priority (high includes urgent), status and due window (overdue/today/tomorrow/week/none), ranked with goal pressure; projects/goals by health. Project/goal references resolve only among the user's own records (provider ids for other users' records simply match nothing).
+  - **explain** — "Why is X not first?": rank position, score, reasons, the facts behind them and what ranks above it.
+  - **conflicts** — calendar overlaps, overloaded days and deadlines whose remaining work exceeds the free time before them (next 7 days).
+  - **reflection** — weekly progress summary (completed, open, focus vs last week only when last week had ≥ 60 min, habit consistency, goals needing attention) plus reflection questions grounded in the week and in check-in patterns; links to the weekly review.
+- New proposals (whitelisted action types added to `AssistantActions::ACTION_TYPES`):
+  - **goal_plan** → `create_task` actions: provider steps, otherwise the goal's unfinished milestones not already tasks, otherwise a short labelled template; due dates spread up to the goal deadline (weekly without one), high priority when the goal is at risk. On apply: title/priority/estimate validated, goal ownership re-checked, duplicate open task for the goal refused.
+  - **triage** ("Reschedule my overdue tasks", "أجّل المهام المتأخرة") → `reschedule_task` actions: overdue tasks by priority get the end of the first work day with enough free time. On apply: task must still be open, owned and have the same deadline as when proposed; any stale action aborts the whole batch.
+- Data minimisation for providers: in addition to the existing task/agenda/habit context, only project and goal **ids and titles** (max 30 each) are sent; no notes, descriptions, check-ins or other users' data.
+- Frontend: proposal cards handle task actions ("Create N task(s)", "Reschedule N task(s)", old → new deadline), result items with health badges and links, new EN/AR prompt chips.
+- Files: `app/Services/CopilotService.php` (new), `AssistantService` (intents, schema, routing), `AssistantActions` (`proposeGoalPlan`, `proposeTriage`, `executeTask`), `src/features/AssistantPage.tsx`, `src/features/assistant/ProposalCard.tsx`, `api.ts` types.
+- Tests: `CopilotTest` (7: EN/AR queries with project/priority/deadline + isolation, explain, conflicts, goal plan approve/duplicate/tampered goal, triage stale-check + atomicity, reflection, provider interpretation limited to own records + minimal context); existing assistant tests unchanged; 2 frontend tests.
+
+### V5-G Personal insights & analytics (done)
+- `GET /api/analytics` now accepts `from`/`to` (local dates, `to` ≤ today, ≤ 1 year) besides the `days` presets, and `project_id` (validated against the user's own projects). The previous period is always the equally long span before; `range` returns both spans.
+- Project filter applies to completions, created tasks, focus sessions (session project or its task's project), open-by-priority and period comparisons.
+- New sections in `AnalyticsService::summary` (all existing fields unchanged):
+  - **energy** — average focus and completions on low (1–2), medium (3) and high (4–5) energy check-in days; each group carries its day count and is `reliable` only with ≥ 3 days; insights are drawn only when two groups are reliable. Hidden when check-ins are off. Worded as patterns, never causes or medical advice.
+  - **consistency** — days with focus, longest/current run, weekly focus and week-to-week variation (full weeks only, ≥ 2 needed).
+  - **workload** — focus/completions by life area (category `area`), completions by weekday, open work due in the next 7 days.
+  - **goals** — percent vs expected progress, status, days left and trend (hidden when a project filter is active).
+  - **periods** — calendar-aligned this week vs last week up to the same moment, and month-to-date vs the same span last month.
+- **Small baselines**: every comparison carries `small_base` (previous < 3 tasks or < 180 focus minutes); the period cards show the earlier amount ("too little to compare") instead of a percentage, as the stat cards already did.
+- Frontend: custom date range form, project selector, range note, period cards, energy / consistency / workload / goal panels (`src/features/analytics/PatternPanels.tsx`).
+- Tests: `AnalyticsV5Test` (3: custom range + project filter + validation, energy reliability threshold + disabled check-ins, consistency/workload/goals/periods with small-base flags); 1 frontend test.
+
+### V5-I Demo data V5 (done)
+- `LifeOSDemoSeeder` (still demo-account-only, guarded by `DemoMode`, idempotent, fixed seed, dates relative to today) now adds:
+  - V5 settings: 10-minute buffers, study window 19:00–21:00, personal window 07:00–08:30, check-ins on.
+  - Category **areas** (work, study, personal) and **goal milestones** for four goals.
+  - Focus sessions with **mode** (pomodoro/deep/custom), project, Pomodoro cycle, **interruptions**, **notes** and `started_at`. These values are derived deterministically, without new `mt_rand` calls, so the V4.1 random sequence and its scenarios are unchanged.
+  - About 50 **daily check-ins** over 60 days whose energy follows logged focus (with small deterministic noise), so the energy-vs-productivity panel shows a reliable, explainable pattern. Today is left open so the dashboard invites a check-in.
+  - A pending **"Plan my day"** proposal for the next work day, built by the real `DayPlanner`.
+  - Pending Copilot **goal plan** (habit tracker beta milestones) and **overdue triage** proposals, alongside the existing automation and scheduling proposals (4 pending in total).
+  - Missed blocks and recovery reuse the existing V4.1 scenario.
+- `DemoMode::OWNED_TABLES` includes `daily_checkins`, so reset and remove clean it up.
+- `DemoSeederTest` asserts all of the above, and the multi-date scenario test checks the day plan on four different seed moments.
+
+### V5-H UX & browser QA (done)
+- Playwright against the production build (`vite preview` + `artisan serve` + PostgreSQL), demo account, Europe/Amsterdam. Covered 16 screens, including `/today/plan` and `/settings/wellbeing`, plus the Copilot chat and filtered analytics, in four configurations: EN light 1440 px, AR dark 1440 px, AR light 390 px and EN dark 390 px.
+- **Result: no page overflow and no console errors in any run.** RTL was applied on every screen in Arabic.
+- Interactions exercised:
+  - all six Today widgets present; dashboard check-in saved;
+  - three day-plan alternatives;
+  - four pending proposals listed;
+  - Copilot conflicts / explain / goals-at-risk (EN) and conflicts / explain / filtered query (AR);
+  - analytics energy note, period cards and project filter.
+- Fixed during QA:
+  - The progress rings used the class `ring`, which collides with Tailwind's `ring` utility (a 1px box-shadow). Renamed to `progress-ring`.
+  - The deadlines widget is capped at 6 items, with the existing "All" link.
+  - The Copilot conflict check now lists only the first three deadlines that don't fit, plus a summary line. Once one deadline doesn't fit, every later one inherits the shortfall, so the rest were noise.
+- Noted, not changed:
+  - The weekly-review stepper scrolls horizontally at 390 px by design (Phase 3).
+  - The closed mobile drawer sits off-canvas in RTL.
+  - Browser QA must set the language through the account settings: the saved language overrides `localStorage` after login (existing behaviour).
+
+### V5 verification (final run)
+- Backend: **164/164 tests, 1180 assertions on SQLite and PostgreSQL 16**. Pint clean; `composer audit` reports no advisories.
+- Frontend: **55/55 Vitest**; `tsc -b` clean; ESLint 0 errors (the 1 existing warning in legacy `FocusWidget`); production build OK (the existing `ResourcePage` dynamic-import notice); `npm audit --omit=dev` reports 0 vulnerabilities.
+- **No dependencies added. Migrations are additive only:** `daily_checkins`, focus details, goal milestones, category area.
+
+### V5 known limitations
+- Copilot query and intent detection for the local assistant is keyword/regex based, for English and Arabic. Unusual phrasings fall back to help or the general plan. External providers interpret better but still only choose among the fixed intents.
+- Goal-plan template steps are generic when a goal has no milestones; the UI says so.
+- Copilot never edits or deletes existing tasks beyond rescheduling overdue deadlines; other changes stay in the regular UI.
+- Energy, sleep and workload findings are correlations from the user's own entries, with minimum sample sizes. They are not causal and not medical advice.
+- The analytics `goals` panel reflects current goal state, not the selected date range, and is hidden under a project filter (goals are not linked to projects).
+- The day planner and Today slots use day-level work, study and personal windows. They do not yet model travel time or per-event energy cost.
+- Browser QA scripts live outside the repository; a committed Playwright suite is still pending (see next phase).
+
+### Manual test checklist (V5)
+1. Dashboard: morning briefing before work end, and evening summary with a reflection prompt after 18:00. Check in from the widget and see the load badge update. Customize the layout so the new widgets can be hidden and reordered.
+2. `/today/plan`: switch energy (check in low, then replan), compare Balanced, Deep and Light, then "Use this plan" → "Add N blocks to calendar". Edit study/personal boundaries and the buffer.
+3. Focus: Pomodoro cycle with break suggestion; log a distraction; pause/resume with Space; finish with notes; check the insights panel.
+4. Settings → Wellbeing: toggle check-ins off (the widget and energy analytics disappear), then delete history (password confirmation).
+5. Goals/Projects/Habits: progress panels, goal milestones, "create tasks from milestones".
+6. Copilot (EN and AR):
+   - "Show high priority tasks for project X due this week";
+   - "Why is … not first?";
+   - "Do I have any conflicts?";
+   - "Plan my goal …" → approve some tasks;
+   - "Reschedule my overdue tasks" → change one task's deadline elsewhere, then apply. The stale suggestion should be refused.
+   - "Help me reflect on my week".
+7. Analytics: custom range, project filter, period cards on a fresh account (no percentages on tiny baselines), energy panel before and after three or more days per group.
+8. Demo: `php artisan lifeos:demo` (local, `LIFEOS_DEMO_ENABLED=true`). Run it twice: the result is identical and no other accounts are touched.
+
+## V5 extension — Living Workspace design & Connected Life
+
+### Audit (before this extension)
+- **Animation stack:** `motion` (Motion for React) was already a dependency, used only by four legacy dashboard components. There was no GSAP, three.js or React Three Fiber. Styling was a flat card dashboard: `workspace.css` → `premium.css` → `experience.css`.
+- **V4 calendar integration (Google and Outlook)**, verified working and kept:
+  - OAuth authorization code + PKCE, with a one-time state bound to user and expiry;
+  - encrypted tokens that never reach the browser;
+  - refresh two minutes before expiry; revoked access detected (401/403/`invalid_grant`), with a notification;
+  - transient errors kept as `error` and retried by the queued job;
+  - disconnect revokes at Google and deletes imported events; every route is owner-scoped; 10 feature tests.
+- **Gaps found:**
+  - every visible calendar was imported, with no choice;
+  - no duplicate handling across accounts or against LifeOS blocks;
+  - connected event titles were sent to external AI providers with no separate consent;
+  - no extensible provider catalog.
+
+### Updated plan (as executed)
+| # | Item | Status |
+|---|---|---|
+| I1 | Calendar hardening: calendar selection, duplicate prevention, AI consent for connected data | done |
+| I2 | Connected Accounts Hub: categories, honest states, read-only task providers (Google Tasks, Microsoft To Do, Todoist), list selection, copy-to-LifeOS without duplicates | done |
+| D1 | LifeOS Living Workspace design system | done |
+| D2 | Real interactive 3D: WebGL orb (dependency-free, lazy) | done |
+| D3–D7 | Dashboard command center + day dial + guidance, immersive Focus, Copilot companion, goal journeys, habit heatmaps and completion feedback, calendar conflict and source cues, analytics explanations, mobile chrome | done |
+| QA | Tests, browser checks (EN/AR, light/dark, desktop/mobile, reduced motion), performance measurements, docs | done |
+
+### Dependency decisions and performance impact
+- **No new dependencies.** I considered three.js / React Three Fiber / drei and decided against them: about 150 KB+ gzipped for one scene, plus a React reconciler. GSAP was not needed: every animation is either a spring (Motion) or CSS.
+- **3D: a purpose-built WebGL 1 module** (`src/lib/orb/`):
+  - **Size:** `renderer` chunk 11.1 KB (**4.6 KB gzipped**), lazy-loaded only where an orb is shown.
+  - **Fallback:** a same-size CSS sphere is rendered first, so there's no layout shift. It stays when WebGL is unavailable, the context is lost, or a shader fails, and a single console warning names the reason.
+- **Motion is now loaded lazily:** `LazyMotion` with `domMax` features in a separate chunk (31.7 KB gzipped, after first paint), using the lightweight `m` components.
+  - Main bundle: **108.8 KB gzipped**, against 101.8 KB at the V4.1 commit (+7 KB for all of V5).
+  - Before the switch to lazy loading it was 148.4 KB.
+  - CSS is 25.9 KB gzipped (was 18.5 KB at V4.1).
+- **Orb budget:**
+  - 2,562 vertices (642 on touch devices); pixel ratio capped at 1.75 (1.5 on touch);
+  - two draw calls; paused when off-screen (IntersectionObserver) or the tab is hidden;
+  - **no animation loop with reduced motion** (frames are drawn on input or prop changes only).
+- **Adaptive quality governor:** above about 25 ms per frame, it first drops to pixel ratio 1 and 642 vertices. If the page is still slow, it stops the continuous loop; the orb stays 3D and interactive.
+- **Measured with headless Chromium on software rendering (SwiftShader, no GPU), dashboard at 1440 px:**
+
+  | Configuration | Page FPS |
+  |---|---|
+  | Orb, first seconds | 18 |
+  | Orb hidden | 59 |
+  | Reduced motion | 61 |
+  | Orb after the governor settles | **60** |
+
+  The glass blur's cost was negligible (17 vs 18 FPS). A real GPU renders the full-quality orb well within budget.
+- **Ambient light field:** pointer and scroll parallax is written to CSS variables at most once per animation frame, mouse only. Nothing moves with reduced motion.
+
+### D1 — LifeOS Living Workspace design system (`src/styles/living.css`, loaded last)
+- **Tokens:** layered glass surfaces (`--panel-bg`, `--chrome-bg`), hairlines, inner highlight, brand gradient and glow, aurora colours, soft and lift shadows, a spring easing (`--spring`, via CSS `linear()`). Separate light and dark values. When `backdrop-filter` is unsupported, surfaces fall back to solid.
+- **Ambient light field** (`AmbientBackground`): three blurred light sources plus a faint dot grid with subtle parallax. Glass sidebar, topbar and bottom navigation. The brand wordmark uses the gradient.
+- **Motion:**
+  - spring page transitions on section change (`AppLayout`);
+  - sliding spring indicators for the active sidebar item and mobile tab (`layoutId`);
+  - press feedback, hover lift on stats and cards, checkbox pop, gradient sheen on primary buttons;
+  - animated empty states (floating orb glyph).
+  
+  `MotionConfig reducedMotion="user"` and CSS media queries switch all of it off for reduced motion.
+
+### D2 — Real interactive 3D: the LifeOS orb
+- **What it is:** a WebGL icosphere displaced by 3D simplex noise, with per-vertex normals from finite differences, Lambert and Blinn lighting, and a Fresnel rim.
+  - **Progress:** it fills from below to the current progress as a "liquid" level with a moving meniscus, and an orbiting ring of particles lights up with progress.
+  - **Modes** change its motion: `idle`, `focus` (slow eight-second breathing), `paused`, `thinking`, `celebrate`.
+- **Interaction:** drag to rotate with inertia; hover tilts it; tap or Enter/Space sends a pulse; arrow keys rotate it. It is focusable only when live, and has `role="img"` with a meaningful label (for example "Today's progress: 17%…").
+- **Used where it carries meaning:**
+  - the dashboard hero (today's overall progress);
+  - Focus (session progress, inside the dial and in immersive mode);
+  - Copilot (companion that "thinks" while waiting for an answer).
+- **Bug found in browser QA:** GLSL ES requires uniforms shared by both shader stages to declare the same precision. `uTime` now declares `mediump` in both.
+- **Tests:** icosphere counts and the 16-bit index budget; unit length; orthonormal rotation; perspective; colour parsing; ring layout; fallback rendering and labelling.
+
+### D3–D7 — Core experiences
+- **Dashboard command center (`CommandHero`):**
+  - greeting, a one-line picture of the day, and the orb;
+  - **contextual guidance** (`lib/guidance.ts`), which picks the single most useful next move from real data in priority order: overdue items (Copilot with a prefilled question), a morning check-in, a heavy day (lighter plan), evening reflection, free time plus the best next task, otherwise "Plan my day".
+  
+  Guidance only links somewhere. Copilot's `?ask=` **prefills, never sends**.
+- **Day dial** (the "Today, in perspective" widget):
+  - a 24-hour SVG clock of today's commitments, with connected calendars dashed in violet;
+  - free focus slots, the user's work/study/personal windows and a live "now" hand;
+  - arcs and the list are linked by hover/focus, and every arc is keyboard-focusable with a full label.
+  
+  It is anchored to the **user's** day through the new `day_start` field in `/api/today`, so a browser in another timezone can't misplace the arcs (a bug found in QA). `/api/today` also returns `timeline` and `windows`.
+- **Focus:**
+  - optional "3D ambience" (remembered per device; `localStorage` with try/catch) puts the orb inside the dial, filling with the session;
+  - **Immersive mode:** a full-screen dialog with a large interactive orb, the timer, the task, pause/finish and exit (Esc).
+- **Copilot:** an orb companion in the header, plus context chips built from today's situation (overdue → reschedule, due today, conflicts, evening reflection). They are de-duplicated against the prompt chips and only fill the composer.
+- **Goals and habits:**
+  - goal **journeys**: milestone stops along a path that fills with a spring as milestones complete, the next stop pulsing. Backed by `milestone_list` in `/api/insights/progress`.
+  - **12-week habit heatmaps**, backed by `recent` and `color`.
+  - **completion burst** when a habit is ticked on the dashboard (not rendered for reduced motion).
+- **Calendar:** conflicting events carry a pulsing "!" badge on top of the existing outline; connected events use calm violet read-only stripes.
+- **Analytics:** each core chart has a one-line "how to read this" explanation.
+- **Mobile PWA:** glass bottom bar with a sliding active indicator and press feedback; the hero orb shrinks on small screens; RTL is respected throughout (journey fill direction, labels, mirrored icons).
+
+### Connected Life — Connected Accounts Hub
+- **Architecture:**
+  - `ConnectedProvider` is the base contract: OAuth, account, `collections()`, scopes, environment keys, redirect URI.
+  - `CalendarProvider` adds `events(…, $calendarIds)`; `TaskProvider` adds `tasks(…)`.
+  - The shared `OAuthProvider` base (PKCE, token exchange and refresh, error translation) is unchanged.
+  - The registry (`CalendarProviders`) holds all implemented providers. `ConnectedCatalog` groups them with the planned ones into **Calendars, Tasks, Productivity, Email, Coming later**.
+  - Each card's state is honest: `available`, `needs_configuration` (with exact scopes, redirect URI and environment variables) or `planned` (an explanation and no connect button).
+- **Implemented, all read-only:**
+
+  | Provider | Category | Scopes | Credentials | Notes |
+  |---|---|---|---|---|
+  | Google Calendar | calendars | `calendar.readonly` | `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_REDIRECT_URI` | V4, kept |
+  | Outlook Calendar | calendars | `Calendars.Read`, `User.Read`, `offline_access` | `MICROSOFT_CLIENT_ID/SECRET/TENANT`, `MICROSOFT_REDIRECT_URI` | V4; now reads each chosen calendar |
+  | Google Tasks | tasks | `tasks.readonly` | same Google client + `GOOGLE_TASKS_REDIRECT_URI` (default `/api/integrations/google_tasks/callback`) | date-only dues end that day in the user's timezone |
+  | Microsoft To Do | tasks | `Tasks.Read`, `User.Read`, `offline_access` | same Entra app + `MICROSOFT_TODO_REDIRECT_URI` | open tasks only (`status ne 'completed'`) |
+  | Todoist (API v1) | tasks | `data:read` | `TODOIST_CLIENT_ID/SECRET`, `TODOIST_REDIRECT_URI` | Todoist uses no PKCE and no refresh tokens (tokens do not expire); priority 4/3/2 → urgent/high/medium; floating times are read in the user's timezone |
+
+- **Planned, documented, no connect button:**
+  - **Notion:** one chosen database through a public integration.
+  - **Gmail / Outlook Mail:** metadata only for starred or flagged messages, never bodies, never sent to AI without consent.
+  - **Apple Calendar:** CalDAV with an app-specific password, since Apple offers no OAuth.
+  - **ICS subscriptions.**
+- **Setting up a provider (administrators):**
+  1. Create the OAuth app: Google Cloud (enable the Calendar and/or Tasks API), Microsoft Entra ID (delegated permissions listed above), or the Todoist App Management Console.
+  2. Add the redirect URI shown on the card.
+  3. Set the variables in `backend/.env` and restart.
+
+  Without credentials, a card shows "Needs server setup", and the connect endpoint returns 422. **Nothing is simulated.**
+- **Choosing data (minimisation):**
+  - New connections import **only the primary calendar or list**: `collections` is `[]` until it is first loaded, then only the primary entry is included.
+  - Users tick more in the hub (`PATCH /api/integrations/accounts/{id}` with `{included: [...]}`, validated against the account's own collections). This re-syncs immediately, removes data from excluded collections, and is audited as `integration_collections_changed`.
+  - Accounts connected before this change keep their previous behaviour (`collections` null → the provider's default set) until the user changes the selection.
+- **Unified timeline and duplicate prevention:**
+  - Imported events stay read-only occurrences with their source.
+  - The same commitment from several accounts (same normalised title, start and end) is shown **once**.
+  - An external event that mirrors a LifeOS block is hidden in favour of the editable LifeOS copy, which also removes false conflicts.
+  - Imported tasks appear in a **"From connected apps"** panel on Tasks (source badge, list, due date, "Open in …" link) and in Today's deadlines (labelled with their source).
+  - **Copy to LifeOS** (`POST /api/connected/tasks/{id}/copy`) creates a LifeOS task with a unique `source_ref`. Copying again returns the same task, and the imported one disappears from both views, so nothing shows twice. The source app is never changed (audited as `connected_task_copied`).
+  - Disconnecting removes imported events and tasks but keeps copied LifeOS tasks.
+- **Timezones:** events are normalised to UTC; Outlook all-day events are midnight-to-midnight in the user's zone; task dates follow the rules above.
+- **AI privacy:** a new preference, `ai_connected_data`, is **off by default** and shown as a switch in the hub.
+  - When off, external AI providers see connected events only as "Busy", and never see imported tasks.
+  - The local assistant is unaffected. Email content is never imported.
+- **Migration** `add_connected_life` (additive): `calendar_accounts.collections` (JSON), the `external_tasks` table, and `tasks.source_ref` (unique per user). `external_tasks` is included in the demo reset tables.
+- **New endpoints:**
+  - `PATCH /api/integrations/accounts/{id}`
+  - `GET /api/connected/tasks`
+  - `POST /api/connected/tasks/{id}/copy`
+  
+  `connect` and `callback` routes now accept `google_tasks`, `microsoft_todo` and `todoist`. `GET /api/integrations` adds `categories` and `ai_connected_data` while keeping `providers`.
+
+### Verification (final run)
+- **Backend:** **171/171 tests, 1264 assertions on SQLite and PostgreSQL 16.**
+  - New `ConnectedAccountsTest` (7):
+    - hub states and no secrets exposed;
+    - primary-only import, then selection, re-sync and removal, foreign IDs and other users refused;
+    - pre-selection accounts unchanged;
+    - duplicates across accounts and against LifeOS;
+    - Google Tasks import, copy without duplicates, and disconnect;
+    - Todoist OAuth, date and priority parsing, non-expiring tokens;
+    - AI masking with and without consent.
+  - `CalendarIntegrationTest`: the Outlook test now covers calendar choice.
+  - `TodayTest` covers the timeline and windows.
+  - Pint clean; `composer audit` reports no advisories.
+- **Frontend:** **66/66 Vitest.** New `living.test.tsx`: orb geometry, fallback, guidance priorities, dial math and linking, journey and heatmap labels, Copilot prefill without sending. Also: hub list choice, planned cards, consent switch, connected-task copy. `tsc -b` clean; ESLint 0 errors (the existing legacy warning); production build OK; `npm audit --omit=dev` reports 0 vulnerabilities.
+- **Browser (Playwright, production build + `artisan serve` + PostgreSQL, demo account):**
+  - Every screen in EN light 1440 px, AR dark 1440 px, AR light 390 px, and EN dark 390 px with **reduced motion**: no page overflow, no console errors, RTL applied.
+  - Exercised: live WebGL orb (dashboard, Focus, Copilot); guidance; dial; 4 goal journeys; 10 habit heatmaps; 4 chart explanations; hub with 5 categories and correct state pills; Focus immersive mode open and Esc close.
+- **Fixed during QA:**
+  - shader precision mismatch;
+  - shell stacking rule that let the skip link intercept taps on mobile;
+  - dial anchored to the browser's day instead of the user's;
+  - clipped dial centre;
+  - duplicate switch in the hub;
+  - mobile hero orb size;
+  - topbar opacity;
+  - accessible names of "Connect another … account" buttons.
+
+### Known limitations (extension)
+- **Not verified live:** the task providers are implemented from the providers' public APIs and verified with HTTP fakes only. No provider credentials were available in this environment.
+  - Todoist API v1 field names (`results`, `next_cursor`, `due.date`) should be checked against a real account.
+  - Todoist and Microsoft offer no programmatic token revocation; users remove LifeOS in the provider's settings.
+- Imported tasks are read-only by design. Completing one in LifeOS requires copying it, and the source is not updated.
+- Duplicate detection uses exact title and time matching. Renamed copies of the same meeting are not merged.
+- On the dial, times are displayed in the browser's locale/timezone, while placement uses the user's day. On a browser in a different timezone from the account setting, labels and positions can differ by that offset.
+- Headless screenshots in Playwright's full-page mode render the sticky glass sidebar incorrectly; viewport screenshots are correct.
+- Notion, Gmail, Outlook Mail, Apple Calendar and ICS feeds are planned only.
+
+### Recommended next phase (V6)
+- Commit a Playwright end-to-end suite (EN/AR, light/dark, mobile) to the repository and CI, seeded with the demo account.
+- Copilot: optional on-device or provider-backed intent classifier, plus an "undo" for applied proposals (audit-linked reversal).
+- Planner: carry unfinished day-plan blocks forward automatically (with approval); learn per-task-type estimates; respect travel buffers from event locations.
+- Notifications: evening-summary and check-in reminders through the existing notification preferences.
+- Analytics: export (CSV/PDF), and goal history snapshots so goal progress can follow the selected date range.

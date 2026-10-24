@@ -7,6 +7,8 @@ use App\Models\AssistantProposal;
 use App\Models\AutomationRule;
 use App\Models\AutomationRun;
 use App\Models\CalendarEvent;
+use App\Models\Category;
+use App\Models\DailyCheckin;
 use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Habit;
@@ -17,6 +19,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Models\UserSetting;
 use App\Models\WeeklyReview;
+use App\Services\AnalyticsService;
 use App\Services\CalendarService;
 use App\Services\HabitStreaks;
 use App\Services\PlanningService;
@@ -107,11 +110,25 @@ class DemoSeederTest extends TestCase
         $this->assertTrue($sessions->contains('status', 'cancelled') && $sessions->contains('kind', 'manual'));
 
         $this->assertSame(3, ScheduleProposal::where('user_id', $id)->where('status', 'accepted')->count());
-        $this->assertSame(1, ScheduleProposal::where('user_id', $id)->where('status', 'pending')->count());
+        $this->assertSame(1, ScheduleProposal::where('user_id', $id)->where('status', 'pending')->where('days', 7)->count(), 'next week draft');
+        $this->assertSame(1, ScheduleProposal::where('user_id', $id)->where('status', 'pending')->where('days', 1)->count(), 'plan my day draft');
         $this->assertSame(3, WeeklyReview::where('user_id', $id)->where('status', 'completed')->whereNotNull('snapshot')->count());
         $this->assertTrue(AutomationRule::where('user_id', $id)->where('enabled', true)->exists() && AutomationRule::where('user_id', $id)->where('enabled', false)->exists());
         $this->assertEqualsCanonicalizing(['succeeded', 'skipped', 'failed'], AutomationRun::where('user_id', $id)->pluck('status')->unique()->values()->all());
-        $this->assertSame(2, AssistantProposal::where('user_id', $id)->where('status', 'pending')->count());
+        $this->assertSame(4, AssistantProposal::where('user_id', $id)->where('status', 'pending')->count());
+        $this->assertEqualsCanonicalizing(['schedule', 'goal_plan', 'triage'], AssistantProposal::where('user_id', $id)->where('status', 'pending')->where('provider', 'local')->pluck('kind')->all());
+
+        // V5: check-ins, richer focus sessions, life areas and milestones.
+        $this->assertGreaterThanOrEqual(40, DailyCheckin::where('user_id', $id)->count());
+        $this->assertNull(DailyCheckin::where('user_id', $id)->whereDate('date', CarbonImmutable::now('Europe/Amsterdam')->toDateString())->first(), 'today is left open for a check-in');
+        $this->assertEqualsCanonicalizing(['pomodoro', 'deep', 'custom'], $sessions->pluck('mode')->unique()->values()->all());
+        $this->assertGreaterThan(5, $sessions->whereNotNull('interruptions')->count());
+        $this->assertGreaterThan(2, $sessions->whereNotNull('notes')->count());
+        $this->assertGreaterThan(20, $sessions->whereNotNull('project_id')->count());
+        $this->assertEqualsCanonicalizing(['work', 'study', 'personal'], Category::where('user_id', $id)->pluck('area')->unique()->values()->all());
+        $this->assertGreaterThanOrEqual(3, Goal::where('user_id', $id)->whereNotNull('milestones')->count());
+        $analytics = app(AnalyticsService::class)->summary($this->demo(), 30);
+        $this->assertTrue($analytics['energy']['reliable'], 'enough check-ins for the energy comparison');
         $this->assertGreaterThan(10, InboxNotification::where('user_id', $id)->count());
         $this->assertTrue(UserSetting::where('user_id', $id)->value('preferences')['demo_account']);
     }
@@ -227,7 +244,8 @@ class DemoSeederTest extends TestCase
 
             $this->assertNotEmpty($planning->summary($user, CarbonImmutable::now('Europe/Amsterdam')->startOfDay(), 7, [], [])['overload'], "overload on {$moment}");
             $this->assertCount(2, $planning->missedBlocks($user), "missed blocks on {$moment}");
-            $this->assertSame(2, AssistantProposal::where('user_id', $user->id)->where('status', 'pending')->count(), "pending proposals on {$moment}");
+            $this->assertSame(4, AssistantProposal::where('user_id', $user->id)->where('status', 'pending')->count(), "pending proposals on {$moment}");
+            $this->assertSame(1, ScheduleProposal::where('user_id', $user->id)->where('status', 'pending')->where('days', 1)->count(), "day plan on {$moment}");
             $doubleBooked = $calendar->occurrences($user, now()->toImmutable(), now()->addDays(14)->toImmutable())->filter(fn ($o) => $calendar->conflicts($user, $o['starts_at'], $o['ends_at'])->count() > 1)->pluck('title')->unique()->sort()->values()->all();
             $this->assertSame(['Doctor appointment', 'Vendor call'], $doubleBooked, "conflicts on {$moment}");
         }

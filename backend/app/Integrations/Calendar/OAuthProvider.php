@@ -8,11 +8,16 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
- * Shared OAuth 2.0 authorization-code + PKCE behaviour for calendar providers.
+ * Shared OAuth 2.0 authorization-code + PKCE behaviour for connected providers (calendars and task services).
  */
-abstract class OAuthProvider implements CalendarProvider
+abstract class OAuthProvider implements ConnectedProvider
 {
     abstract protected function configKey(): string;
+
+    public function redirectUri(): string
+    {
+        return (string) ($this->config()['redirect'] ?? '');
+    }
 
     abstract protected function tokenUrl(): string;
 

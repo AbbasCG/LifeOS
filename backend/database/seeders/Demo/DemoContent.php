@@ -39,6 +39,31 @@ class DemoContent
      *
      * @var array<string, array<int, mixed>>
      */
+    /** goal key => [[en, ar, done]] */
+    public const GOAL_MILESTONES = [
+        'half' => [['Run 10 km without stopping', 'الركض ١٠ كم دون توقف', true], ['Run 16 km', 'الركض ١٦ كم', true], ['Run 19 km at race pace', 'الركض ١٩ كم بسرعة السباق', false], ['Race day', 'يوم السباق', false]],
+        'app' => [['Clickable prototype', 'نموذج أولي تفاعلي', true], ['Offline sync', 'المزامنة دون اتصال', false], ['Recruit 20 beta testers', 'استقطاب ٢٠ مختبراً تجريبياً', false], ['Store listing and screenshots', 'صفحة المتجر واللقطات', false]],
+        'blog' => [['Pick six topics', 'اختيار ستة مواضيع', true], ['Article on design tokens', 'مقال عن رموز التصميم', true], ['Article on accessible colour', 'مقال عن الألوان سهلة الوصول', false], ['Article on Arabic typography', 'مقال عن الطباعة العربية', false]],
+        'promotion' => [['Lead the redesign launch', 'قيادة إطلاق إعادة التصميم', false], ['Mentor a junior designer', 'توجيه مصمم مبتدئ', true], ['Present the design system to leadership', 'عرض نظام التصميم على الإدارة', false]],
+    ];
+
+    /** [en, ar] */
+    public const FOCUS_NOTES = [
+        ['Got through the hardest part; next step is clear.', 'تجاوزت الجزء الأصعب؛ الخطوة التالية واضحة.'],
+        ['Phone in another room helped a lot.', 'إبعاد الهاتف إلى غرفة أخرى ساعد كثيراً.'],
+        ['Started slow, found flow after 20 minutes.', 'بداية بطيئة، ثم تركيز كامل بعد ٢٠ دقيقة.'],
+        ['Need data from Sam before continuing.', 'أحتاج بيانات من سام قبل المتابعة.'],
+    ];
+
+    /** [en, ar] */
+    public const REFLECTIONS = [
+        ['Good morning block; afternoon meetings drained me.', 'فترة صباحية جيدة؛ اجتماعات الظهيرة أرهقتني.'],
+        ['Slept badly, kept tasks small.', 'نمت بشكل سيئ، فأبقيت المهام صغيرة.'],
+        ['Long run in the morning, sharp all day.', 'جري طويل صباحاً، وتركيز عالٍ طوال اليوم.'],
+        ['Too much context switching.', 'تنقل كثير بين المهام.'],
+        ['Finished early and read for an hour.', 'أنهيت مبكراً وقرأت لمدة ساعة.'],
+    ];
+
     public const GOALS = [
         'promotion' => ['Get promoted to senior designer', 'الترقية إلى مصمم أول', 100, 65, 150, '#4f46e5'],
         'certificate' => ['Finish the data science certificate', 'إكمال شهادة علم البيانات', 10, 9, 40, '#0ea5e9'],
