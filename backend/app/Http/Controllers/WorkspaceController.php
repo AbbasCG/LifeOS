@@ -25,6 +25,8 @@ use Illuminate\Validation\ValidationException;
 
 class WorkspaceController extends Controller
 {
+    public const DASHBOARD_WIDGETS = ['suggestions', 'stats', 'next_moves', 'agenda', 'habits', 'goals', 'focus', 'weekly', 'review'];
+
     public const MODELS = ['tasks' => Task::class, 'projects' => Project::class, 'categories' => Category::class, 'events' => CalendarEvent::class, 'goals' => Goal::class, 'habits' => Habit::class];
 
     private function model(string $resource): string
@@ -137,8 +139,14 @@ class WorkspaceController extends Controller
                 if ($end <= $start) {
                     throw ValidationException::withMessages(['ends_at' => ['End must follow start.']]);
                 }
-                if (CalendarEvent::where('user_id', $request->user()->id)->when($id, fn ($q) => $q->where('id', '!=', $id))->where('starts_at', '<', $end)->where('ends_at', '>', $start)->exists()) {
-                    throw ValidationException::withMessages(['starts_at' => ['This time conflicts with an existing commitment. Choose another time.']]);
+                $timeChanged = $id && (! $start->equalTo($record->starts_at) || ! $end->equalTo($record->ends_at));
+                if ($timeChanged && $record->kind === 'fixed' && ($data['kind'] ?? 'fixed') === 'fixed' && ! $request->boolean('confirm_fixed')) {
+                    throw ValidationException::withMessages(['fixed' => ['This is a fixed commitment. Confirm before changing its time.']]);
+                }
+                unset($data['confirm_fixed']);
+                $conflict = CalendarEvent::where('user_id', $request->user()->id)->when($id, fn ($q) => $q->where('id', '!=', $id))->where('starts_at', '<', $end)->where('ends_at', '>', $start)->orderBy('starts_at')->first();
+                if ($conflict) {
+                    throw ValidationException::withMessages(['starts_at' => ["This time conflicts with “{$conflict->title}” ({$conflict->starts_at->toIso8601String()} – {$conflict->ends_at->toIso8601String()}). Choose another time."]]);
                 }
                 $data['starts_at'] = $start->utc();
                 $data['ends_at'] = $end->utc();
@@ -150,13 +158,8 @@ class WorkspaceController extends Controller
             $record->fill($data);
             $record->user_id = $request->user()->id;
             $record->save();
-            if ($resource === 'tasks' && ! $wasComplete && $record->status === 'completed' && $record->recurrence) {
-                $next = $record->replicate(['completed_at', 'scheduled_start', 'scheduled_end']);
-                $next->status = 'todo';
-                $next->actual_minutes = 0;
-                $next->due_at = ($record->due_at ?? CarbonImmutable::now())->addDays($record->recurrence === 'weekly' ? 7 : 1);
-                $next->subtasks = collect($record->subtasks ?? [])->map(fn ($s) => ['title' => $s['title'], 'completed' => false])->all();
-                $next->save();
+            if ($resource === 'tasks' && ! $wasComplete && $record->status === 'completed') {
+                $record->createNextOccurrence();
             }
 
             return new WorkspaceResource($record->fresh());
@@ -190,7 +193,7 @@ class WorkspaceController extends Controller
 
     public function saveSettings(Request $request): JsonResponse
     {
-        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i']);
+        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i']);
         $record = UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
         $prefs = array_replace($record->preferences, $data);
         if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {

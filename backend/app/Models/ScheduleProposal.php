@@ -13,6 +13,6 @@ class ScheduleProposal extends Model
 
     protected function casts(): array
     {
-        return ['items' => 'array', 'warnings' => 'array'];
+        return ['items' => 'array', 'warnings' => 'array', 'summary' => 'array', 'starts_on' => 'date:Y-m-d', 'accepted_at' => 'immutable_datetime'];
     }
 }

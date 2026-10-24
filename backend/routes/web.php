@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AvailabilityController;
 use App\Http\Controllers\FocusController;
 use App\Http\Controllers\InsightsController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PlanningController;
+use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -29,6 +31,10 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('overview', [WorkspaceController::class, 'overview']);
         Route::get('export', [WorkspaceController::class, 'export']);
         Route::get('briefing', [InsightsController::class, 'briefing']);
+        Route::get('availability', [AvailabilityController::class, 'index']);
+        Route::get('reviews/{week}', [ReviewController::class, 'show'])->where('week', '\d{4}-\d{2}-\d{2}');
+        Route::put('reviews/{week}', [ReviewController::class, 'save'])->where('week', '\d{4}-\d{2}-\d{2}');
+        Route::post('reviews/{week}/complete', [ReviewController::class, 'complete'])->where('week', '\d{4}-\d{2}-\d{2}');
         Route::get('analytics', [InsightsController::class, 'analytics']);
         Route::get('notifications', [NotificationController::class, 'index']);
         Route::get('notifications/unread', [NotificationController::class, 'unread']);
@@ -39,6 +45,11 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('focus-sessions', [FocusController::class, 'index']);
         Route::post('focus-sessions', [FocusController::class, 'store']);
         Route::patch('focus-sessions/{id}', [FocusController::class, 'update']);
+        Route::get('plans', [PlanningController::class, 'index']);
+        Route::get('plans/missed', [PlanningController::class, 'missed']);
+        Route::get('plans/insights', [PlanningController::class, 'insights']);
+        Route::get('plans/{id}', [PlanningController::class, 'show'])->whereNumber('id');
+        Route::patch('plans/{id}', [PlanningController::class, 'update'])->whereNumber('id');
         Route::post('plans', [PlanningController::class, 'generate']);
         Route::post('plans/{id}/accept', [PlanningController::class, 'accept']);
         Route::post('plans/{id}/reject', [PlanningController::class, 'reject']);
