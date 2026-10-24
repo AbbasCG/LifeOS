@@ -45,7 +45,6 @@ class PlanningTest extends TestCase
         $user = User::factory()->create();
         $this->actingAs($user);
         Task::create(['user_id' => $user->id, 'title' => 'Large task', 'estimated_minutes' => 600]);
-        $this->postJson('/api/plans', ['date' => '2027-01-04', 'days' => 1])->assertCreated()->assertJsonCount(0, 'items')->assertJsonCount(1,'warnings');
+        $this->postJson('/api/plans', ['date' => '2027-01-04', 'days' => 1])->assertCreated()->assertJsonCount(0, 'items')->assertJsonCount(1, 'warnings');
     }
 }
-

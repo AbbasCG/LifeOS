@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\CalendarEvent;
 use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Habit;
@@ -16,7 +15,7 @@ class BriefingService
 {
     public const PRIORITY_WEIGHTS = ['urgent' => 40, 'high' => 28, 'medium' => 16, 'low' => 6];
 
-    public function __construct(private HabitStreaks $streaks) {}
+    public function __construct(private HabitStreaks $streaks, private CalendarService $calendar) {}
 
     /**
      * Rank an open task by urgency and importance. Reasons are stable keys the client translates.
@@ -79,11 +78,7 @@ class BriefingService
         $dayEnd = $dayStart->addDay();
         $openTasks = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->limit(500)->get();
         $ranked = self::rank($openTasks, $now);
-        $events = CalendarEvent::where('user_id', $user->id)
-            ->where('ends_at', '>', $dayStart->utc())
-            ->where('starts_at', '<', $dayEnd->utc())
-            ->orderBy('starts_at')
-            ->get();
+        $events = $this->calendar->occurrences($user, $dayStart->utc(), $dayEnd->utc());
         $completedToday = Task::where('user_id', $user->id)->where('status', 'completed')->whereBetween('completed_at', [$dayStart->utc(), $dayEnd->utc()])->count();
         $focusMinutes = (int) floor(FocusSession::where('user_id', $user->id)->whereIn('kind', ['focus', 'manual'])->where('status', 'completed')->whereBetween('completed_at', [$dayStart->utc(), $dayEnd->utc()])->sum('elapsed_seconds') / 60);
         $overdue = $openTasks->filter(fn (Task $task) => $task->due_at && $task->due_at->isPast())->count();
@@ -92,9 +87,9 @@ class BriefingService
         $workStart = $dayStart->setTimeFromTimeString($prefs['work_start'] ?? '09:00');
         $workEnd = $dayStart->setTimeFromTimeString($prefs['work_end'] ?? '17:00');
         $availableMinutes = $isWorkDay ? (int) $workStart->diffInMinutes($workEnd) : 0;
-        $bookedMinutes = (int) $events->sum(function (CalendarEvent $event) use ($workStart, $workEnd) {
-            $start = max($event->starts_at, $workStart);
-            $end = min($event->ends_at, $workEnd);
+        $bookedMinutes = (int) $events->sum(function (array $event) use ($workStart, $workEnd) {
+            $start = max($event['starts_at'], $workStart);
+            $end = min($event['ends_at'], $workEnd);
 
             return $end > $start ? $start->diffInMinutes($end) : 0;
         });
@@ -133,8 +128,8 @@ class BriefingService
                 'score' => $row['score'],
                 'reasons' => $row['reasons'],
             ])->values(),
-            'agenda' => $events->map(fn (CalendarEvent $event) => ['id' => $event->id, 'title' => $event->title, 'kind' => $event->kind, 'task_id' => $event->task_id, 'starts_at' => $event->starts_at->toIso8601String(), 'ends_at' => $event->ends_at->toIso8601String()])->values(),
-            'next_event' => ($next = $events->first(fn (CalendarEvent $event) => $event->starts_at->isFuture())) ? ['id' => $next->id, 'title' => $next->title, 'starts_at' => $next->starts_at->toIso8601String()] : null,
+            'agenda' => $events->map(fn (array $event) => ['id' => $event['id'], 'title' => $event['title'], 'kind' => $event['kind'], 'source' => $event['source'], 'recurring' => $event['recurring'] ?? false, 'task_id' => $event['task_id'] ?? null, 'starts_at' => $event['starts_at']->toIso8601String(), 'ends_at' => $event['ends_at']->toIso8601String()])->values(),
+            'next_event' => ($next = $events->first(fn (array $event) => $event['starts_at']->isFuture())) ? ['id' => $next['id'], 'title' => $next['title'], 'starts_at' => $next['starts_at']->toIso8601String()] : null,
             'habits' => $habits,
             'goals' => $goals,
             'suggestions' => $this->suggestions($stats, $ranked, $habits, $remainingWork, $isWorkDay),

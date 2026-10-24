@@ -98,4 +98,19 @@ class InsightsTest extends TestCase
     {
         $this->actingAs(User::factory()->create())->getJson('/api/analytics?days=5')->assertUnprocessable();
     }
+
+    public function test_tiny_baselines_are_described_with_counts_not_percentages(): void
+    {
+        $this->travelTo(now()->setDate(2027, 1, 20)->setTime(12, 0));
+        $user = User::factory()->create();
+        Task::create(['user_id' => $user->id, 'title' => 'Old', 'status' => 'completed', 'completed_at' => now()->subDays(10)]);
+        for ($i = 0; $i < 6; $i++) {
+            Task::create(['user_id' => $user->id, 'title' => "New {$i}", 'status' => 'completed', 'completed_at' => now()->subDays(2)]);
+        }
+
+        $insights = collect($this->actingAs($user)->getJson('/api/analytics?days=7')->assertOk()->json('insights'))->pluck('en');
+
+        $this->assertTrue($insights->contains('You completed 6 tasks, up from 1 in the previous period.'));
+        $this->assertFalse($insights->contains(fn (string $text) => str_contains($text, '500%')));
+    }
 }

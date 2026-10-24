@@ -11,8 +11,10 @@ class InboxNotification extends Model
 
     protected $guarded = ['id'];
 
+    protected $hidden = ['deduplication_key'];
+
     protected function casts(): array
     {
-        return ['read_at' => 'immutable_datetime'];
+        return ['read_at' => 'immutable_datetime', 'pushed_at' => 'immutable_datetime'];
     }
 }

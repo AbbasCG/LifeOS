@@ -1,31 +1,33 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { ChevronLeft, ChevronRight, Plus, GripVertical, Lock, AlertTriangle, MousePointerClick, X, Eye, EyeOff } from 'lucide-react'
-import { api, type Availability, type RecordItem } from '../lib/api'
+import { ChevronLeft, ChevronRight, Plus, GripVertical, Lock, AlertTriangle, MousePointerClick, X, Eye, EyeOff, Repeat, Globe } from 'lucide-react'
+import { api, type Availability, type CalendarOccurrence, type RecordItem } from '../lib/api'
+import { useCalendar } from '../lib/useCalendar'
+import EventForm from './EventForm'
 import { useRecords, localDate } from '../lib/hooks'
 import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { minutesLabel } from '../lib/dates'
-import { RecordForm, useStatusLabel } from './ResourcePage'
+import { useStatusLabel } from './ResourcePage'
 import { Empty, ErrorMessage } from '../components/ui/Shared'
 import { atMinutes, findConflict, layoutLanes, minutesInto, movePreview, overlappingIds, resizePreview, snap } from '../lib/calendar'
 
 const HOUR = 52
-type Drag = { item: RecordItem; mode: 'move' | 'resize'; locked: boolean; pointerId: number; startX: number; startY: number; origStart: Date; origEnd: Date; origDay: Date; moved: boolean }
-type Preview = { id: number; start: Date; end: Date; dayIndex: number; conflict?: RecordItem }
+type Drag = { item: CalendarOccurrence; mode: 'move' | 'resize'; locked: boolean; pointerId: number; startX: number; startY: number; origStart: Date; origEnd: Date; origDay: Date; moved: boolean }
+type Preview = { id: string; start: Date; end: Date; dayIndex: number; conflict?: CalendarOccurrence }
 
 export default function CalendarPage() {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar', label = useStatusLabel(), toast = useToast()
   const [date, setDate] = useState(localDate()), [view, setView] = useState(() => window.innerWidth < 700 ? 'day' : 'week')
-  const [editing, setEditing] = useState<Partial<RecordItem> | null>(null)
+  const [editing, setEditing] = useState<Partial<CalendarOccurrence> | null>(null)
   const [now, setNow] = useState(() => new Date()), [busy, setBusy] = useState(false), [showFree, setShowFree] = useState(true)
   const [preview, setPreview] = useState<Preview | null>(null), [placing, setPlacing] = useState<RecordItem | null>(null), [dropHint, setDropHint] = useState<{ dayIndex: number; minutes: number } | null>(null)
   const scroller = useRef<HTMLDivElement>(null), columns = useRef<(HTMLDivElement | null)[]>([]), drag = useRef<Drag | null>(null), previewRef = useRef<Preview | null>(null), suppressClick = useRef(false)
   const start = new Date(`${date}T00:00`)
   if (view === 'month') start.setDate(1); else if (view === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
   const end = new Date(start); end.setDate(end.getDate() + (view === 'month' ? new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate() : view === 'day' ? 1 : 7))
-  const data = useRecords('events', `per_page=100&from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`)
+  const data = useCalendar(start, end)
   const tasks = useRecords('tasks', 'per_page=50&due=open&sort=priority')
   const days = Array.from({ length: Math.round((end.getTime() - start.getTime()) / 86400000) }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return d })
   const availability = useApi<Availability>(`/api/availability?date=${localDate(start)}&days=${days.length}`)
@@ -39,7 +41,7 @@ export default function CalendarPage() {
 
   function shift(direction: number) { const d = new Date(`${date}T12:00`); if (view === 'month') d.setMonth(d.getMonth() + direction); else d.setDate(d.getDate() + direction * (view === 'day' ? 1 : 7)); setDate(localDate(d)) }
   function eventsOn(day: Date) { const next = new Date(day); next.setDate(next.getDate() + 1); return data.items.filter(i => new Date(i.starts_at!) < next && new Date(i.ends_at!) > day) }
-  function refresh() { void data.reload(); availability.reload() }
+  function refresh() { data.reload(); availability.reload() }
   async function save(fn: () => Promise<unknown>, success?: string) {
     setBusy(true)
     try { await fn(); data.setError(''); if (success) toast(success); refresh(); return true } catch (e) { toast((e as Error).message, 'error'); refresh(); return false } finally { setBusy(false) }
@@ -47,24 +49,27 @@ export default function CalendarPage() {
   const time = (value: string | Date) => new Date(value).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
 
   /** Persist a moved/resized block optimistically, with undo. */
-  async function commit(item: RecordItem, nextStart: Date, nextEnd: Date) {
+  async function commit(item: CalendarOccurrence, nextStart: Date, nextEnd: Date) {
+    if (!item.editable || !item.event_id) { toast(t('This event is synced from another calendar and is read-only here.', 'هذا الموعد متزامن من تقويم آخر وهو للقراءة فقط هنا.'), 'info'); return }
     const conflict = findConflict(data.items, item.id, nextStart, nextEnd)
     if (conflict) { toast(t(`That time overlaps “${conflict.title}”. The block was not moved.`, `هذا الوقت يتداخل مع «${conflict.title}». لم يتم نقل الفترة.`), 'error'); return }
-    const before = { starts_at: item.starts_at!, ends_at: item.ends_at! }
+    const scope = item.recurring ? { scope: 'occurrence', occurrence_start: item.occurrence_start } : {}
+    const before = { ...scope, starts_at: item.starts_at, ends_at: item.ends_at }
     data.setItems(data.items.map(i => i.id === item.id ? { ...i, starts_at: nextStart.toISOString(), ends_at: nextEnd.toISOString() } : i))
-    const ok = await save(() => api(`/api/events/${item.id}`, 'PATCH', { starts_at: nextStart.toISOString(), ends_at: nextEnd.toISOString() }))
-    if (ok) toast(t(`“${item.title}” now ${time(nextStart)} – ${time(nextEnd)}.`, `«${item.title}» الآن ${time(nextStart)} – ${time(nextEnd)}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void save(() => api(`/api/events/${item.id}`, 'PATCH', before), t('Change undone.', 'تم التراجع عن التغيير.')) })
+    const ok = await save(() => api(`/api/events/${item.event_id}`, 'PATCH', { ...scope, starts_at: nextStart.toISOString(), ends_at: nextEnd.toISOString() }))
+    const message = item.recurring ? t(`Only this “${item.title}” moved to ${time(nextStart)} – ${time(nextEnd)}. The series is unchanged.`, `نُقل هذا الموعد «${item.title}» فقط إلى ${time(nextStart)} – ${time(nextEnd)}. السلسلة كما هي.`) : t(`“${item.title}” now ${time(nextStart)} – ${time(nextEnd)}.`, `«${item.title}» الآن ${time(nextStart)} – ${time(nextEnd)}.`)
+    if (ok) toast(message, 'success', { label: t('Undo', 'تراجع'), onClick: () => void save(() => api(`/api/events/${item.event_id}`, 'PATCH', before), t('Change undone.', 'تم التراجع عن التغيير.')) })
   }
 
   function dayIndexAt(clientX: number, fallback: number) {
     const index = columns.current.findIndex(col => { if (!col) return false; const r = col.getBoundingClientRect(); return clientX >= r.left && clientX <= r.right })
     return index >= 0 ? index : fallback
   }
-  function beginDrag(e: ReactPointerEvent<HTMLElement>, item: RecordItem, mode: Drag['mode'], dayIndex: number) {
+  function beginDrag(e: ReactPointerEvent<HTMLElement>, item: CalendarOccurrence, mode: Drag['mode'], dayIndex: number) {
     if (e.button !== 0) return
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = { item, mode, locked: item.kind === 'fixed', pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origStart: new Date(item.starts_at!), origEnd: new Date(item.ends_at!), origDay: days[dayIndex], moved: false }
+    drag.current = { item, mode, locked: item.kind === 'fixed' || !item.editable, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origStart: new Date(item.starts_at!), origEnd: new Date(item.ends_at!), origDay: days[dayIndex], moved: false }
   }
   function moveDrag(e: ReactPointerEvent<HTMLElement>) {
     const d = drag.current
@@ -72,7 +77,7 @@ export default function CalendarPage() {
     const dy = e.clientY - d.startY
     if (!d.moved && Math.hypot(e.clientX - d.startX, dy) < 5) return
     d.moved = true
-    if (d.locked) { drag.current = null; toast(t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.'), 'info'); return }
+    if (d.locked) { drag.current = null; toast(d.item.editable ? t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.') : t('This event is synced from another calendar and is read-only here.', 'هذا الموعد متزامن من تقويم آخر وهو للقراءة فقط هنا.'), 'info'); return }
     const delta = dy / HOUR * 60
     const origIndex = days.findIndex(day => localDate(day) === localDate(d.origDay))
     const dayIndex = d.mode === 'move' ? dayIndexAt(e.clientX, origIndex) : origIndex
@@ -93,11 +98,11 @@ export default function CalendarPage() {
     void commit(d.item, p.start, p.end)
   }
   function cancelDrag() { drag.current = null; previewRef.current = null; setPreview(null) }
-  function onEventKey(e: KeyboardEvent<HTMLElement>, item: RecordItem, day: Date) {
+  function onEventKey(e: KeyboardEvent<HTMLElement>, item: CalendarOccurrence, day: Date) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(item); return }
     if (!e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return
     e.preventDefault()
-    if (item.kind === 'fixed') { toast(t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.'), 'info'); return }
+    if (item.kind === 'fixed' || !item.editable) { toast(t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.'), 'info'); return }
     const delta = e.key === 'ArrowUp' ? -15 : 15, s = new Date(item.starts_at!), en = new Date(item.ends_at!)
     const next = e.shiftKey ? resizePreview(s, en, day, delta) : movePreview(s, en, day, day, delta)
     void commit(item, next.start, next.end)
@@ -157,13 +162,13 @@ export default function CalendarPage() {
                 const dayStart = day.getTime(), dayEnd = dayStart + 86400000
                 const top = (Math.max(s.getTime(), dayStart) - dayStart) / 3600000 * HOUR
                 const height = Math.max(22, (Math.min(en.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
-                const flexible = item.kind !== 'fixed', active = preview?.id === item.id
+                const flexible = item.kind !== 'fixed' && item.editable, active = preview?.id === item.id, external = item.source !== 'lifeos'
                 return <article key={item.id} role="button" tabIndex={0} aria-label={`${item.title}, ${time(s)} – ${time(en)}${flexible ? '' : `, ${t('fixed', 'ثابت')}`}`} aria-describedby="calendar-keyboard-help"
-                  className={`grid-event kind-${item.kind} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
+                  className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
                   style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
                   onClick={() => { if (!suppressClick.current) setEditing(item) }} onKeyDown={e => onEventKey(e, item, day)}>
-                  {flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : <Lock size={11} className="lock" aria-hidden="true" />}
+                  {item.recurring && <Repeat size={10} className="recurring-mark" aria-label={t('Repeats', 'متكرر')} />}{external && <Globe size={10} className="recurring-mark" aria-label={t('External calendar', 'تقويم خارجي')} />}{flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : !external && <Lock size={11} className="lock" aria-hidden="true" />}
                   <strong>{item.title}</strong><small>{time(s)} – {time(en)}</small>
                   {flexible && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
                 </article>
@@ -181,7 +186,7 @@ export default function CalendarPage() {
         if (view === 'agenda' && !events.length) return null
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === localDate(now) ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
           <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
-          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)} – {time(item.ends_at!)}</small><strong>{item.title}</strong><small>{item.kind === 'fixed' ? <><Lock size={10} /> {t('Fixed', 'ثابت')}</> : t('Flexible', 'مرن')}</small></button>{item.kind !== 'fixed' && <button className="quiet" disabled={busy} onClick={() => void commit(item, new Date(item.starts_at!), new Date(new Date(item.ends_at!).getTime() + 15 * 60000))}>{t('+15 min', '+١٥ دقيقة')}</button>}</article>)}
+          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)} – {time(item.ends_at!)}</small><strong>{item.title}</strong><small>{item.source !== 'lifeos' ? <><Globe size={10} /> {item.source === 'google' ? 'Google' : 'Outlook'}</> : item.kind === 'fixed' ? <><Lock size={10} /> {t('Fixed', 'ثابت')}</> : t('Flexible', 'مرن')}{item.recurring && <> · <Repeat size={10} /></>}</small></button>{item.kind !== 'fixed' && item.editable && <button className="quiet" disabled={busy} onClick={() => void commit(item, new Date(item.starts_at!), new Date(new Date(item.ends_at!).getTime() + 15 * 60000))}>{t('+15 min', '+١٥ دقيقة')}</button>}</article>)}
           {events.length === 0 && <p className="free-slot">{t('Open time', 'وقت متاح')}</p>}
         </section>
       })}{view === 'agenda' && data.items.length === 0 && <Empty>{t('Nothing scheduled in this period.', 'لا شيء مجدول في هذه الفترة.')}</Empty>}</div>}
@@ -194,6 +199,6 @@ export default function CalendarPage() {
         </li>)}</ul>}
       </aside>}
     </div>
-    {editing && <RecordForm resource="events" item={editing} onSave={refresh} onClose={() => setEditing(null)} />}
+    {editing && <EventForm item={editing} tasks={tasks.items} onSaved={refresh} onClose={() => setEditing(null)} />}
   </section>
 }

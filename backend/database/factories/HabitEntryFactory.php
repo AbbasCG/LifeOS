@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Habit;
 use App\Models\HabitEntry;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -17,8 +18,6 @@ class HabitEntryFactory extends Factory
      */
     public function definition(): array
     {
-        return [
-            //
-        ];
+        return ['habit_id' => Habit::factory(), 'date' => now()->subDays(fake()->numberBetween(0, 30))->toDateString()];
     }
 }

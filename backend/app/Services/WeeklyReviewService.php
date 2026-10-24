@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\FireAutomations;
 use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Habit;
@@ -158,6 +159,7 @@ class WeeklyReviewService
             }
             $snapshot = $this->build($user, $start)['metrics'];
             $review->update(['status' => 'completed', 'completed_at' => now(), 'snapshot' => $snapshot + ['applied' => $applied]]);
+            FireAutomations::dispatch($user->id, 'weekly_review_completed', $review->id)->afterCommit();
 
             return ['applied' => $applied];
         });

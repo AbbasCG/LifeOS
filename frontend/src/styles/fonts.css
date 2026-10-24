@@ -1,0 +1,44 @@
+/* Thmanyah typefaces (Thmanyah Publishing & Distribution), served locally from /fonts/thmanyah — no font CDN.
+ * The files are licensed and NOT committed (see public/fonts/thmanyah/README.md); without them the stacks fall back to Inter/system fonts.
+ * "Thmanyah Sans" covers every glyph in the font and is the primary family in Arabic (RTL) layouts.
+ * "Thmanyah Sans Arabic" points at the same files but only for Arabic code points, so English (LTR)
+ * pages keep Inter for Latin text and only download Thmanyah when Arabic text is actually shown.
+ * Weight ranges map the UI's 550/600 "semibold" to Medium, which reads better than Bold in Arabic. */
+@font-face { font-family: "Thmanyah Sans"; src: url("/fonts/thmanyah/thmanyahsans-Light.woff2") format("woff2"); font-weight: 100 349; font-style: normal; font-display: swap; }
+@font-face { font-family: "Thmanyah Sans"; src: url("/fonts/thmanyah/thmanyahsans-Regular.woff2") format("woff2"); font-weight: 350 449; font-style: normal; font-display: swap; }
+@font-face { font-family: "Thmanyah Sans"; src: url("/fonts/thmanyah/thmanyahsans-Medium.woff2") format("woff2"); font-weight: 450 649; font-style: normal; font-display: swap; }
+@font-face { font-family: "Thmanyah Sans"; src: url("/fonts/thmanyah/thmanyahsans-Bold.woff2") format("woff2"); font-weight: 650 849; font-style: normal; font-display: swap; }
+@font-face { font-family: "Thmanyah Sans"; src: url("/fonts/thmanyah/thmanyahsans-Black.woff2") format("woff2"); font-weight: 850 1000; font-style: normal; font-display: swap; }
+
+@font-face { font-family: "Thmanyah Sans Arabic"; src: url("/fonts/thmanyah/thmanyahsans-Light.woff2") format("woff2"); font-weight: 100 349; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2E41; }
+@font-face { font-family: "Thmanyah Sans Arabic"; src: url("/fonts/thmanyah/thmanyahsans-Regular.woff2") format("woff2"); font-weight: 350 449; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2E41; }
+@font-face { font-family: "Thmanyah Sans Arabic"; src: url("/fonts/thmanyah/thmanyahsans-Medium.woff2") format("woff2"); font-weight: 450 649; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2E41; }
+@font-face { font-family: "Thmanyah Sans Arabic"; src: url("/fonts/thmanyah/thmanyahsans-Bold.woff2") format("woff2"); font-weight: 650 849; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2E41; }
+@font-face { font-family: "Thmanyah Sans Arabic"; src: url("/fonts/thmanyah/thmanyahsans-Black.woff2") format("woff2"); font-weight: 850 1000; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2E41; }
+
+@font-face { font-family: "Thmanyah Serif Display"; src: url("/fonts/thmanyah/thmanyahserifdisplay-Bold.woff2") format("woff2"); font-weight: 100 849; font-style: normal; font-display: swap; }
+@font-face { font-family: "Thmanyah Serif Display"; src: url("/fonts/thmanyah/thmanyahserifdisplay-Black.woff2") format("woff2"); font-weight: 850 1000; font-style: normal; font-display: swap; }
+
+:root {
+  --font-latin: "Inter", "Thmanyah Sans Arabic", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-arabic: "Thmanyah Sans", "Inter", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  --font-display-arabic: "Thmanyah Serif Display", "Thmanyah Sans", "Inter", serif;
+  --font-ui: var(--font-latin);
+}
+[dir="rtl"] { --font-ui: var(--font-arabic); }
+
+html, body { font-family: var(--font-ui); }
+button, input, select, textarea, dialog, code.secret, .toast { font-family: inherit; }
+
+/* Arabic is cursive: tracking breaks letter joining, and its taller glyphs need more line height. */
+[dir="rtl"] body { line-height: 1.65; }
+[dir="rtl"] *, [dir="rtl"] *::before, [dir="rtl"] *::after { letter-spacing: normal !important; }
+[dir="rtl"] h1, [dir="rtl"] h2, [dir="rtl"] h3 { line-height: 1.4; }
+
+/* Selected large Arabic headings use the serif display face. */
+[dir="rtl"] h1,
+[dir="rtl"] .chat-empty h2,
+[dir="rtl"] .display-heading { font-family: var(--font-display-arabic); font-weight: 700; }
+
+/* Codes, keys and numbers stay legible and left-to-right in both directions. */
+.secret, .recovery-codes code, .code-form input, time, .tabular { font-variant-numeric: tabular-nums; }

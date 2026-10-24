@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\CalendarEvent;
+use App\Services\CalendarService;
 use App\Services\PlanningService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -13,15 +13,14 @@ class AvailabilityController extends Controller
     /**
      * Free time within working hours for each day in the range.
      */
-    public function index(Request $request, PlanningService $planner): JsonResponse
+    public function index(Request $request, PlanningService $planner, CalendarService $calendar): JsonResponse
     {
         $data = $request->validate(['date' => 'required|date_format:Y-m-d', 'days' => 'sometimes|integer|min:1|max:42', 'min_minutes' => 'sometimes|integer|min:5|max:480']);
         $c = $planner->config($request->user());
         $first = CarbonImmutable::parse($data['date'], $c['tz'])->startOfDay();
         $days = (int) ($data['days'] ?? 1);
         $minimum = (int) ($data['min_minutes'] ?? 15);
-        $busy = CalendarEvent::where('user_id', $request->user()->id)->where('ends_at', '>', $first->utc())->where('starts_at', '<', $first->addDays($days)->utc())->get()
-            ->map(fn (CalendarEvent $e) => [$e->starts_at, $e->ends_at])->all();
+        $busy = $calendar->occurrences($request->user(), $first->utc(), $first->addDays($days)->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
         $result = [];
         for ($d = 0; $d < $days; $d++) {
             $local = $first->addDays($d);

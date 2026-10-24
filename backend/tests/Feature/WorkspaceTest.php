@@ -84,7 +84,7 @@ class WorkspaceTest extends TestCase
         $id = $this->postJson('/api/habits', ['title' => 'Read'])->assertCreated()->json('data.id');
         $entry = ['date' => now()->toDateString(), 'completed' => true];
         $this->putJson('/api/habits/'.$id.'/entry', $entry)->assertOk();
-        $this->putJson('/api/habits/'.$id.'/entry',$entry)->assertOk();
-        $this->assertDatabaseCount('habit_entries',1);
+        $this->putJson('/api/habits/'.$id.'/entry', $entry)->assertOk();
+        $this->assertDatabaseCount('habit_entries', 1);
     }
 }

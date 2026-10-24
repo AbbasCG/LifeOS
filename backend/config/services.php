@@ -35,4 +35,29 @@ return [
         ],
     ],
 
+    /*
+     * Read-only calendar integrations. Leave the client id empty to keep a provider disabled.
+     * Redirect URIs must be registered with the provider exactly as configured here.
+     */
+    'google_calendar' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', rtrim((string) env('FRONTEND_URL', 'http://localhost:5173'), '/').'/api/integrations/google/callback'),
+    ],
+
+    'microsoft_calendar' => [
+        'client_id' => env('MICROSOFT_CLIENT_ID'),
+        'client_secret' => env('MICROSOFT_CLIENT_SECRET'),
+        'tenant' => env('MICROSOFT_TENANT', 'common'),
+        'redirect' => env('MICROSOFT_REDIRECT_URI', rtrim((string) env('FRONTEND_URL', 'http://localhost:5173'), '/').'/api/integrations/outlook/callback'),
+    ],
+
+    'webpush' => [
+        // Generate with `php artisan lifeos:vapid-keys`. Without these, push stays disabled and in-app notifications still work.
+        'public_key' => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+        'subject' => env('VAPID_SUBJECT'),
+        'allowed_hosts' => explode(',', (string) env('PUSH_ALLOWED_HOSTS', 'fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,notify.windows.com,push.apple.com')),
+    ],
+
 ];

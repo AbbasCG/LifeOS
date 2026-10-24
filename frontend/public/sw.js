@@ -60,3 +60,34 @@ self.addEventListener('fetch', event => {
     })())
   }
 })
+
+/* Browser push. The payload is encrypted end-to-end by the server (RFC 8291); it contains only a title, short
+ * body and an in-app link. Links are restricted to this origin. */
+self.addEventListener('push', event => {
+  let data = {}
+  try { data = event.data ? event.data.json() : {} } catch { data = { title: event.data ? event.data.text() : 'LifeOS' } }
+  const title = typeof data.title === 'string' && data.title ? data.title : 'LifeOS'
+  event.waitUntil(self.registration.showNotification(title, {
+    body: typeof data.body === 'string' ? data.body : '',
+    tag: typeof data.tag === 'string' ? data.tag : undefined,
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    data: { link: typeof data.link === 'string' && data.link.startsWith('/') && !data.link.startsWith('//') ? data.link : '/' },
+  }))
+})
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  const target = new URL(event.notification.data && event.notification.data.link || '/', self.location.origin).href
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const existing = windows.find(client => new URL(client.url).origin === self.location.origin)
+    if (existing) { await existing.focus(); if ('navigate' in existing) await existing.navigate(target); return }
+    await self.clients.openWindow(target)
+  })())
+})
+
+self.addEventListener('pushsubscriptionchange', event => {
+  // The browser rotated the subscription; the app re-registers it the next time it opens.
+  event.waitUntil(Promise.resolve())
+})

@@ -13,9 +13,11 @@ const RANGES = [7, 14, 30, 90]
 const axis = { stroke: 'var(--color-text-muted)', fontSize: 11, tickLine: false, axisLine: false }
 const tooltipStyle = { contentStyle: { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, fontSize: 12, color: 'var(--color-text)' }, cursor: { fill: 'var(--color-surface-muted)' } }
 
-function Change({ value }: { value: number | null }) {
+function Change({ value, smallBase }: { value: number | null; smallBase?: string }) {
   const t = useText()
   if (value === null) return <small className="muted">{t('No previous data', 'لا توجد بيانات سابقة')}</small>
+  // Percentages on a tiny baseline (e.g. 1 → 33 tasks = +3200%) mislead; show the previous amount instead.
+  if (smallBase !== undefined) return <small className="muted">{t(`${smallBase} in the previous period`, `${smallBase} في الفترة السابقة`)}</small>
   const Icon = value >= 0 ? TrendingUp : TrendingDown
   return <small className={`change ${value >= 0 ? 'up' : 'down'}`}><Icon size={14} />{value > 0 ? '+' : ''}{value}% {t('vs previous', 'عن السابق')}</small>
 }
@@ -40,8 +42,8 @@ export default function AnalyticsPage() {
     <ErrorMessage error={error} />
     {!data ? <div className="stats-grid">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} height={120} />)}</div> : <div className={`analytics-body ${loading ? 'is-loading' : ''}`}>
       <div className="stats-grid">
-        <div className="stat reveal"><span>{t('Tasks completed', 'مهام منجزة')}</span><strong>{data.totals.completed}</strong><Change value={data.comparison.completed.change} /></div>
-        <div className="stat reveal"><span>{t('Focus time', 'وقت التركيز')}</span><strong>{(data.totals.focus_minutes / 60).toFixed(1)}{t('h', 'س')}</strong><Change value={data.comparison.focus_minutes.change} /></div>
+        <div className="stat reveal"><span>{t('Tasks completed', 'مهام منجزة')}</span><strong>{data.totals.completed}</strong><Change value={data.comparison.completed.change} smallBase={data.comparison.completed.previous < 3 ? String(data.comparison.completed.previous) : undefined} /></div>
+        <div className="stat reveal"><span>{t('Focus time', 'وقت التركيز')}</span><strong>{(data.totals.focus_minutes / 60).toFixed(1)}{t('h', 'س')}</strong><Change value={data.comparison.focus_minutes.change} smallBase={data.comparison.focus_minutes.previous < 180 ? `${(data.comparison.focus_minutes.previous / 60).toFixed(1)}${t('h', 'س')}` : undefined} /></div>
         <div className="stat reveal"><span>{t('On-time completion', 'الإنجاز في الوقت')}</span><strong>{data.totals.on_time_rate === null ? '—' : `${data.totals.on_time_rate}%`}</strong><small className="muted">{t('Of tasks with deadlines', 'من المهام ذات المواعيد')}</small></div>
         <div className="stat reveal"><span>{t('Estimate accuracy', 'دقة التقدير')}</span><strong>{data.totals.estimate_ratio === null ? '—' : `${data.totals.estimate_ratio}×`}</strong><small className="muted">{data.totals.estimate_ratio === null ? t('Track focus on tasks to measure', 'سجّل التركيز على المهام للقياس') : t(`${data.totals.actual_minutes} actual vs ${data.totals.estimated_minutes} estimated min`, `${data.totals.actual_minutes} فعلية مقابل ${data.totals.estimated_minutes} مقدرة`)}</small></div>
       </div>

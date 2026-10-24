@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class CalendarAccount extends Model
+{
+    protected $guarded = ['id'];
+
+    /** Tokens never leave the server. */
+    protected $hidden = ['access_token', 'refresh_token', 'scopes'];
+
+    protected function casts(): array
+    {
+        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime'];
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /** @return HasMany<ExternalEvent, $this> */
+    public function events(): HasMany
+    {
+        return $this->hasMany(ExternalEvent::class);
+    }
+
+    /**
+     * Safe representation for the API.
+     *
+     * @return array<string, mixed>
+     */
+    public function summary(): array
+    {
+        return [
+            'id' => $this->id,
+            'provider' => $this->provider,
+            'email' => $this->email,
+            'display_name' => $this->display_name,
+            'status' => $this->status,
+            'last_synced_at' => $this->last_synced_at?->toIso8601String(),
+            'last_error' => $this->last_error,
+            'events_count' => $this->events_count,
+            'connected_at' => $this->created_at?->toIso8601String(),
+        ];
+    }
+}

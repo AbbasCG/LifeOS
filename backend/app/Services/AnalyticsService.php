@@ -169,7 +169,13 @@ class AnalyticsService
             $insights[] = ['type' => 'info', 'en' => self::WEEKDAYS_EN[$day].' is your strongest focus day.', 'ar' => 'يوم '.self::WEEKDAYS_AR[$day].' هو أقوى أيام تركيزك.'];
         }
         $change = $comparison['completed']['change'];
-        if ($change !== null && $change >= 10) {
+        $previousCompleted = $comparison['completed']['previous'];
+        if ($change !== null && $previousCompleted < 3) {
+            // A tiny baseline turns into misleading percentages (e.g. "+3200%"); describe the counts instead.
+            if ($totals['completed'] > $previousCompleted) {
+                $insights[] = ['type' => 'positive', 'en' => "You completed {$totals['completed']} tasks, up from {$previousCompleted} in the previous period.", 'ar' => "أنجزت {$totals['completed']} مهمة مقارنة بـ {$previousCompleted} في الفترة السابقة."];
+            }
+        } elseif ($change !== null && $change >= 10) {
             $insights[] = ['type' => 'positive', 'en' => "You completed {$change}% more tasks than the previous period.", 'ar' => "أنجزت مهاماً أكثر بنسبة {$change}٪ مقارنة بالفترة السابقة."];
         } elseif ($change !== null && $change <= -10) {
             $drop = abs($change);
