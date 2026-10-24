@@ -4,7 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ResourceRequest;
 use App\Http\Resources\WorkspaceResource;
+use App\Models\AssistantProposal;
+use App\Models\AutomationRule;
+use App\Models\AutomationRun;
 use App\Models\CalendarEvent;
+use App\Models\CalendarEventException;
 use App\Models\Category;
 use App\Models\FocusSession;
 use App\Models\Goal;
@@ -15,6 +19,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Models\UserSetting;
 use App\Policies\OwnedResourcePolicy;
+use App\Services\AuditLogger;
 use App\Services\HabitStreaks;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
@@ -61,6 +66,9 @@ class WorkspaceController extends Controller
             if ($request->filled('project_id')) {
                 $query->where('project_id', $request->integer('project_id'));
             }
+            if ($request->filled('goal_id')) {
+                $query->where('goal_id', $request->integer('goal_id'));
+            }
             if ($request->filled('category_id')) {
                 $query->where('category_id', $request->integer('category_id'));
             }
@@ -91,7 +99,7 @@ class WorkspaceController extends Controller
             $sort === 'title' => $query->orderBy('title'),
             $sort === 'updated_at' => $query->orderByDesc('updated_at'),
             $sort === 'due_at' && in_array($resource, ['tasks', 'projects', 'goals']) => $query->orderByRaw('due_at IS NULL, due_at ASC'),
-            $sort === 'priority' && $resource === 'tasks' => $query->orderByRaw("CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")->orderByRaw('due_at IS NULL, due_at ASC'),
+            $sort === 'priority' && $resource === 'tasks' => $query->orderByRaw("CASE WHEN status IN ('completed', 'cancelled') THEN 1 ELSE 0 END")->orderByRaw("CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")->orderByRaw('due_at IS NULL, due_at ASC'),
             $resource === 'events' => $query->orderBy('starts_at'),
             default => $query->orderByDesc('created_at'),
         };
@@ -133,24 +141,6 @@ class WorkspaceController extends Controller
             $model = $this->model($resource);
             $record = $id ? $this->owned($request, $resource, $id) : new $model;
             $data = $request->validated();
-            if ($resource === 'events') {
-                $start = CarbonImmutable::parse($data['starts_at'] ?? $record->starts_at);
-                $end = CarbonImmutable::parse($data['ends_at'] ?? $record->ends_at);
-                if ($end <= $start) {
-                    throw ValidationException::withMessages(['ends_at' => ['End must follow start.']]);
-                }
-                $timeChanged = $id && (! $start->equalTo($record->starts_at) || ! $end->equalTo($record->ends_at));
-                if ($timeChanged && $record->kind === 'fixed' && ($data['kind'] ?? 'fixed') === 'fixed' && ! $request->boolean('confirm_fixed')) {
-                    throw ValidationException::withMessages(['fixed' => ['This is a fixed commitment. Confirm before changing its time.']]);
-                }
-                unset($data['confirm_fixed']);
-                $conflict = CalendarEvent::where('user_id', $request->user()->id)->when($id, fn ($q) => $q->where('id', '!=', $id))->where('starts_at', '<', $end)->where('ends_at', '>', $start)->orderBy('starts_at')->first();
-                if ($conflict) {
-                    throw ValidationException::withMessages(['starts_at' => ["This time conflicts with “{$conflict->title}” ({$conflict->starts_at->toIso8601String()} – {$conflict->ends_at->toIso8601String()}). Choose another time."]]);
-                }
-                $data['starts_at'] = $start->utc();
-                $data['ends_at'] = $end->utc();
-            }
             $wasComplete = $record->status === 'completed';
             if ($resource === 'tasks' && isset($data['status'])) {
                 $data['completed_at'] = $data['status'] === 'completed' ? ($record->completed_at ?? now()) : null;
@@ -193,7 +183,7 @@ class WorkspaceController extends Controller
 
     public function saveSettings(Request $request): JsonResponse
     {
-        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i']);
+        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean']);
         $record = UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
         $prefs = array_replace($record->preferences, $data);
         if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {
@@ -225,11 +215,16 @@ class WorkspaceController extends Controller
 
     public function export(Request $request): JsonResponse
     {
+        app(AuditLogger::class)->log($request->user(), 'data_exported', $request);
         $data = ['profile' => $request->user()->only('name', 'email'), 'exported_at' => now()->toIso8601String()];
         foreach (self::MODELS as $key => $model) {
             $data[$key] = $model::where('user_id', $request->user()->id)->get()->makeHidden('user_id');
         } $data['settings'] = UserSetting::where('user_id', $request->user()->id)->first()?->preferences;
         $data['focus_sessions'] = FocusSession::where('user_id', $request->user()->id)->get()->makeHidden('user_id');
+        $data['event_exceptions'] = CalendarEventException::whereIn('calendar_event_id', CalendarEvent::where('user_id', $request->user()->id)->select('id'))->get();
+        $data['assistant_proposals'] = AssistantProposal::where('user_id', $request->user()->id)->get();
+        $data['automation_rules'] = AutomationRule::where('user_id', $request->user()->id)->get();
+        $data['automation_runs'] = AutomationRun::where('user_id', $request->user()->id)->latest()->limit(1000)->get();
         $data['habit_entries'] = HabitEntry::whereIn('habit_id', Habit::where('user_id', $request->user()->id)->select('id'))->get();
 
         return response()->json($data);

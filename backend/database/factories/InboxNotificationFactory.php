@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\InboxNotification;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -17,8 +18,6 @@ class InboxNotificationFactory extends Factory
      */
     public function definition(): array
     {
-        return [
-            //
-        ];
+        return ['user_id' => User::factory(), 'title' => fake()->sentence(5), 'kind' => 'info', 'category' => fake()->randomElement(['reminders', 'deadlines', 'calendar', 'planning']), 'link' => '/tasks', 'deduplication_key' => 'factory:'.fake()->uuid()];
     }
 }

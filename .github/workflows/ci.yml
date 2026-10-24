@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Laravel (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, pgsql]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lifeos
+          POSTGRES_PASSWORD: lifeos
+          POSTGRES_DB: lifeos_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U lifeos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Throwaway credentials for the CI-only database service above; no repository secrets are needed.
+      DB_CONNECTION: ${{ matrix.database }}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: ${{ matrix.database == 'pgsql' && 'lifeos_test' || ':memory:' }}
+      DB_USERNAME: lifeos
+      DB_PASSWORD: lifeos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_pgsql, pdo_sqlite, intl, openssl
+          coverage: none
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+      - name: Code style (Pint)
+        if: matrix.database == 'sqlite'
+        run: vendor/bin/pint --test
+      - name: Run migrations against PostgreSQL
+        if: matrix.database == 'pgsql'
+        run: php artisan migrate --force --no-interaction
+      - name: Tests
+        run: php vendor/bin/phpunit
+      - name: Dependency audit
+        if: matrix.database == 'sqlite'
+        run: composer audit --no-interaction
+
+  frontend:
+    name: React
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc -b
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+        env:
+          LIFEOS_BUILD_ID: ${{ github.sha }}
+      - name: Dependency audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high

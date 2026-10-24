@@ -14,7 +14,7 @@ class AssistantTest extends TestCase
 
     public function test_local_assistant_prioritizes_without_an_api_key(): void
     {
-        config(['ai.provider' => 'disabled', 'ai.key' => null]);
+        config(['ai.provider' => 'disabled']);
         Http::fake();
         $user = User::factory()->create();
         Task::create(['user_id' => $user->id, 'title' => 'Write proposal', 'priority' => 'urgent']);
@@ -60,7 +60,7 @@ class AssistantTest extends TestCase
 
     public function test_provider_failure_falls_back_to_the_local_assistant(): void
     {
-        config(['ai.provider' => 'openai', 'ai.key' => 'test-key']);
+        config(['ai.provider' => 'openai', 'ai.providers.openai.key' => 'test-key']);
         Http::fake(['api.openai.com/*' => Http::response(['error' => 'down'], 500)]);
 
         $this->actingAs(User::factory()->create())->postJson('/api/assistant', ['message' => 'How was my week?', 'language' => 'en'])
@@ -72,8 +72,8 @@ class AssistantTest extends TestCase
 
     public function test_valid_provider_response_is_returned(): void
     {
-        config(['ai.provider' => 'openai', 'ai.key' => 'test-key']);
-        Http::fake(['api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => json_encode(['message' => 'Try this.', 'subtasks' => [['title' => 'Outline', 'estimated_minutes' => 30]]])]]]])]);
+        config(['ai.provider' => 'openai', 'ai.providers.openai.key' => 'test-key']);
+        Http::fake(['api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => json_encode(['message' => 'Try this.', 'intent' => 'breakdown', 'schedule' => null, 'subtasks' => [['title' => 'Outline', 'estimated_minutes' => 30]]])]]]])]);
 
         $this->actingAs(User::factory()->create())->postJson('/api/assistant', ['message' => 'Help', 'language' => 'en'])
             ->assertOk()

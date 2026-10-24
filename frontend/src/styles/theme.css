@@ -1,5 +1,5 @@
 :root {
-  font-family: "Inter", "Tajawal", system-ui, sans-serif;
+  font-family: var(--font-ui, "Inter", system-ui, sans-serif);
 
   --color-bg: #f6f8fc;
   --color-surface: #ffffff;
@@ -49,11 +49,11 @@ body {
 }
 
 [dir="rtl"] {
-  font-family: "Tajawal", system-ui, sans-serif;
+  font-family: var(--font-arabic);
 }
 
 [dir="ltr"] {
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-latin);
 }
 
 @media (prefers-reduced-motion: reduce) {

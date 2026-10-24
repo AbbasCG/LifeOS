@@ -42,3 +42,13 @@ backend/public/hot
 # OS
 .DS_Store
 Thumbs.db
+
+# Licensed fonts: the Thmanyah license forbids redistributing/hosting the font files.
+# Install them locally (see frontend/public/fonts/thmanyah/README.md); never commit them.
+frontend/public/fonts/thmanyah/*.woff2
+frontend/public/fonts/thmanyah/*.woff
+frontend/public/fonts/thmanyah/*.ttf
+frontend/public/fonts/thmanyah/*.otf
+*.sqlite
+*.sql
+*.dump

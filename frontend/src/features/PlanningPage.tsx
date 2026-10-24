@@ -30,7 +30,7 @@ export function PlannedActualBars({ data }: { data: PlannedVsActual }) {
 
 export default function PlanningPage() {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar', label = useStatusLabel(), toast = useToast()
-  const [horizon, setHorizon] = useState<Horizon>('week')
+  const [horizon, setHorizon] = useState<Horizon>('week'), [allWarnings, setAllWarnings] = useState(false)
   const [plan, setPlan] = useState<Plan | null>(null), [draft, setDraft] = useState<Draft[]>([]), [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [editing, setEditing] = useState<{ index: number | null; item: Partial<Draft> } | null>(null)
   const recent = useApi<Plan[]>('/api/plans')
@@ -161,7 +161,7 @@ export default function PlanningPage() {
         </section>
         <aside className="panel reveal">
           <h2>{t('Needs your attention', 'يحتاج انتباهك')}</h2>
-          {plan.warnings.length === 0 ? <p className="muted">{t('Everything open fits in this window.', 'كل المهام المفتوحة تتسع في هذه الفترة.')}</p> : plan.warnings.map(w => <div key={w.task_id} className="warning-card">
+          {plan.warnings.length === 0 ? <p className="muted">{t('Everything open fits in this window.', 'كل المهام المفتوحة تتسع في هذه الفترة.')}</p> : <>{plan.warnings.slice(0, allWarnings ? undefined : 4).map(w => <div key={w.task_id} className="warning-card">
             <strong>{w.title}</strong>
             <p className="muted">{ar ? w.reason_ar : w.reason} · {t(`needs ${minutesLabel(w.needed_minutes, false)}`, `تحتاج ${minutesLabel(w.needed_minutes, true)}`)}</p>
             <ul>{w.alternatives.map((alt, i) => <li key={i}>
@@ -171,7 +171,7 @@ export default function PlanningPage() {
               {pending && alt.type === 'swap' && alt.task_id && <button className="text-link" onClick={() => { const index = draft.findIndex(d => d.task_id === alt.task_id); if (index >= 0) remove(index) }}>{t('Remove one block', 'حذف فترة')}</button>}
               {alt.type === 'deadline' && <Link className="text-link" to="/tasks">{t('Open tasks', 'فتح المهام')}</Link>}
             </li>)}</ul>
-          </div>)}
+          </div>)}{plan.warnings.length > 4 && <button type="button" className="quiet show-more" onClick={() => setAllWarnings(v => !v)}>{allWarnings ? t('Show fewer', 'عرض أقل') : t(`Show ${plan.warnings.length - 4} more`, `عرض ${plan.warnings.length - 4} أخرى`)}</button>}</>}
         </aside>
       </div>
     </>}

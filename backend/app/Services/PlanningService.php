@@ -19,6 +19,8 @@ class PlanningService
 {
     public const MAX_BLOCKS_PER_TASK_PER_DAY = 2;
 
+    public function __construct(private CalendarService $calendar) {}
+
     private const PRIORITY_BOOST = 60;
 
     private const REASONS = [
@@ -69,8 +71,7 @@ class PlanningService
         $first = CarbonImmutable::parse($date, $c['tz'])->startOfDay();
         $now = CarbonImmutable::now();
         $earliest = $now->addMinutes(5 - $now->minute % 5)->startOfMinute();
-        $events = CalendarEvent::where('user_id', $user->id)->where('ends_at', '>', $first->utc())->where('starts_at', '<', $first->addDays($days)->utc())->get();
-        $busy = $events->map(fn (CalendarEvent $e) => [$e->starts_at, $e->ends_at])->all();
+        $busy = $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
 
         $open = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])
             ->when($onlyTaskIds, fn ($q) => $q->whereIn('id', $onlyTaskIds))
@@ -355,7 +356,7 @@ class PlanningService
     {
         $c ??= $this->config($user);
         $first = $first->setTimezone($c['tz'])->startOfDay();
-        $events = CalendarEvent::where('user_id', $user->id)->where('ends_at', '>', $first->utc())->where('starts_at', '<', $first->addDays($days)->utc())->get();
+        $events = $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc());
         $overlap = function (CarbonImmutable $s, CarbonImmutable $e, CarbonImmutable $ws, CarbonImmutable $we): int {
             $a = max($s, $ws);
             $b = min($e, $we);
@@ -369,8 +370,8 @@ class PlanningService
             $ws = $local->setTimeFromTimeString($c['work_start']);
             $we = $local->setTimeFromTimeString($c['work_end']);
             $capacity = $workDay ? (int) $ws->diffInMinutes($we) : 0;
-            $fixed = (int) $events->where('kind', 'fixed')->sum(fn (CalendarEvent $e) => $overlap($e->starts_at, $e->ends_at, $ws, $we));
-            $flexible = (int) $events->where('kind', '!=', 'fixed')->sum(fn (CalendarEvent $e) => $overlap($e->starts_at, $e->ends_at, $ws, $we));
+            $fixed = (int) $events->where('kind', 'fixed')->sum(fn (array $e) => $overlap($e['starts_at'], $e['ends_at'], $ws, $we));
+            $flexible = (int) $events->where('kind', '!=', 'fixed')->sum(fn (array $e) => $overlap($e['starts_at'], $e['ends_at'], $ws, $we));
             $planned = (int) collect($items)->sum(fn (array $i) => $overlap(CarbonImmutable::parse($i['starts_at']), CarbonImmutable::parse($i['ends_at']), $local, $local->addDay()));
             $load = $capacity ? (int) round(($fixed + $flexible + $planned) / $capacity * 100) : ($planned ? 100 : 0);
             $result[] = [
@@ -422,7 +423,6 @@ class PlanningService
             }
             $original = collect($proposal->items)->keyBy('key');
             $tasks = Task::where('user_id', $user->id)->whereIn('id', collect($edited)->pluck('task_id'))->get()->keyBy('id');
-            $events = CalendarEvent::where('user_id', $user->id)->get();
             $items = [];
             $errors = [];
             foreach (array_values($edited) as $index => $row) {
@@ -437,9 +437,9 @@ class PlanningService
                 if ($start->isPast()) {
                     $errors["items.$index.starts_at"] = ['A block cannot start in the past.'];
                 }
-                $conflict = $events->first(fn (CalendarEvent $e) => $start < $e->ends_at && $end > $e->starts_at);
+                $conflict = $this->calendar->conflicts($user, $start, $end)->first();
                 if ($conflict) {
-                    $errors["items.$index.starts_at"] = ["Conflicts with “{$conflict->title}”."];
+                    $errors["items.$index.starts_at"] = ["Conflicts with “{$conflict['title']}”."];
                 }
                 foreach ($items as $other) {
                     if ($start < CarbonImmutable::parse($other['ends_at']) && $end > CarbonImmutable::parse($other['starts_at'])) {
@@ -482,8 +482,10 @@ class PlanningService
                 throw ValidationException::withMessages(['proposal' => ['This proposal has already been resolved.']]);
             }
             $c = $this->config($user);
-            $occupied = CalendarEvent::where('user_id', $user->id)->get();
             $tasks = Task::where('user_id', $user->id)->whereIn('id', collect($proposal->items)->pluck('task_id'))->get()->keyBy('id');
+            $starts = collect($proposal->items)->map(fn (array $i) => CarbonImmutable::parse($i['starts_at']));
+            $ends = collect($proposal->items)->map(fn (array $i) => CarbonImmutable::parse($i['ends_at']));
+            $occupied = $starts->isEmpty() ? collect() : $this->calendar->occurrences($user, $starts->min()->utc(), $ends->max()->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']]);
             $future = $this->futureScheduledMinutes($user, $tasks->keys());
             foreach (collect($proposal->items)->groupBy('task_id') as $taskId => $parts) {
                 $task = $tasks->get($taskId);
@@ -511,13 +513,13 @@ class PlanningService
                 if ($start->isPast() || (! $manual && $task->due_at && $end > $task->due_at)) {
                     throw ValidationException::withMessages(['proposal' => ['Tasks or dates changed. Generate a fresh proposal.']]);
                 }
-                foreach ($occupied as $event) {
-                    if ($start < $event->ends_at && $end > $event->starts_at) {
+                foreach ($occupied as [$busyStart, $busyEnd]) {
+                    if ($start < $busyEnd && $end > $busyStart) {
                         throw ValidationException::withMessages(['proposal' => ['The calendar changed. Generate a new plan to avoid conflicts.']]);
                     }
                 }
                 $event = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $task->id, 'title' => $task->title, 'starts_at' => $start->utc(), 'ends_at' => $end->utc(), 'kind' => 'flexible']);
-                $occupied->push($event);
+                $occupied->push([$event->starts_at, $event->ends_at]);
                 $task->forceFill(['scheduled_start' => $task->scheduled_start && $task->scheduled_start < $start ? $task->scheduled_start : $start, 'scheduled_end' => $task->scheduled_end && $task->scheduled_end > $end ? $task->scheduled_end : $end])->saveQuietly();
             }
             $proposal->update(['status' => 'accepted', 'accepted_at' => now()]);
@@ -536,7 +538,7 @@ class PlanningService
     {
         $now = CarbonImmutable::now();
         $minutes = [];
-        foreach (CalendarEvent::where('user_id', $user->id)->whereIn('task_id', collect($taskIds))->where('ends_at', '>', $now)->get() as $event) {
+        foreach (CalendarEvent::where('user_id', $user->id)->whereNull('recurrence')->whereIn('task_id', collect($taskIds))->where('ends_at', '>', $now)->get() as $event) {
             $minutes[$event->task_id] = ($minutes[$event->task_id] ?? 0) + (int) max($event->starts_at, $now)->diffInMinutes($event->ends_at);
         }
 
@@ -551,7 +553,7 @@ class PlanningService
     public function missedBlocks(User $user): Collection
     {
         $tz = $user->timezone();
-        $events = CalendarEvent::where('user_id', $user->id)->where('kind', 'flexible')->whereNotNull('task_id')
+        $events = CalendarEvent::where('user_id', $user->id)->whereNull('recurrence')->where('kind', 'flexible')->whereNotNull('task_id')
             ->where('ends_at', '<', now())->where('ends_at', '>=', now()->subDays(14))->orderBy('starts_at')->get();
         if ($events->isEmpty()) {
             return collect();
@@ -579,7 +581,7 @@ class PlanningService
         $tz = $user->timezone();
         $from = $from->setTimezone($tz)->startOfDay();
         $to = $from->addDays($days);
-        $blocks = CalendarEvent::where('user_id', $user->id)->where('kind', 'flexible')->whereNotNull('task_id')->where('starts_at', '>=', $from->utc())->where('starts_at', '<', $to->utc())->get();
+        $blocks = CalendarEvent::where('user_id', $user->id)->whereNull('recurrence')->where('kind', 'flexible')->whereNotNull('task_id')->where('starts_at', '>=', $from->utc())->where('starts_at', '<', $to->utc())->get();
         $sessions = FocusSession::where('user_id', $user->id)->whereIn('kind', ['focus', 'manual'])->where('status', 'completed')->whereBetween('completed_at', [$from->utc(), $to->utc()])->get();
         $taskIds = $blocks->pluck('task_id')->unique();
         $tasks = Task::where('user_id', $user->id)->whereIn('id', $taskIds)->get()->keyBy('id');

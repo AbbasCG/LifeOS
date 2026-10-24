@@ -9,3 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('lifeos:reminders')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('lifeos:sync-calendars')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('lifeos:automations')->everyFifteenMinutes()->withoutOverlapping();

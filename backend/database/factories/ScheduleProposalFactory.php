@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\ScheduleProposal;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -17,8 +18,6 @@ class ScheduleProposalFactory extends Factory
      */
     public function definition(): array
     {
-        return [
-            //
-        ];
+        return ['user_id' => User::factory(), 'status' => 'pending', 'starts_on' => now()->toDateString(), 'days' => 1, 'items' => [], 'warnings' => []];
     }
 }

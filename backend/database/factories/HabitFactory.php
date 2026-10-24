@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Habit;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -17,8 +18,11 @@ class HabitFactory extends Factory
      */
     public function definition(): array
     {
-        return [
-            //
-        ];
+        return ['user_id' => User::factory(), 'title' => fake()->randomElement(['Read 20 pages', 'Meditate 10 minutes', 'Drink water', 'Stretch', 'Journal']), 'recurrence' => 'daily', 'routine' => fake()->randomElement(['morning', 'evening', 'anytime']), 'color' => '#16a34a'];
+    }
+
+    public function weekly(): static
+    {
+        return $this->state(['recurrence' => 'weekly']);
     }
 }

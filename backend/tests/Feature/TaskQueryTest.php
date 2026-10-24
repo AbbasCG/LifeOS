@@ -64,4 +64,15 @@ class TaskQueryTest extends TestCase
             ->assertJsonPath('data.0.done_today', true)
             ->assertJsonPath('data.0.entries.2.date', '2027-01-04');
     }
+
+    public function test_smart_priority_lists_finished_tasks_after_open_ones(): void
+    {
+        $user = User::factory()->create();
+        Task::create(['user_id' => $user->id, 'title' => 'Done urgent', 'priority' => 'urgent', 'status' => 'completed']);
+        Task::create(['user_id' => $user->id, 'title' => 'Open low', 'priority' => 'low', 'status' => 'todo']);
+        Task::create(['user_id' => $user->id, 'title' => 'Open urgent', 'priority' => 'urgent', 'status' => 'todo']);
+
+        $this->actingAs($user)->getJson('/api/tasks?sort=priority')->assertOk()
+            ->assertJsonPath('data.0.title', 'Open urgent')->assertJsonPath('data.1.title', 'Open low')->assertJsonPath('data.2.title', 'Done urgent');
+    }
 }

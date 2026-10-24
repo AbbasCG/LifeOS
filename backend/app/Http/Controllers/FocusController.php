@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\FireAutomations;
 use App\Models\FocusSession;
-use App\Models\InboxNotification;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -70,7 +71,9 @@ class FocusController extends Controller
                 if ($s->task_id && $s->kind === 'focus') {
                     Task::whereKey($s->task_id)->increment('actual_minutes', (int) floor($s->elapsed_seconds / 60));
                 }
-                InboxNotification::firstOrCreate(['deduplication_key' => 'focus:'.$s->id], ['user_id' => $request->user()->id, 'kind' => 'focus', 'link' => '/focus', 'title' => ($request->user()->preferences()['language'] ?? 'en') === 'ar' ? 'اكتملت جلسة التركيز' : 'Focus session completed']);
+                $ar = ($request->user()->preferences()['language'] ?? 'en') === 'ar';
+                app(Notifier::class)->send($request->user(), 'focus', 'focus:'.$s->id, $ar ? 'اكتملت جلسة التركيز' : 'Focus session completed', ['link' => '/focus', 'force' => true]);
+                FireAutomations::dispatch($request->user()->id, 'focus_completed', $s->id)->afterCommit();
             }
             $s->save();
 
