@@ -14,6 +14,25 @@ abstract class OAuthProvider implements ConnectedProvider
 {
     abstract protected function configKey(): string;
 
+    /**
+     * Whether the scopes the user actually granted include every read scope LifeOS needs. Null when the provider did not
+     * report scopes. Users can untick permissions on some consent screens (e.g. Google's granular consent).
+     */
+    public function scopesGranted(?string $granted): ?bool
+    {
+        if ($granted === null || trim($granted) === '') {
+            return null;
+        }
+        $granted = mb_strtolower($granted);
+
+        return collect($this->requiredScopes())->every(fn (string $scope) => str_contains($granted, mb_strtolower($scope)));
+    }
+
+    /**
+     * @return list<string>
+     */
+    abstract public function requiredScopes(): array;
+
     public function redirectUri(): string
     {
         return (string) ($this->config()['redirect'] ?? '');
@@ -83,11 +102,25 @@ abstract class OAuthProvider implements ConnectedProvider
         if ($response->successful()) {
             return $response;
         }
-        $error = (string) ($response->json('error.code') ?? $response->json('error') ?? '');
-        if (in_array($response->status(), [401, 403], true) || in_array($error, ['invalid_grant', 'unauthorized_client', 'InvalidAuthenticationToken'], true)) {
+        $status = $response->status();
+        $error = $response->json('error.code') ?? $response->json('error') ?? '';
+        $error = is_string($error) ? $error : '';
+        $reasons = collect($response->json('error.errors') ?? [])->pluck('reason')->filter()->all();
+        // Google reports rate limits as 403 with a reason; they must not be mistaken for revoked access.
+        if ($status === 429 || ($status === 503 && $response->header('Retry-After') !== '') || array_intersect($reasons, ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded']) !== []) {
+            $after = (int) ($response->header('Retry-After') ?: 0);
+            throw new RateLimitedException($this->label().' asked LifeOS to slow down. Sync will resume automatically.', max(30, min(3600, $after ?: 60)));
+        }
+        if ($status === 410 || in_array($error, ['syncStateNotFound', 'resyncRequired', 'fullSyncRequired'], true)) {
+            throw new SyncTokenExpiredException($this->label().' requires a full sync.');
+        }
+        if ($status === 403 && array_intersect($reasons, ['insufficientPermissions', 'forbidden']) !== []) {
+            throw new ProviderAuthException($this->label().' did not grant the read permission LifeOS needs. Reconnect and allow access.');
+        }
+        if (in_array($status, [401, 403], true) || in_array($error, ['invalid_grant', 'unauthorized_client', 'InvalidAuthenticationToken'], true)) {
             throw new ProviderAuthException($this->label().' access was revoked or has expired.');
         }
 
-        throw new ProviderException($this->label().' returned an error ('.$response->status().').');
+        throw new ProviderException($this->label().' returned an error ('.$status.').');
     }
 }

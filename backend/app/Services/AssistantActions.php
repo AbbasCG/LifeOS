@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AssistantProposal;
 use App\Models\CalendarEvent;
+use App\Models\Category;
 use App\Models\Goal;
 use App\Models\Task;
 use App\Models\User;
@@ -268,6 +269,71 @@ class AssistantActions
         };
 
         return $this->store($user, 'triage', $provider, $summary, $explanation, $actions);
+    }
+
+    /**
+     * Find time for specific open tasks (e.g. study tasks) in the next seven days: each task gets a block inside its
+     * life-area window, around everything already on the calendar — LifeOS and connected calendars alike — and before
+     * its deadline. Produces create_event actions; connected calendars are never written to.
+     *
+     * @param  Collection<int, Task>  $tasks
+     */
+    public function proposeFindTime(User $user, Collection $tasks, string $label, bool $ar, string $provider): AssistantProposal
+    {
+        $c = $this->planning->config($user);
+        $now = CarbonImmutable::now($c['tz']);
+        $areas = Category::where('user_id', $user->id)->pluck('area', 'id');
+        $occurrences = $this->calendar->occurrences($user, $now->utc(), $now->startOfDay()->addDays(7)->utc());
+        $busy = $occurrences->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
+        $connected = $occurrences->where('source', '!=', 'lifeos')->groupBy('source')->map->count();
+        $actions = [];
+        $explanation = [];
+        $unplaced = [];
+        foreach ($tasks->take(6) as $task) {
+            $area = $areas[$task->category_id] ?? 'work';
+            $minutes = (int) max(30, min(120, $task->estimated_minutes - (int) $task->actual_minutes));
+            $placed = false;
+            for ($d = 0; $d < 7 && ! $placed; $d++) {
+                $day = $now->startOfDay()->addDays($d);
+                $window = $this->planning->windows($c, $day)[$area] ?? null;
+                if (! $window) {
+                    continue;
+                }
+                $start = max($window[0], $now->addMinutes(15 - $now->minute % 15)->startOfMinute());
+                if ($start >= $window[1]) {
+                    continue;
+                }
+                $free = $this->planning->freeIntervals($start->utc(), $window[1]->utc(), $busy, $c['break']);
+                $slot = $this->takeSlot($free, $minutes, $c['break']);
+                if (! $slot && collect($free)->contains(fn ($f) => $f[0]->diffInMinutes($f[1]) >= 30)) {
+                    $minutes = (int) (floor(collect($free)->map(fn ($f) => $f[0]->diffInMinutes($f[1]))->max() / 5) * 5);
+                    $slot = $this->takeSlot($free, $minutes, $c['break']);
+                }
+                if (! $slot || ($task->due_at && $slot[1] > $task->due_at)) {
+                    continue;
+                }
+                $busy[] = $slot;
+                $actions[] = ['id' => 'a'.(count($actions) + 1), 'type' => 'create_event', 'title' => $task->title, 'task_id' => $task->id,
+                    'starts_at' => $slot[0]->toIso8601String(), 'ends_at' => $slot[1]->toIso8601String(), 'minutes' => $minutes];
+                $placed = true;
+            }
+            if (! $placed) {
+                $unplaced[] = $task->title;
+            }
+        }
+        $sources = $connected->map(fn ($n, $s) => $n.' '.(['google' => 'Google', 'outlook' => 'Outlook'][$s] ?? $s))->implode($ar ? '، ' : ', ');
+        $explanation[] = $ar
+            ? 'تجنّبت '.$occurrences->count().' التزاماً خلال الأسبوع'.($sources ? " (منها {$sources} من التقويمات المرتبطة)" : '').'.'
+            : 'Worked around '.$occurrences->count().' commitment(s) this week'.($sources ? " (including {$sources} from connected calendars)" : '').'.';
+        $explanation[] = $ar ? 'وُضعت كل مهمة ضمن نافذة مجالها (العمل أو الدراسة أو الشخصي) وقبل موعدها النهائي.' : 'Each task sits inside its life-area window (work, study or personal) and before its deadline.';
+        if ($unplaced) {
+            $explanation[] = $ar ? 'لم أجد وقتاً لـ: '.implode('، ', $unplaced).'.' : 'No room found for: '.implode(', ', $unplaced).'.';
+        }
+        $summary = $actions === []
+            ? ($ar ? "لم أجد وقتاً فارغاً لـ{$label} خلال الأيام السبعة القادمة." : "I couldn’t find free time for {$label} in the next 7 days.")
+            : ($ar ? 'اقتراح: '.count($actions)." فترات لـ{$label} حول التزاماتك. راجعها قبل إضافتها." : 'Suggested '.count($actions)." block(s) for {$label} around your commitments. Review before adding them.");
+
+        return $this->store($user, 'find_time', $provider, $summary, $explanation, $actions);
     }
 
     /**

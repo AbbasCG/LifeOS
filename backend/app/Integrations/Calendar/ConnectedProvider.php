@@ -26,6 +26,16 @@ interface ConnectedProvider
 
     public function redirectUri(): string;
 
+    /**
+     * Read scopes that must be granted (matched as substrings of the granted scope string).
+     *
+     * @return list<string>
+     */
+    public function requiredScopes(): array;
+
+    /** True/false when the granted scopes are known, null when the provider does not report them. */
+    public function scopesGranted(?string $granted): ?bool;
+
     public function authorizationUrl(string $state, string $codeChallenge): string;
 
     public function exchangeCode(string $code, string $codeVerifier): TokenSet;

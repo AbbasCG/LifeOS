@@ -2,19 +2,19 @@
 
 namespace App\Integrations\Tasks;
 
+use App\Integrations\Calendar\ChangeSet;
 use App\Integrations\Calendar\ConnectedProvider;
-use Carbon\CarbonImmutable;
 
 /**
  * A read-only external task service. Implementations never create, edit or complete tasks at the provider.
+ *
+ * Each upserted task: id, list_id, title, due_at (UTC|null), due_is_date, priority, url, status (open|completed),
+ * completed_at (UTC|null).
  */
 interface TaskProvider extends ConnectedProvider
 {
     /**
-     * Open (not completed) tasks in the given lists.
-     *
-     * @param  list<string>  $listIds
-     * @return iterable<array{id: string, list_id: string, title: string, due_at: CarbonImmutable|null, due_is_date: bool, priority: string|null, url: string|null}>
+     * Read one task list: everything without a token, only changes with one.
      */
-    public function tasks(string $accessToken, array $listIds, string $userTimezone): iterable;
+    public function taskChanges(string $accessToken, string $listId, ?string $syncToken, string $userTimezone): ChangeSet;
 }

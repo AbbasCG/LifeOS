@@ -14,7 +14,7 @@ class ExternalTask extends Model
 
     protected function casts(): array
     {
-        return ['due_at' => 'immutable_datetime', 'due_is_date' => 'boolean'];
+        return ['due_at' => 'immutable_datetime', 'due_is_date' => 'boolean', 'completed_at' => 'immutable_datetime'];
     }
 
     /** @return BelongsTo<CalendarAccount, $this> */

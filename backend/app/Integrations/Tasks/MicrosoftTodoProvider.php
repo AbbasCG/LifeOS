@@ -2,7 +2,9 @@
 
 namespace App\Integrations\Tasks;
 
+use App\Integrations\Calendar\ChangeSet;
 use App\Integrations\Calendar\OAuthProvider;
+use App\Integrations\Calendar\SyncTokenExpiredException;
 use Carbon\CarbonImmutable;
 
 /**
@@ -72,24 +74,44 @@ class MicrosoftTodoProvider extends OAuthProvider implements TaskProvider
         ], $lists));
     }
 
-    public function tasks(string $accessToken, array $listIds, string $userTimezone): iterable
+    public function requiredScopes(): array
     {
-        foreach ($listIds as $listId) {
-            $url = 'https://graph.microsoft.com/v1.0/me/todo/lists/'.rawurlencode($listId).'/tasks?'.http_build_query(['$filter' => "status ne 'completed'", '$top' => 100]);
-            while ($url) {
-                $page = $this->send(fn () => $this->http($accessToken)->get($url))->json();
-                foreach ($page['value'] ?? [] as $item) {
-                    $title = trim((string) ($item['title'] ?? ''));
-                    if ($title === '' || ($item['status'] ?? '') === 'completed') {
-                        continue;
-                    }
-                    // To Do due dates are calendar dates; read the date part in the user's timezone.
-                    $due = isset($item['dueDateTime']['dateTime']) ? CarbonImmutable::parse(substr((string) $item['dueDateTime']['dateTime'], 0, 10), $userTimezone)->setTime(23, 59) : null;
-                    yield ['id' => (string) $item['id'], 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => true, 'priority' => ($item['importance'] ?? '') === 'high' ? 'high' : null, 'url' => null];
-                }
-                $url = $page['@odata.nextLink'] ?? null;
-            }
+        return ['Tasks.Read'];
+    }
+
+    public function taskChanges(string $accessToken, string $listId, ?string $syncToken, string $userTimezone): ChangeSet
+    {
+        // Graph delta for To Do tasks: the first read returns every task, later reads (deltaLink) only changes and
+        // "@removed" deletions.
+        $url = $syncToken ?? 'https://graph.microsoft.com/v1.0/me/todo/lists/'.rawurlencode($listId).'/tasks/delta';
+        if (! str_starts_with($url, 'https://graph.microsoft.com/')) {
+            throw new SyncTokenExpiredException('Unexpected delta link.');
         }
+        $upserts = [];
+        $removed = [];
+        $next = null;
+        while ($url) {
+            $page = $this->send(fn () => $this->http($accessToken)->withHeaders(['Prefer' => 'odata.maxpagesize=100'])->get($url))->json();
+            foreach ($page['value'] ?? [] as $item) {
+                $id = (string) $item['id'];
+                $title = trim((string) ($item['title'] ?? ''));
+                if (isset($item['@removed']) || $title === '') {
+                    $removed[] = $id;
+
+                    continue;
+                }
+                // To Do due dates are calendar dates; read the date part in the user's timezone.
+                $due = isset($item['dueDateTime']['dateTime']) ? CarbonImmutable::parse(substr((string) $item['dueDateTime']['dateTime'], 0, 10), $userTimezone)->setTime(23, 59) : null;
+                $done = ($item['status'] ?? '') === 'completed';
+                $completed = $item['completedDateTime']['dateTime'] ?? null;
+                $upserts[] = ['id' => $id, 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => true, 'priority' => ($item['importance'] ?? '') === 'high' ? 'high' : null, 'url' => null,
+                    'status' => $done ? 'completed' : 'open', 'completed_at' => $done && $completed ? CarbonImmutable::parse($completed, $item['completedDateTime']['timeZone'] ?? 'UTC')->utc() : null];
+            }
+            $url = $page['@odata.nextLink'] ?? null;
+            $next = $page['@odata.deltaLink'] ?? $next;
+        }
+
+        return new ChangeSet($upserts, $removed, $next, $syncToken === null);
     }
 
     public function revoke(string $token): void

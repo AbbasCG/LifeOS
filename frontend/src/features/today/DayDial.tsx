@@ -6,7 +6,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { minutesLabel } from '../../lib/dates'
 import { Skeleton } from '../../components/ui/Shared'
-import { arcPath, dayAngle, polar } from '../../lib/dial'
+import { arcPath, dayAngle, isValidZone, polar } from '../../lib/dial'
 
 const SIZE = 220, C = SIZE / 2
 
@@ -23,7 +23,9 @@ export function DayDial({ data }: { data: TodayData | null }) {
   if (!data) return <section className="panel"><Skeleton height={220} /></section>
   // Anchor to the user's day (server timezone setting); fall back to the browser's day for older responses.
   const start = data.day_start ? Date.parse(data.day_start) : new Date(now).setHours(0, 0, 0, 0)
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  // Labels use the account's timezone — the same one the dial is drawn in — so a browser in another zone stays consistent.
+  const timeZone = data.timezone && isValidZone(data.timezone) ? data.timezone : undefined
+  const time = (iso: string | number) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone })
   const events: Item[] = data.timeline.filter(e => !e.all_day).map(e => ({ ...e, kind: e.kind === 'fixed' ? 'fixed' : 'flexible' }))
   const slots: Item[] = data.focus_time.slots.map(s => ({ id: `slot-${s.starts_at}`, title: t('Free for focus', 'وقت متاح للتركيز'), starts_at: s.starts_at, ends_at: s.ends_at, kind: 'slot', source: 'lifeos' }))
   const items = [...events, ...slots].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
@@ -45,7 +47,7 @@ export function DayDial({ data }: { data: TodayData | null }) {
         <foreignObject x={C - 58} y={C - 30} width={116} height={60}>
           <div className="dial-center" style={{ display: 'grid', placeItems: 'center', height: '100%', textAlign: 'center', fontSize: 11, lineHeight: 1.3 }}>
             {focused ? <><strong style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 100, whiteSpace: 'nowrap' }}>{focused.title}</strong><span className="muted">{time(focused.starts_at)}–{time(focused.ends_at)}</span></>
-              : <><strong style={{ whiteSpace: 'nowrap', fontSize: 17 }}>{new Date(now).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })}</strong><span className="muted">{t(`${remaining} still ahead`, `${remaining} متبقية`)}</span></>}
+              : <><strong style={{ whiteSpace: 'nowrap', fontSize: 17 }}>{time(now)}</strong><span className="muted">{t(`${remaining} still ahead`, `${remaining} متبقية`)}</span></>}
           </div>
         </foreignObject>
       </svg>

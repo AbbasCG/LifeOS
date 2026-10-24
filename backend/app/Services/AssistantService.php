@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Integrations\Ai\AiProvider;
 use App\Integrations\Ai\AiProviders;
 use App\Models\AssistantProposal;
+use App\Models\Category;
 use App\Models\Goal;
 use App\Models\Project;
 use App\Models\Task;
@@ -26,7 +27,7 @@ class AssistantService
         'goal' => ['moves a goal that needs attention', 'تدفع هدفاً يحتاج اهتماماً'],
     ];
 
-    public const INTENTS = ['answer', 'schedule', 'rebalance', 'breakdown', 'query', 'explain', 'conflicts', 'goal_plan', 'triage', 'reflection'];
+    public const INTENTS = ['answer', 'schedule', 'rebalance', 'breakdown', 'query', 'explain', 'conflicts', 'goal_plan', 'triage', 'reflection', 'find_time', 'plan_day', 'deadline_conflicts'];
 
     public function __construct(private BriefingService $briefing, private AnalyticsService $analytics, private AiProviders $providers, private AssistantActions $actions, private CalendarService $calendar, private CopilotService $copilot) {}
 
@@ -91,7 +92,11 @@ class AssistantService
             .'"query" when they want a filtered list of tasks, projects or goals (fill query; use project_id/goal_id only from authorized_projects/authorized_goals); '
             .'"explain" when they ask why a task is prioritized (fill target.task_id when a specific task is meant); "conflicts" for clashes, overlaps or deadlines that may not fit; '
             .'"goal_plan" when they want a plan or next steps for a goal (fill target.goal_id and up to 8 concrete subtasks); "triage" when they want overdue tasks given new dates; '
-            .'"reflection" for weekly reflection, lessons or a progress summary; otherwise "answer". '
+            .'"reflection" for weekly reflection, lessons or a progress summary; '
+            .'"find_time" when they want time found for a group of their tasks (fill target.area work|study|personal, or query.project_id); '
+            .'"plan_day" when they want a plan or better schedule for a day (fill target.date YYYY-MM-DD, today or tomorrow); '
+            .'"deadline_conflicts" when they ask which deadlines clash with meetings; otherwise "answer". '
+            .'Connected calendar events may appear only as "Busy" when the user has not allowed sharing their details. '
             .'For query, explain, conflicts, goal_plan, triage and reflection the app computes the facts itself, so keep message to one short sentence. '
             .'For schedule and rebalance, do not state exact times: the app computes them from the real calendar and shows them for approval. '
             .'Explain priorities briefly using due dates, priority and estimates. Be concise and practical.';
@@ -120,6 +125,8 @@ class AssistantService
             'target' => 'nullable|array',
             'target.task_id' => 'nullable|integer',
             'target.goal_id' => 'nullable|integer',
+            'target.area' => 'nullable|in:work,study,personal',
+            'target.date' => 'nullable|date_format:Y-m-d|after_or_equal:'.$now->toDateString().'|before_or_equal:'.$now->addDays(14)->toDateString(),
         ])->validate();
 
         $ar = $language === 'ar';
@@ -131,6 +138,9 @@ class AssistantService
             'reflection' => $this->copilot->reflection($user, $ar),
             'goal_plan' => $this->goalPlan($user, $message, $ar, $provider->name(), $data['target']['goal_id'] ?? null, array_values($data['subtasks'])),
             'triage' => $this->proposalReply($this->actions->proposeTriage($user, $ar, $provider->name())),
+            'find_time' => $this->findTime($user, $message, $ar, $provider->name(), $data['target']['area'] ?? null, $data['query']['project_id'] ?? null),
+            'plan_day' => $this->planDay($user, $message, $ar, $data['target']['date'] ?? null),
+            'deadline_conflicts' => $this->copilot->conflicts($user, $ar, 7, true),
             default => null,
         };
         if ($computed !== null) {
@@ -156,7 +166,7 @@ class AssistantService
         $int = ['anyOf' => [['type' => 'integer'], ['type' => 'null']]];
         $enum = fn (array $values) => ['anyOf' => [['type' => 'string', 'enum' => $values], ['type' => 'null']]];
         $query = ['type' => 'object', 'properties' => ['entity' => ['type' => 'string', 'enum' => CopilotService::ENTITIES], 'due' => $enum(CopilotService::DUE_FILTERS), 'priority' => $enum(['low', 'medium', 'high', 'urgent']), 'status' => $enum(CopilotService::STATUS_FILTERS), 'project_id' => $int, 'goal_id' => $int], 'required' => ['entity', 'due', 'priority', 'status', 'project_id', 'goal_id'], 'additionalProperties' => false];
-        $target = ['type' => 'object', 'properties' => ['task_id' => $int, 'goal_id' => $int], 'required' => ['task_id', 'goal_id'], 'additionalProperties' => false];
+        $target = ['type' => 'object', 'properties' => ['task_id' => $int, 'goal_id' => $int, 'area' => $enum(['work', 'study', 'personal']), 'date' => ['anyOf' => [['type' => 'string'], ['type' => 'null']]]], 'required' => ['task_id', 'goal_id', 'area', 'date'], 'additionalProperties' => false];
         $schedule = ['type' => 'object', 'properties' => ['date' => ['type' => 'string', 'format' => 'date'], 'available_minutes' => ['type' => 'integer'], 'start_after' => ['anyOf' => [['type' => 'string'], ['type' => 'null']]], 'items' => ['type' => 'array', 'items' => $item]], 'required' => ['date', 'available_minutes', 'start_after', 'items'], 'additionalProperties' => false];
 
         return ['type' => 'object', 'properties' => [
@@ -183,6 +193,9 @@ class AssistantService
         $query = $request === null ? $this->copilot->parseQuery($message) : null;
         $overdueWords = ['overdue', 'late', 'behind', 'missed', 'متأخر', 'فات'];
         $intent = match (true) {
+            $has(['plan my day', 'plan today', 'plan tomorrow', 'better schedule', 'around my calendar', 'around my google', 'around my outlook', 'around my meetings', 'خطط يومي', 'خطط ليومي', 'خطط للغد', 'جدول أفضل', 'حول تقويمي', 'حول اجتماعاتي']) => 'plan_day',
+            $has(['deadline', 'موعد نهائي', 'المواعيد النهائية', 'مواعيد التسليم']) && $has(['conflict', 'clash', 'meeting', 'تتعارض', 'تعارض', 'اجتماع']) => 'deadline_conflicts',
+            $has(['find time', 'make time for my', 'time for my', 'اعثر على وقت', 'أوجد وقت', 'اوجد وقت', 'ابحث عن وقت', 'وقتاً لمهام', 'وقت لمهام']) => 'find_time',
             $request !== null => 'schedule',
             $has($overdueWords) && $has(['reschedule', 'new date', 'new deadline', 'move', 'postpone', 'triage', 'أعد جدولة', 'اعد جدولة', 'أجل', 'أجّل', 'اجل', 'تأجيل', 'موعد جديد', 'مواعيد جديدة']) => 'triage',
             $has(['goal', 'هدف', 'الهدف', 'أهداف', 'اهداف']) && $has(['plan', 'steps', 'next step', 'achieve', 'reach', 'roadmap', 'خطة', 'خطط', 'خطوات', 'أحقق', 'احقق', 'تحقيق', 'أصل']) => 'goal_plan',
@@ -203,6 +216,9 @@ class AssistantService
             'rebalance' => $this->proposalReply($this->actions->proposeRebalance($user, $ar, 'local')),
             'breakdown' => $this->breakdown($user, $message, $ar),
             'triage' => $this->proposalReply($this->actions->proposeTriage($user, $ar, 'local')),
+            'find_time' => $this->findTime($user, $message, $ar, 'local'),
+            'plan_day' => $this->planDay($user, $message, $ar),
+            'deadline_conflicts' => $this->copilot->conflicts($user, $ar, 7, true),
             'goal_plan' => $this->goalPlan($user, $message, $ar, 'local'),
             'explain' => $this->copilot->explain($user, $message, $ar),
             'conflicts' => $this->copilot->conflicts($user, $ar),
@@ -232,6 +248,72 @@ class AssistantService
         }
 
         return $this->proposalReply($this->actions->proposeGoalPlan($user, $goal, $steps, $ar, $provider));
+    }
+
+    /**
+     * Find time for a group of tasks (by life area from the request or the provider, or by project), ranked by priority.
+     *
+     * @return array<string, mixed>
+     */
+    private function findTime(User $user, string $message, bool $ar, string $provider, ?string $area = null, ?int $projectId = null): array
+    {
+        $text = mb_strtolower($message);
+        $area ??= match (true) {
+            (bool) preg_match('/stud|learn|course|exam|دراس|تعلم|امتحان|مذاكرة/u', $text) => 'study',
+            (bool) preg_match('/personal|home|family|health|شخصي|منزل|عائلة|صحة/u', $text) => 'personal',
+            (bool) preg_match('/\bwork\b|job|office|عمل|وظيف/u', $text) => 'work',
+            default => null,
+        };
+        $project = $projectId ? Project::where('user_id', $user->id)->find($projectId) : Project::where('user_id', $user->id)->get(['id', 'title'])->sortByDesc(fn ($p) => mb_strlen($p->title))->first(fn ($p) => mb_strlen($p->title) >= 3 && str_contains($text, mb_strtolower($p->title)));
+        $categories = Category::where('user_id', $user->id)->get(['id', 'area']);
+        $query = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled']);
+        if ($project) {
+            $query->where('project_id', $project->id);
+        } elseif ($area) {
+            $ids = $categories->filter(fn ($c) => ($c->area ?? 'work') === $area)->pluck('id');
+            $area === 'work' ? $query->where(fn ($q) => $q->whereIn('category_id', $ids)->orWhereNull('category_id')) : $query->whereIn('category_id', $ids);
+        }
+        $tasks = BriefingService::rank($query->limit(300)->get(), CarbonImmutable::now($user->timezone()), app(GoalIntelligence::class)->pressure($user))->pluck('task');
+        $label = $project ? ($ar ? "مشروع «{$project->title}»" : "project “{$project->title}”") : match ($area) {
+            'study' => $ar ? 'مهام الدراسة' : 'your study tasks', 'personal' => $ar ? 'المهام الشخصية' : 'your personal tasks', 'work' => $ar ? 'مهام العمل' : 'your work tasks', default => $ar ? 'مهامك الأهم' : 'your top tasks',
+        };
+        if ($tasks->isEmpty()) {
+            return ['message' => $ar ? "لا توجد مهام مفتوحة في {$label}." : "There are no open tasks in {$label}."];
+        }
+
+        return $this->proposalReply($this->actions->proposeFindTime($user, $tasks, $label, $ar, $provider));
+    }
+
+    /**
+     * Explain the recommended plan for today or tomorrow around every commitment (connected calendars included) and
+     * link to Plan my day, where the user chooses and applies it. Nothing is saved here.
+     *
+     * @return array<string, mixed>
+     */
+    private function planDay(User $user, string $message, bool $ar, ?string $date = null): array
+    {
+        $now = CarbonImmutable::now($user->timezone());
+        $date ??= preg_match('/tomorrow|غدا|غداً|الغد|بكرة|بكره/u', mb_strtolower($message)) ? $now->addDay()->toDateString() : $now->toDateString();
+        $plan = app(DayPlanner::class)->plan($user, $date);
+        $variant = collect($plan['alternatives'])->firstWhere('key', $plan['recommended']) ?? $plan['alternatives'][0] ?? null;
+        $sources = collect($plan['commitments'])->countBy('source');
+        $connected = $sources->except('lifeos')->map(fn ($n, $s) => $n.' '.(['google' => 'Google', 'outlook' => 'Outlook'][$s] ?? $s))->implode($ar ? '، ' : ', ');
+        $label = CarbonImmutable::parse($date, $user->timezone())->locale($ar ? 'ar' : 'en')->translatedFormat('l j F');
+        $link = "/today/plan?date={$date}".($variant ? "&variant={$variant['key']}" : '');
+        if (! $variant || $variant['items'] === []) {
+            return ['message' => $ar ? "لا يتسع يوم {$label} لفترات عمل إضافية بعد التزاماتك." : "{$label} has no room for more focus blocks around your commitments.", 'items' => [['type' => 'link', 'title' => $ar ? 'افتح خطط يومي' : 'Open Plan my day', 'detail' => '', 'link' => $link]]];
+        }
+        $tz = $user->timezone();
+        $names = ['balanced' => ['Balanced', 'متوازنة'], 'deep' => ['Deep focus first', 'التركيز العميق أولاً'], 'light' => ['Light day', 'يوم خفيف']];
+        $items = collect($variant['items'])->map(fn ($i) => ['type' => 'plan_block', 'title' => $i['title'], 'detail' => CarbonImmutable::parse($i['starts_at'])->setTimezone($tz)->format('H:i').'–'.CarbonImmutable::parse($i['ends_at'])->setTimezone($tz)->format('H:i'), 'link' => $link])->all();
+        $items[] = ['type' => 'link', 'title' => $ar ? 'راجع الخطة وطبّقها' : 'Review and apply this plan', 'detail' => $ar ? 'لن يُضاف شيء إلى تقويمك قبل موافقتك.' : 'Nothing is added to your calendar until you approve it.', 'link' => $link];
+        $minutes = (int) collect($variant['items'])->sum('minutes');
+        $message = $ar
+            ? "خطة يوم {$label} حول ".$plan['commitments']->count().' التزاماً'.($connected ? " (منها {$connected} من التقويمات المرتبطة)" : '').": أنصح بخطة «{$names[$variant['key']][1]}» — ".count($variant['items'])." فترات، {$minutes} دقيقة."
+            : "Plan for {$label} around ".$plan['commitments']->count().' commitment(s)'.($connected ? " (including {$connected} from connected calendars)" : '').": I recommend “{$names[$variant['key']][0]}” — ".count($variant['items'])." block(s), {$minutes} min.";
+        $why = collect($plan['explanation'] ?? [])->take(3)->map(fn ($e) => '• '.(is_array($e) ? ($e[$ar ? 'ar' : 'en'] ?? '') : $e))->filter(fn ($l) => $l !== '• ')->implode("\n");
+
+        return ['message' => $message.($why ? "\n{$why}" : ''), 'items' => $items];
     }
 
     /**

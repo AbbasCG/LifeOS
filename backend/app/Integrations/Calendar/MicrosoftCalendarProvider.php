@@ -75,47 +75,58 @@ class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvide
         return ['id' => (string) $me['id'], 'email' => $me['mail'] ?? $me['userPrincipalName'] ?? null, 'name' => $me['displayName'] ?? null];
     }
 
-    public function events(string $accessToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone, ?array $calendarIds = null): iterable
+    public function requiredScopes(): array
     {
-        $query = http_build_query([
-            'startDateTime' => $from->toIso8601ZuluString(),
-            'endDateTime' => $to->toIso8601ZuluString(),
-            '$top' => 500,
-            '$select' => 'id,subject,start,end,isAllDay,showAs,isCancelled',
-        ]);
-        // null: the default calendar only (behaviour before calendar selection); otherwise each chosen calendar.
-        foreach ($calendarIds === null ? [null] : $calendarIds as $calendarId) {
-            yield from $this->calendarView($accessToken, $calendarId === null ? "https://graph.microsoft.com/v1.0/me/calendarView?{$query}" : 'https://graph.microsoft.com/v1.0/me/calendars/'.rawurlencode($calendarId)."/calendarView?{$query}", $calendarId, $userTimezone);
-        }
+        return ['Calendars.Read'];
     }
 
-    /**
-     * @return iterable<array<string, mixed>>
-     */
-    private function calendarView(string $accessToken, string $url, ?string $calendarId, string $userTimezone): iterable
+    public function changes(string $accessToken, string $calendarId, ?string $syncToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone): ChangeSet
     {
+        // calendarView/delta expands recurring series into occurrences inside the window and reports deletions with
+        // "@removed"; the final page carries a deltaLink used as the token for the next incremental read.
+        $url = $syncToken ?? 'https://graph.microsoft.com/v1.0/me/calendars/'.rawurlencode($calendarId).'/calendarView/delta?'.http_build_query([
+            'startDateTime' => $from->toIso8601ZuluString(),
+            'endDateTime' => $to->toIso8601ZuluString(),
+        ]);
+        if (! str_starts_with($url, 'https://graph.microsoft.com/')) {
+            throw new SyncTokenExpiredException('Unexpected delta link.');
+        }
+        $upserts = [];
+        $removed = [];
+        $next = null;
         while ($url) {
-            $page = $this->send(fn () => $this->http($accessToken)->withHeaders(['Prefer' => 'outlook.timezone="UTC"'])->get($url))->json();
+            $page = $this->send(fn () => $this->http($accessToken)->withHeaders(['Prefer' => 'outlook.timezone="UTC", odata.maxpagesize=200'])->get($url))->json();
             foreach ($page['value'] ?? [] as $item) {
-                if (($item['isCancelled'] ?? false) || in_array($item['showAs'] ?? 'busy', ['free', 'workingElsewhere'], true)) {
+                $id = (string) $item['id'];
+                if (isset($item['@removed']) || ($item['isCancelled'] ?? false) || in_array($item['showAs'] ?? 'busy', ['free', 'workingElsewhere'], true) || ! isset($item['start'])) {
+                    $removed[] = $id;
+
                     continue;
                 }
                 $allDay = (bool) ($item['isAllDay'] ?? false);
-                // Graph returns UTC wall times without an offset when Prefer: outlook.timezone="UTC" is set; all-day events are midnight-to-midnight in the user's zone.
+                // With Prefer: outlook.timezone="UTC" Graph returns UTC wall times without an offset; all-day events are
+                // midnight-to-midnight in the user's zone.
                 $start = $allDay ? CarbonImmutable::parse(substr($item['start']['dateTime'], 0, 10), $userTimezone) : CarbonImmutable::parse($item['start']['dateTime'], 'UTC');
                 $end = $allDay ? CarbonImmutable::parse(substr($item['end']['dateTime'], 0, 10), $userTimezone) : CarbonImmutable::parse($item['end']['dateTime'], 'UTC');
-                yield [
-                    'id' => (string) $item['id'],
+                $upserts[] = [
+                    'id' => $id,
                     'calendar_id' => $calendarId,
                     'title' => mb_substr($item['subject'] ?? '(busy)', 0, 500),
                     'starts_at' => $start->utc(),
                     'ends_at' => $end->utc(),
                     'all_day' => $allDay,
                     'show_as' => (string) ($item['showAs'] ?? 'busy'),
+                    'ical_uid' => isset($item['iCalUId']) ? mb_substr((string) $item['iCalUId'], 0, 1024) : null,
+                    'series_id' => $item['seriesMasterId'] ?? null,
+                    'original_start' => isset($item['originalStart']) ? CarbonImmutable::parse($item['originalStart'])->utc() : null,
+                    'timezone' => $item['originalStartTimeZone'] ?? null,
                 ];
             }
             $url = $page['@odata.nextLink'] ?? null;
+            $next = $page['@odata.deltaLink'] ?? $next;
         }
+
+        return new ChangeSet($upserts, $removed, $next, $syncToken === null);
     }
 
     public function revoke(string $token): void

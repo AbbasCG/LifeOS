@@ -20,3 +20,8 @@ export function dayAngle(iso: string | number, dayStart: number): number {
   return Math.max(0, Math.min(360, ((t - dayStart) / DAY) * 360))
 }
 
+
+/** True when the browser knows this IANA timezone (old browsers may not). */
+export function isValidZone(zone: string): boolean {
+  try { new Intl.DateTimeFormat('en', { timeZone: zone }); return true } catch { return false }
+}

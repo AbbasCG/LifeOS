@@ -2,6 +2,7 @@
 
 namespace App\Integrations\Tasks;
 
+use App\Integrations\Calendar\ChangeSet;
 use App\Integrations\Calendar\OAuthProvider;
 use App\Integrations\Calendar\ProviderAuthException;
 use App\Integrations\Calendar\TokenSet;
@@ -88,27 +89,36 @@ class TodoistProvider extends OAuthProvider implements TaskProvider
         ], $projects));
     }
 
-    public function tasks(string $accessToken, array $listIds, string $userTimezone): iterable
+    public function requiredScopes(): array
     {
-        foreach ($listIds as $projectId) {
-            $cursor = null;
-            do {
-                $page = $this->send(fn () => $this->http($accessToken)->get(self::API.'/tasks', array_filter(['project_id' => $projectId, 'limit' => 200, 'cursor' => $cursor])))->json();
-                foreach ($page['results'] ?? [] as $item) {
-                    $title = trim((string) ($item['content'] ?? ''));
-                    if ($title === '' || ($item['checked'] ?? false)) {
-                        continue;
-                    }
-                    $date = $item['due']['date'] ?? null;
-                    $dateOnly = $date !== null && strlen((string) $date) === 10;
-                    // Date-only dues end the day; floating times are local to the user; times with an offset are absolute.
-                    $due = $date === null ? null : ($dateOnly ? CarbonImmutable::parse($date, $userTimezone)->setTime(23, 59) : CarbonImmutable::parse($date, $item['due']['timezone'] ?? $userTimezone));
-                    $priority = [4 => 'urgent', 3 => 'high', 2 => 'medium'][(int) ($item['priority'] ?? 1)] ?? null;
-                    yield ['id' => (string) $item['id'], 'list_id' => $projectId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => $dateOnly, 'priority' => $priority, 'url' => 'https://app.todoist.com/app/task/'.rawurlencode((string) $item['id'])];
+        return ['data:read'];
+    }
+
+    public function taskChanges(string $accessToken, string $listId, ?string $syncToken, string $userTimezone): ChangeSet
+    {
+        // Todoist's REST API returns active tasks only and has no change feed for read-only access, so every read is
+        // full: tasks that disappear were completed or deleted in Todoist and are removed here.
+        $upserts = [];
+        $cursor = null;
+        do {
+            $page = $this->send(fn () => $this->http($accessToken)->get(self::API.'/tasks', array_filter(['project_id' => $listId, 'limit' => 200, 'cursor' => $cursor])))->json();
+            foreach ($page['results'] ?? [] as $item) {
+                $title = trim((string) ($item['content'] ?? ''));
+                if ($title === '' || ($item['checked'] ?? false)) {
+                    continue;
                 }
-                $cursor = $page['next_cursor'] ?? null;
-            } while ($cursor);
-        }
+                $date = $item['due']['date'] ?? null;
+                $dateOnly = $date !== null && strlen((string) $date) === 10;
+                // Date-only dues end the day; floating times are local to the user; times with an offset are absolute.
+                $due = $date === null ? null : ($dateOnly ? CarbonImmutable::parse($date, $userTimezone)->setTime(23, 59) : CarbonImmutable::parse($date, $item['due']['timezone'] ?? $userTimezone));
+                $priority = [4 => 'urgent', 3 => 'high', 2 => 'medium'][(int) ($item['priority'] ?? 1)] ?? null;
+                $upserts[] = ['id' => (string) $item['id'], 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => $dateOnly, 'priority' => $priority,
+                    'url' => 'https://app.todoist.com/app/task/'.rawurlencode((string) $item['id']), 'status' => 'open', 'completed_at' => null];
+            }
+            $cursor = $page['next_cursor'] ?? null;
+        } while ($cursor);
+
+        return new ChangeSet($upserts, [], null, true);
     }
 
     public function revoke(string $token): void
