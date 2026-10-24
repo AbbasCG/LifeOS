@@ -230,63 +230,74 @@ class CopilotService
     }
 
     /**
-     * Calendar overlaps, overloaded days and deadlines that don't fit the free time before them (next 7 days).
+     * Calendar overlaps (LifeOS and connected calendars), work booked into busy time, overloaded days, deadlines the
+     * meetings leave no room for, and connected events moved or cancelled upstream — next 7 days. Read-only.
      *
      * @return array{message: string, tasks: list<array<string, mixed>>, items: list<array<string, mixed>>}
      */
-    public function conflicts(User $user, bool $ar): array
+    public function conflicts(User $user, bool $ar, int $days = 7, bool $deadlinesOnly = false): array
     {
         $c = $this->planning->config($user);
         $tz = $c['tz'];
         $first = CarbonImmutable::now($tz)->startOfDay();
-        $occurrences = $this->calendar->occurrences($user, CarbonImmutable::now()->utc(), $first->addDays(7)->utc())->values();
-        $fmt = fn (CarbonImmutable $d) => $d->setTimezone($tz)->locale($ar ? 'ar' : 'en')->translatedFormat($ar ? 'l H:i' : 'D H:i');
+        $fmt = fn (string $iso) => CarbonImmutable::parse($iso)->setTimezone($tz)->locale($ar ? 'ar' : 'en')->translatedFormat($ar ? 'l H:i' : 'D H:i');
+        $found = collect(app(ConflictService::class)->detect($user, CarbonImmutable::now()->utc(), $first->addDays($days)->utc()));
+        $source = fn (string $s) => ['google' => 'Google', 'outlook' => 'Outlook'][$s] ?? null;
         $items = [];
-        for ($i = 0; $i < $occurrences->count(); $i++) {
-            for ($j = $i + 1; $j < $occurrences->count() && $occurrences[$j]['starts_at'] < $occurrences[$i]['ends_at']; $j++) {
-                [$a, $b] = [$occurrences[$i], $occurrences[$j]];
-                $items[] = ['type' => 'overlap', 'title' => "{$a['title']} ↔ {$b['title']}", 'detail' => $fmt(max($a['starts_at'], $b['starts_at'])).($ar ? ' · تداخل ' : ' · overlap ').(int) max($a['starts_at'], $b['starts_at'])->diffInMinutes(min($a['ends_at'], $b['ends_at'])).($ar ? ' دقيقة' : ' min'), 'link' => '/calendar'];
+        if (! $deadlinesOnly) {
+            foreach ($found->whereIn('type', ['overlap', 'busy_task']) as $x) {
+                $from = collect($x['sources'] ?? [])->map($source)->filter()->unique()->implode(', ');
+                $items[] = ['type' => $x['type'] === 'busy_task' ? 'busy_task' : 'overlap', 'title' => "{$x['titles'][0]} ↔ {$x['titles'][1]}",
+                    'detail' => $fmt($x['at']).($ar ? ' · تداخل ' : ' · overlap ').$x['minutes'].($ar ? ' دقيقة' : ' min').($x['type'] === 'busy_task' ? ($ar ? ' · عمل مخطط في وقت مشغول' : ' · planned work during busy time') : '').($from ? " · {$from}" : ''), 'link' => '/calendar'];
+            }
+            $summary = $this->planning->summary($user, $first, $days, [], [], $c);
+            foreach (collect($summary['days'])->where('overloaded', true) as $day) {
+                $items[] = ['type' => 'overload', 'title' => CarbonImmutable::parse($day['date'], $tz)->locale($ar ? 'ar' : 'en')->translatedFormat('l j M'), 'detail' => $ar ? "محجوز بنسبة {$day['load_percent']}٪ من ساعات العمل" : "{$day['load_percent']}% booked against working hours", 'link' => '/calendar'];
             }
         }
-        $summary = $this->planning->summary($user, $first, 7, [], [], $c);
-        $days = collect($summary['days']);
-        foreach ($days->where('overloaded', true) as $day) {
-            $items[] = ['type' => 'overload', 'title' => CarbonImmutable::parse($day['date'], $tz)->locale($ar ? 'ar' : 'en')->translatedFormat('l j M'), 'detail' => $ar ? "محجوز بنسبة {$day['load_percent']}٪ من ساعات العمل" : "{$day['load_percent']}% booked against working hours", 'link' => '/calendar'];
+        $deadlines = $found->where('type', 'deadline')->values();
+        foreach ($deadlines->take(3) as $x) {
+            $meetings = $x['connected_meetings'] ? ($ar ? " (منها {$x['connected_meetings']} من تقويمات مرتبطة)" : " ({$x['connected_meetings']} from connected calendars)") : '';
+            $items[] = ['type' => 'deadline', 'id' => (int) substr($x['items'][0], 5), 'title' => $x['titles'][0], 'detail' => $ar
+                ? "مستحقة {$fmt($x['at'])}: تحتاج المهام حتى هذا الموعد نحو {$x['need']} دقيقة، والمتاح نحو {$x['free']} بعد {$x['meetings']} اجتماع{$meetings}"
+                : "Due {$fmt($x['at'])}: work due by then needs ~{$x['need']} min, about {$x['free']} min is free after {$x['meetings']} meeting(s){$meetings}", 'link' => '/tasks?due=week'];
         }
-        $due = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->whereBetween('due_at', [CarbonImmutable::now()->utc(), $first->addDays(7)->utc()])->orderBy('due_at')->limit(50)->get();
-        $need = 0;
-        $risky = 0;
-        foreach ($due as $task) {
-            $need += max(0, $task->estimated_minutes - (int) $task->actual_minutes);
-            $dueDay = $task->due_at->setTimezone($tz)->toDateString();
-            $free = (int) $days->filter(fn (array $d) => $d['date'] < $dueDay)->sum('free_minutes') + (int) round(($days->firstWhere('date', $dueDay)['free_minutes'] ?? 0) / 2);
-            if ($need > $free && ++$risky > 3) {
-                continue;
-            }
-            if ($need > $free) {
-                $items[] = ['type' => 'deadline', 'id' => $task->id, 'title' => $task->title, 'detail' => $ar ? "مستحقة {$fmt($task->due_at)}: تحتاج المهام حتى هذا الموعد نحو {$need} دقيقة، والمتاح نحو {$free}" : "Due {$fmt($task->due_at)}: work due by then needs ~{$need} min, about {$free} min is free", 'link' => '/tasks?due=week'];
-            }
-        }
-        if ($risky > 3) {
+        if ($deadlines->count() > 3) {
             // Once one deadline doesn't fit, every later one inherits the shortfall; list the first three and summarise.
-            $items[] = ['type' => 'deadline', 'title' => $ar ? 'ومواعيد أخرى' : 'And more deadlines', 'detail' => $ar ? ($risky - 3).' مهمة أخرى مستحقة بعدها تعتمد على الوقت نفسه' : ($risky - 3).' more task(s) due after these compete for the same time', 'link' => '/tasks?due=week'];
+            $items[] = ['type' => 'deadline', 'title' => $ar ? 'ومواعيد أخرى' : 'And more deadlines', 'detail' => $ar ? ($deadlines->count() - 3).' مهمة أخرى مستحقة بعدها تعتمد على الوقت نفسه' : ($deadlines->count() - 3).' more task(s) due after these compete for the same time', 'link' => '/tasks?due=week'];
+        }
+        if (! $deadlinesOnly) {
+            foreach ($found->whereIn('type', ['moved', 'cancelled', 'timezone'])->take(6) as $x) {
+                $items[] = match ($x['type']) {
+                    'moved' => ['type' => 'moved', 'title' => $x['titles'][0], 'detail' => ($ar ? 'أُعيدت جدولته من ' : 'Rescheduled from ').$fmt($x['from']).($ar ? ' إلى ' : ' to ').$fmt($x['to']), 'link' => '/timeline'],
+                    'cancelled' => ['type' => 'cancelled', 'title' => $x['titles'][0], 'detail' => ($ar ? 'أُلغي: ' : 'Cancelled: ').$fmt($x['at']), 'link' => '/timeline'],
+                    default => ['type' => 'timezone', 'title' => $x['titles'][0], 'detail' => $ar ? "منظّم بتوقيت {$x['organiser_zone']} ({$x['organiser_time']})، أي {$x['your_time']} بتوقيتك" : "Organised in {$x['organiser_zone']} ({$x['organiser_time']}), {$x['your_time']} your time", 'link' => '/timeline'],
+                };
+            }
         }
         $counts = collect($items)->countBy('type');
-        $counts['deadline'] = $risky ?: ($counts['deadline'] ?? 0);
+        $counts['deadline'] = $deadlines->count();
         if ($items === []) {
-            return ['message' => $ar ? 'لا توجد تعارضات خلال الأيام السبعة القادمة: لا تداخل في التقويم، ولا يوم مزدحم، والمواعيد تتسع في وقتك المتاح.' : 'No conflicts in the next 7 days: nothing overlaps, no day is overloaded and deadlines fit your free time.', 'tasks' => [], 'items' => []];
+            return ['message' => $deadlinesOnly
+                ? ($ar ? 'كل المواعيد النهائية خلال الأيام القادمة تتسع في وقتك المتاح بعد الاجتماعات.' : 'Every deadline in the coming days fits the time your meetings leave free.')
+                : ($ar ? 'لا توجد تعارضات خلال الأيام السبعة القادمة: لا تداخل في التقويم، ولا يوم مزدحم، والمواعيد تتسع في وقتك المتاح.' : 'No conflicts in the next 7 days: nothing overlaps, no day is overloaded and deadlines fit your free time.'), 'tasks' => [], 'items' => []];
         }
         $parts = collect([
-            $counts['overlap'] ?? 0 ? ($ar ? "{$counts['overlap']} تداخل في التقويم" : "{$counts['overlap']} calendar overlap(s)") : null,
-            $counts['overload'] ?? 0 ? ($ar ? "{$counts['overload']} يوم مزدحم" : "{$counts['overload']} overloaded day(s)") : null,
-            $counts['deadline'] ?? 0 ? ($ar ? "{$counts['deadline']} موعد قد لا يتسع له الوقت" : "{$counts['deadline']} deadline(s) that may not fit") : null,
+            ($counts['overlap'] ?? 0) ? ($ar ? "{$counts['overlap']} تداخل في التقويم" : "{$counts['overlap']} calendar overlap(s)") : null,
+            ($counts['busy_task'] ?? 0) ? ($ar ? "{$counts['busy_task']} عمل مخطط في وقت مشغول" : "{$counts['busy_task']} planned block(s) in busy time") : null,
+            ($counts['overload'] ?? 0) ? ($ar ? "{$counts['overload']} يوم مزدحم" : "{$counts['overload']} overloaded day(s)") : null,
+            $counts['deadline'] ? ($ar ? "{$counts['deadline']} موعد قد لا يتسع له الوقت" : "{$counts['deadline']} deadline(s) that may not fit") : null,
+            (($counts['moved'] ?? 0) + ($counts['cancelled'] ?? 0)) ? ($ar ? (($counts['moved'] ?? 0) + ($counts['cancelled'] ?? 0)).' تغيير من التقويمات المرتبطة' : (($counts['moved'] ?? 0) + ($counts['cancelled'] ?? 0)).' change(s) from connected calendars') : null,
         ])->filter()->implode($ar ? '، ' : ', ');
         $lines = collect($items)->map(fn (array $i) => "• {$i['title']} — {$i['detail']}")->implode("\n");
         $advice = $ar
-            ? "\n\nيمكنني اقتراح نقل الفترات المرنة («أعد توازن أسبوعي») أو تخطيط يومك. لن يتغير شيء دون موافقتك."
-            : "\n\nI can propose moving flexible blocks (“Rebalance my week”) or plan your day. Nothing changes without your approval.";
+            ? "\n\nيمكنني اقتراح نقل الفترات المرنة («أعد توازن أسبوعي») أو إيجاد وقت لمهامك. لن يتغير شيء دون موافقتك، ولا يتغير شيء في التقويمات المرتبطة أبداً."
+            : "\n\nI can propose moving flexible blocks (“Rebalance my week”) or find time for your tasks. Nothing changes without your approval, and connected calendars are never changed.";
+        $head = $deadlinesOnly
+            ? ($ar ? "{$counts['deadline']} موعد نهائي قد لا يتسع له الوقت بسبب اجتماعاتك:" : "{$counts['deadline']} deadline(s) may not fit around your meetings:")
+            : ($ar ? "وجدت خلال الأيام السبعة القادمة: {$parts}." : "In the next 7 days I found {$parts}.");
 
-        return ['message' => ($ar ? "وجدت خلال الأيام السبعة القادمة: {$parts}." : "In the next 7 days I found {$parts}.")."\n{$lines}{$advice}", 'tasks' => [], 'items' => $items];
+        return ['message' => "{$head}\n{$lines}{$advice}", 'tasks' => [], 'items' => $items];
     }
 
     /**

@@ -140,8 +140,10 @@ class ConnectedAccountsTest extends TestCase
         $account = $this->connect('google_tasks');
         $url = collect(Http::recorded())->map(fn ($pair) => $pair[0]->url())->first(fn ($u) => str_contains($u, 'tasks.googleapis.com/tasks/v1/lists/'));
         $this->assertStringContainsString('lists/L1/', $url, 'only the default list is read');
-        $this->assertSame(['Renew passport'], ExternalTask::pluck('title')->all());
-        $task = ExternalTask::firstOrFail();
+        // Completed tasks are kept (marked completed) so the source's state is visible; deadlines only use open ones.
+        $this->assertSame(['Renew passport'], ExternalTask::where('status', 'open')->pluck('title')->all());
+        $this->assertSame('completed', ExternalTask::where('title', 'Done already')->value('status'));
+        $task = ExternalTask::where('title', 'Renew passport')->firstOrFail();
         // Date-only due dates end that day in the user's timezone.
         $this->assertSame('2027-01-05 23:59', $task->due_at->setTimezone('Europe/Amsterdam')->format('Y-m-d H:i'));
 
@@ -152,7 +154,7 @@ class ConnectedAccountsTest extends TestCase
         $this->assertSame('google_tasks:L1|t1', Task::find($copy['id'])->source_ref);
         $this->postJson("/api/connected/tasks/{$task->id}/copy")->assertOk()->assertJsonPath('id', $copy['id']);
         $this->assertSame(1, Task::count());
-        $this->getJson('/api/connected/tasks')->assertOk()->assertJsonCount(0);
+        $this->assertSame(['Done already'], collect($this->getJson('/api/connected/tasks')->assertOk()->json())->pluck('title')->all());
         $today = collect($this->getJson('/api/today')->json('deadlines'));
         $this->assertSame(1, $today->where('title', 'Renew passport')->count(), 'shown once, as the LifeOS task');
         $this->assertSame('task', $today->firstWhere('title', 'Renew passport')['type']);

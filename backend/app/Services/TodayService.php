@@ -111,6 +111,7 @@ class TodayService
             'focus_time' => ['free_minutes' => $freeMinutes, 'slots' => $slots->take(6)->values(), 'peak' => $peak, 'next_task' => $top],
             // Start of the user's local day, so clients draw the day in the user's timezone, not the browser's.
             'day_start' => $day->toIso8601String(),
+            'timezone' => $c['tz'],
             'timeline' => $occurrences->map(fn (array $o) => ['id' => (string) $o['id'], 'title' => $o['title'], 'starts_at' => $o['starts_at']->toIso8601String(), 'ends_at' => $o['ends_at']->toIso8601String(), 'kind' => $o['kind'], 'source' => $o['source'] ?? 'lifeos', 'all_day' => (bool) ($o['all_day'] ?? false)])->values(),
             'windows' => collect($windows)->map(fn (array $w) => ['start' => $w[0]->toIso8601String(), 'end' => $w[1]->toIso8601String()]),
             'deadlines' => $deadlines->take(10)->values(),
@@ -147,7 +148,7 @@ class TodayService
 
         return ExternalTask::query()->join('calendar_accounts', 'calendar_accounts.id', '=', 'external_tasks.calendar_account_id')
             ->where('external_tasks.user_id', $user->id)->where('calendar_accounts.status', '!=', 'revoked')
-            ->whereNotNull('external_tasks.due_at')->where('external_tasks.due_at', '<=', $day->addDays(7)->utc())
+            ->where('external_tasks.status', 'open')->whereNotNull('external_tasks.due_at')->where('external_tasks.due_at', '<=', $day->addDays(7)->utc())
             ->orderBy('external_tasks.due_at')->limit(12)->get(['external_tasks.*', 'calendar_accounts.provider'])
             ->reject(fn (ExternalTask $t) => $copied->has($t->sourceRef($t->provider)))
             ->map(fn (ExternalTask $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'due_at' => $t->due_at->toIso8601String(), 'type' => 'external', 'source' => $labels[$t->provider] ?? $t->provider, 'url' => $t->url,

@@ -106,6 +106,7 @@ export type TodayData = {
   date: string; period: 'morning' | 'afternoon' | 'evening'; briefing: Bi[]; reflection_prompt: Bi | null
   energy: { checkin: Checkin | null; enabled: boolean; energy: number | null; workload: number | null; load_percent: number; level: 'light' | 'moderate' | 'heavy' }
   day_start?: string
+  timezone?: string
   timeline: { id: string; title: string; starts_at: string; ends_at: string; kind: string; source: string; all_day: boolean }[]
   windows?: Record<string, { start: string; end: string }>
   focus_time: { free_minutes: number; slots: { area: string; starts_at: string; ends_at: string; minutes: number }[]; peak: { start: string; end: string } | null; next_task: { id: number; title: string } | null }

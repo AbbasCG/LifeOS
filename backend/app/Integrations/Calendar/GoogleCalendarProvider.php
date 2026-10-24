@@ -70,9 +70,17 @@ class GoogleCalendarProvider extends OAuthProvider implements CalendarProvider
     /**
      * @return list<array<string, mixed>>
      */
+    /** @var array<string, list<array<string, mixed>>> calendar list per access token, so one sync reads it once */
+    private array $calendarLists = [];
+
     private function calendarList(string $accessToken): array
     {
-        return $this->send(fn () => $this->http($accessToken)->get('https://www.googleapis.com/calendar/v3/users/me/calendarList', ['minAccessRole' => 'reader', 'maxResults' => 250]))->json('items') ?? [];
+        $key = hash('sha256', $accessToken);
+        if (count($this->calendarLists) > 20) {
+            $this->calendarLists = [];
+        }
+
+        return $this->calendarLists[$key] ??= $this->send(fn () => $this->http($accessToken)->get('https://www.googleapis.com/calendar/v3/users/me/calendarList', ['minAccessRole' => 'reader', 'maxResults' => 250]))->json('items') ?? [];
     }
 
     public function collections(string $accessToken): array
@@ -89,45 +97,64 @@ class GoogleCalendarProvider extends OAuthProvider implements CalendarProvider
         ], $list, array_keys($list)));
     }
 
-    public function events(string $accessToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone, ?array $calendarIds = null): iterable
+    public function requiredScopes(): array
     {
-        foreach ($this->calendarList($accessToken) as $calendar) {
-            $included = $calendarIds === null ? (($calendar['selected'] ?? true) !== false && ! ($calendar['hidden'] ?? false)) : in_array((string) $calendar['id'], $calendarIds, true);
-            if (! $included) {
-                continue;
-            }
-            $calendarZone = $calendar['timeZone'] ?? $userTimezone;
-            $pageToken = null;
-            do {
-                $page = $this->send(fn () => $this->http($accessToken)->get('https://www.googleapis.com/calendar/v3/calendars/'.rawurlencode($calendar['id']).'/events', array_filter([
-                    'timeMin' => $from->toIso8601ZuluString(),
-                    'timeMax' => $to->toIso8601ZuluString(),
-                    'singleEvents' => 'true',
-                    'orderBy' => 'startTime',
-                    'maxResults' => 2500,
-                    'pageToken' => $pageToken,
-                ])))->json();
-                foreach ($page['items'] ?? [] as $item) {
-                    if (($item['status'] ?? '') === 'cancelled' || ($item['transparency'] ?? 'opaque') === 'transparent') {
-                        continue;
-                    }
-                    $allDay = isset($item['start']['date']);
-                    $zone = $item['start']['timeZone'] ?? $calendarZone;
-                    $start = $allDay ? CarbonImmutable::parse($item['start']['date'], $zone)->startOfDay() : CarbonImmutable::parse($item['start']['dateTime']);
-                    $end = $allDay ? CarbonImmutable::parse($item['end']['date'], $zone)->startOfDay() : CarbonImmutable::parse($item['end']['dateTime']);
-                    yield [
-                        'id' => $calendar['id'].'|'.$item['id'],
-                        'calendar_id' => $calendar['id'],
-                        'title' => mb_substr($item['summary'] ?? '(busy)', 0, 500),
-                        'starts_at' => $start->utc(),
-                        'ends_at' => $end->utc(),
-                        'all_day' => $allDay,
-                        'show_as' => 'busy',
-                    ];
+        return ['calendar.readonly'];
+    }
+
+    public function changes(string $accessToken, string $calendarId, ?string $syncToken, CarbonImmutable $from, CarbonImmutable $to, string $userTimezone): ChangeSet
+    {
+        $calendarZone = collect($this->calendarList($accessToken))->firstWhere('id', $calendarId)['timeZone'] ?? $userTimezone;
+        // Full sync: everything from the window start (Google's sync tokens cannot be combined with timeMin/timeMax later).
+        // Incremental: only changes since the token, including deletions (status "cancelled").
+        $params = $syncToken !== null ? ['syncToken' => $syncToken] : ['timeMin' => $from->toIso8601ZuluString()];
+        $upserts = [];
+        $removed = [];
+        $pageToken = null;
+        $next = null;
+        do {
+            $page = $this->send(fn () => $this->http($accessToken)->get('https://www.googleapis.com/calendar/v3/calendars/'.rawurlencode($calendarId).'/events', array_filter($params + [
+                'singleEvents' => 'true',
+                'maxResults' => 2500,
+                'pageToken' => $pageToken,
+            ])))->json();
+            foreach ($page['items'] ?? [] as $item) {
+                $id = $calendarId.'|'.$item['id'];
+                if (($item['status'] ?? '') === 'cancelled' || ($item['transparency'] ?? 'opaque') === 'transparent' || ! isset($item['start'])) {
+                    $removed[] = $id;
+
+                    continue;
                 }
-                $pageToken = $page['nextPageToken'] ?? null;
-            } while ($pageToken);
-        }
+                $allDay = isset($item['start']['date']);
+                $zone = $item['start']['timeZone'] ?? $calendarZone;
+                $start = $allDay ? CarbonImmutable::parse($item['start']['date'], $zone)->startOfDay() : CarbonImmutable::parse($item['start']['dateTime']);
+                $end = $allDay ? CarbonImmutable::parse($item['end']['date'], $zone)->startOfDay() : CarbonImmutable::parse($item['end']['dateTime']);
+                if ($end <= $from || $start >= $to) {
+                    // Outside the window (or moved out of it): not stored.
+                    $removed[] = $id;
+
+                    continue;
+                }
+                $original = $item['originalStartTime'] ?? null;
+                $upserts[] = [
+                    'id' => $id,
+                    'calendar_id' => $calendarId,
+                    'title' => mb_substr($item['summary'] ?? '(busy)', 0, 500),
+                    'starts_at' => $start->utc(),
+                    'ends_at' => $end->utc(),
+                    'all_day' => $allDay,
+                    'show_as' => 'busy',
+                    'ical_uid' => isset($item['iCalUID']) ? mb_substr((string) $item['iCalUID'], 0, 1024) : null,
+                    'series_id' => $item['recurringEventId'] ?? null,
+                    'original_start' => $original ? (isset($original['date']) ? CarbonImmutable::parse($original['date'], $zone) : CarbonImmutable::parse($original['dateTime']))->utc() : null,
+                    'timezone' => $zone,
+                ];
+            }
+            $pageToken = $page['nextPageToken'] ?? null;
+            $next = $page['nextSyncToken'] ?? $next;
+        } while ($pageToken);
+
+        return new ChangeSet($upserts, $removed, $next, $syncToken === null);
     }
 
     public function revoke(string $token): void

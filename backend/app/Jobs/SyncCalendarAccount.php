@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Integrations\Calendar\ProviderException;
+use App\Integrations\Calendar\RateLimitedException;
 use App\Models\CalendarAccount;
 use App\Services\CalendarSyncService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -40,6 +41,9 @@ class SyncCalendarAccount implements ShouldBeUnique, ShouldQueue
         }
         try {
             $sync->sync($account);
+        } catch (RateLimitedException $e) {
+            // The provider told us how long to wait; honour it instead of the generic back-off.
+            $this->release($e->retryAfter);
         } catch (ProviderException $e) {
             // Transient: let the queue retry with backoff. The account already records the error.
             $this->release($this->backoff()[min($this->attempts() - 1, 2)]);

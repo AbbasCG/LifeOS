@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { CalendarCheck, RefreshCw, Battery, BatteryLow, Zap, Coffee, AlertTriangle, LifeBuoy, Settings2, Check, Lock, Globe, Repeat } from 'lucide-react'
 import { api, type DayPlan, type DayPlanAlternative, type Plan } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -17,9 +17,13 @@ import { useReasonLabel } from '../../lib/labels'
  */
 export default function DayPlanPage() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), reason = useReasonLabel(), ar = language === 'ar'
-  const [date, setDate] = useState(localDate()), [replan, setReplan] = useState(0)
+  // Copilot links here with ?date=&variant= to preselect its suggestion; applying still needs the user's two clicks.
+  const [params] = useSearchParams()
+  const linkedDate = /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : null
+  const linkedVariant = (['balanced', 'deep', 'light'] as const).find(v => v === params.get('variant')) ?? null
+  const [date, setDate] = useState(linkedDate ?? localDate()), [replan, setReplan] = useState(0)
   const { data, error, reload } = useApi<DayPlan>(`/api/day-plan?date=${date}&replan=${replan > 0 ? 1 : 0}&r=${replan}`)
-  const [selected, setSelected] = useState<DayPlanAlternative['key'] | null>(null), [proposal, setProposal] = useState<Plan | null>(null)
+  const [selected, setSelected] = useState<DayPlanAlternative['key'] | null>(linkedVariant), [proposal, setProposal] = useState<Plan | null>(null)
   const [busy, setBusy] = useState(false), [failure, setFailure] = useState(''), [editing, setEditing] = useState(false)
   const active = selected ?? data?.recommended ?? 'balanced'
   const alt = data?.alternatives.find(a => a.key === active)

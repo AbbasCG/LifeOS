@@ -1,40 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { CalendarDays, RefreshCw, Unplug, Link2, ShieldCheck, AlertTriangle, CheckCircle2, Lock, Server, ListChecks, NotebookPen, Mail, Sparkles, Clock3, Bot } from 'lucide-react'
+import { CalendarDays, Link2, ShieldCheck, Lock, Server, ListChecks, NotebookPen, Mail, Sparkles, Clock3, Bot } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { AccountCard, type ConnectedAccount, type SyncRunInfo } from '../connected/AccountCard'
 
-export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
-export type ConnectedAccount = { id: number; provider: string; email: string | null; display_name: string | null; status: 'active' | 'error' | 'revoked'; last_synced_at: string | null; last_error: string | null; events_count: number; connected_at: string | null; collections: Collection[]; collections_managed: boolean }
-export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned'; scopes: string; env_keys?: string[]; redirect_uri?: string; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
+export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
 type Hub = { providers: HubProvider[]; categories: { key: string; providers: HubProvider[] }[]; ai_connected_data: boolean }
 
 const ICONS: Record<string, typeof CalendarDays> = { calendars: CalendarDays, tasks: ListChecks, productivity: NotebookPen, email: Mail, future: Sparkles }
-
-/** Picks which calendars or task lists of one account LifeOS imports. Nothing is imported from unchecked ones. */
-function CollectionPicker({ account, tasks, onSaved }: { account: ConnectedAccount; tasks: boolean; onSaved: () => void }) {
-  const t = useText(), toast = useToast()
-  const [chosen, setChosen] = useState(() => account.collections.filter(c => c.included).map(c => c.id)), [busy, setBusy] = useState(false), [error, setError] = useState('')
-  const dirty = chosen.slice().sort().join('|') !== account.collections.filter(c => c.included).map(c => c.id).sort().join('|')
-  if (!account.collections.length) return null
-  async function save() {
-    setBusy(true); setError('')
-    try { await api(`/api/integrations/accounts/${account.id}`, 'PATCH', { included: chosen }); toast(tasks ? t('Lists updated and synced.', 'تم تحديث القوائم ومزامنتها.') : t('Calendars updated and synced.', 'تم تحديث التقويمات ومزامنتها.')); onSaved() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
-  }
-  return <fieldset className="collection-picker">
-    <legend>{tasks ? t('Lists to import', 'القوائم المستوردة') : t('Calendars to include', 'التقويمات المضمّنة')}</legend>
-    {account.collections.map(c => <label key={c.id} className="inline">
-      <input type="checkbox" checked={chosen.includes(c.id)} onChange={() => setChosen(list => list.includes(c.id) ? list.filter(x => x !== c.id) : [...list, c.id])} />
-      <i className="swatch" style={{ background: c.color ?? 'var(--color-primary)' }} aria-hidden="true" /><span>{c.name}</span>{c.primary && <small className="muted">{t('primary', 'رئيسي')}</small>}
-    </label>)}
-    <ErrorMessage error={error} />
-    {dirty && <button className="primary" disabled={busy} onClick={() => void save()}>{busy ? t('Saving…', 'جارٍ الحفظ…') : t('Save and sync', 'حفظ ومزامنة')}</button>}
-  </fieldset>
-}
 
 export default function IntegrationsSettings() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar'
@@ -46,7 +24,7 @@ export default function IntegrationsSettings() {
     const connected = params.get('connected'), problem = params.get('error')
     if (!connected && !problem) return
     if (connected) toast(t(`${connected} connected. Only the primary calendar or list is included — choose more below.`, `تم الربط. يُضمَّن التقويم أو القائمة الرئيسية فقط — اختر المزيد أدناه.`))
-    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.'), 'error')
+    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.'), 'error')
     setParams({}, { replace: true })
   }, [params, setParams, toast, t])
   async function act<T>(key: string, fn: () => Promise<T>, success?: string) {
@@ -57,8 +35,14 @@ export default function IntegrationsSettings() {
     const r = await act(provider.provider, () => api<{ authorization_url: string }>(`/api/integrations/${provider.provider}/connect`, 'POST'))
     if (r) window.location.assign(r.authorization_url)
   }
-  const ago = (iso: string | null) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : t('Never', 'أبداً')
-  const statusLabel = (s: ConnectedAccount['status']) => ({ active: t('Syncing', 'متزامن'), error: t('Sync problem', 'مشكلة مزامنة'), revoked: t('Access revoked', 'أُلغي الوصول') }[s])
+  async function syncNow(account: ConnectedAccount) {
+    setBusy(`sync-${account.id}`); setFailure('')
+    try {
+      const r = await api<{ imported: number; run: SyncRunInfo | null }>(`/api/integrations/accounts/${account.id}/sync`, 'POST')
+      const run = r.run
+      toast(run ? t(`Synced: ${run.upserted} updated, ${run.removed} removed${run.moved ? `, ${run.moved} moved` : ''}${run.status === 'partial' ? ' — some calendars could not be read' : ''}.`, `تمت المزامنة: ${run.upserted} محدّث، ${run.removed} محذوف${run.moved ? `، ${run.moved} منقول` : ''}${run.status === 'partial' ? ' — تعذّرت قراءة بعض التقويمات' : ''}.`) : t('Synced.', 'تمت المزامنة.'), run?.status === 'partial' ? 'error' : undefined)
+    } catch (e) { setFailure((e as Error).message) } finally { setBusy(null); reload() }
+  }
   const categoryLabel: Record<string, [string, string]> = {
     calendars: [t('Calendars', 'التقويمات'), t('Busy time from your other calendars, so plans never collide.', 'الوقت المشغول من تقويماتك الأخرى، حتى لا تتعارض الخطط.')],
     tasks: [t('Tasks', 'المهام'), t('Read-only to-dos from other apps, shown with their source. Copy one into LifeOS to plan it.', 'مهام للقراءة فقط من تطبيقات أخرى مع مصدرها. انسخ مهمة إلى LifeOS لتخطط لها.')],
@@ -76,6 +60,14 @@ export default function IntegrationsSettings() {
       <Bot size={20} />
       <div><h3>{t('Share connected data with an external AI provider', 'مشاركة البيانات المرتبطة مع مزود ذكاء اصطناعي خارجي')}</h3><p className="muted">{t('Off by default. When off, Copilot sees connected events only as “Busy” and never sees imported tasks. The local assistant always works on this server.', 'متوقف افتراضياً. عند إيقافه يرى المساعد المواعيد المرتبطة كـ«مشغول» فقط ولا يرى المهام المستوردة. المساعد المحلي يعمل دائماً على هذا الخادم.')}</p></div>
       <label className="switch"><input type="checkbox" role="switch" checked={data.ai_connected_data} disabled={busy !== null} aria-label={t('Share connected data with an external AI provider', 'مشاركة البيانات المرتبطة مع مزود ذكاء اصطناعي خارجي')} onChange={() => void act('consent', () => api('/api/settings', 'PUT', { ai_connected_data: !data.ai_connected_data }), t('Preference saved.', 'تم حفظ التفضيل.'))} /><span aria-hidden="true" /></label>
+    </section>}
+    {data && data.providers.every(p => p.accounts.length === 0) && <section className="panel reveal hub-onboarding" aria-labelledby="hub-onboarding-title">
+      <h2 id="hub-onboarding-title">{t('Bring your calendars and to-dos together', 'اجمع تقويماتك ومهامك في مكان واحد')}</h2>
+      <ol className="onboarding-steps">
+        <li><span>1</span><div><strong>{t('Pick an app below', 'اختر تطبيقاً أدناه')}</strong><p className="muted small">{t('Google Calendar, Outlook, Google Tasks, Microsoft To Do or Todoist.', 'تقويم Google أو Outlook أو مهام Google أو Microsoft To Do أو Todoist.')}</p></div></li>
+        <li><span>2</span><div><strong>{t('Approve read-only access', 'وافق على الوصول للقراءة فقط')}</strong><p className="muted small">{t('You sign in on the provider’s own page. LifeOS never sees your password and can never change your data there.', 'تسجّل الدخول في صفحة المزوّد نفسه. لا يرى LifeOS كلمة مرورك ولا يمكنه تغيير بياناتك هناك.')}</p></div></li>
+        <li><span>3</span><div><strong>{t('Choose what to include', 'اختر ما تريد تضمينه')}</strong><p className="muted small">{t('Only your primary calendar or list is imported at first. Add more any time, or disconnect to remove everything.', 'يُستورد تقويمك أو قائمتك الرئيسية فقط في البداية. أضف المزيد متى شئت، أو افصل لحذف كل شيء.')}</p></div></li>
+      </ol>
     </section>}
     <ErrorMessage error={error || failure} />
     {!data ? <Skeleton height={220} /> : data.categories.map(category => { const Icon = ICONS[category.key] ?? Sparkles; return <section key={category.key} className="hub-category reveal" aria-labelledby={`hub-${category.key}`}>
@@ -97,16 +89,8 @@ export default function IntegrationsSettings() {
           </div> : <>
             <p className="muted small scopes">{provider.scopes}</p>
             {provider.accounts.length === 0 && <p className="muted">{t('No account connected.', 'لا يوجد حساب مرتبط.')}</p>}
-            <ul className="account-list">{provider.accounts.map(account => <li key={account.id} className={`status-${account.status}`}>
-              <div className="row"><strong dir="ltr">{account.email ?? account.display_name ?? provider.label}</strong><span className={`badge ${account.status === 'active' ? 'status-accepted' : account.status === 'error' ? 'status-pending' : 'status-rejected'}`}>{account.status === 'active' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />} {statusLabel(account.status)}</span></div>
-              <small className="muted">{category.key === 'tasks' ? t(`Last synced ${ago(account.last_synced_at)} · ${account.events_count} open tasks`, `آخر مزامنة ${ago(account.last_synced_at)} · ${account.events_count} مهام مفتوحة`) : t(`Last synced ${ago(account.last_synced_at)} · ${account.events_count} upcoming commitments`, `آخر مزامنة ${ago(account.last_synced_at)} · ${account.events_count} التزامات قادمة`)}</small>
-              {account.last_error && account.status !== 'active' && <p className="error compact">{account.last_error}</p>}
-              {account.status !== 'revoked' && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={category.key === 'tasks'} onSaved={reload} />}
-              <div className="toolbar">
-                {account.status === 'revoked' ? <button className="primary" disabled={busy !== null} onClick={() => void connect(provider)}><Link2 size={15} />{t('Reconnect', 'إعادة الربط')}</button> : <button className="quiet" disabled={busy !== null} onClick={() => void act(`sync-${account.id}`, () => api(`/api/integrations/accounts/${account.id}/sync`, 'POST'), t('Synced.', 'تمت المزامنة.'))}><RefreshCw size={15} className={busy === `sync-${account.id}` ? 'spin' : ''} />{t('Sync now', 'مزامنة الآن')}</button>}
-                <button className="quiet" disabled={busy !== null} onClick={() => setDisconnecting(account)}><Unplug size={15} />{t('Disconnect', 'فصل')}</button>
-              </div>
-            </li>)}</ul>
+            <ul className="account-list">{provider.accounts.map(account => <AccountCard key={account.id} account={account} label={provider.label} tasks={category.key === 'tasks'} requiredScopes={provider.required_scopes ?? []} busy={busy}
+              onSync={() => void syncNow(account)} onReconnect={() => void connect(provider)} onDisconnect={() => setDisconnecting(account)} onSaved={reload} />)}</ul>
             <button className="primary" disabled={busy !== null} aria-label={provider.accounts.length ? t(`Connect another ${provider.label} account`, `ربط حساب ${provider.label} آخر`) : undefined} onClick={() => void connect(provider)}><Link2 size={16} />{busy === provider.provider ? t('Opening…', 'جارٍ الفتح…') : provider.accounts.length ? t('Connect another account', 'ربط حساب آخر') : t(`Connect ${provider.label}`, `ربط ${provider.label}`)}</button>
           </>}
       </section>)}</div>

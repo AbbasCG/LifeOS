@@ -687,7 +687,7 @@ Branch: `claude/magical-johnson-1s7q7b`, restarted from `main` at `ab0c797` (V4/
   - Todoist and Microsoft offer no programmatic token revocation; users remove LifeOS in the provider's settings.
 - Imported tasks are read-only by design. Completing one in LifeOS requires copying it, and the source is not updated.
 - Duplicate detection uses exact title and time matching. Renamed copies of the same meeting are not merged.
-- On the dial, times are displayed in the browser's locale/timezone, while placement uses the user's day. On a browser in a different timezone from the account setting, labels and positions can differ by that offset.
+- ~~On the dial, times are displayed in the browser's timezone~~ — fixed in V6: labels use the account timezone (`TodayData.timezone`).
 - Headless screenshots in Playwright's full-page mode render the sticky glass sidebar incorrectly; viewport screenshots are correct.
 - Notion, Gmail, Outlook Mail, Apple Calendar and ICS feeds are planned only.
 
@@ -697,3 +697,176 @@ Branch: `claude/magical-johnson-1s7q7b`, restarted from `main` at `ab0c797` (V4/
 - Planner: carry unfinished day-plan blocks forward automatically (with approval); learn per-task-type estimates; respect travel buffers from event locations.
 - Notifications: evening-summary and check-in reminders through the existing notification preferences.
 - Analytics: export (CSV/PDF), and goal history snapshots so goal progress can follow the selected date range.
+
+
+# V6 — Real integrations & connected intelligence
+
+Branch `claude/magical-johnson-1s7q7b`, restarted after PR #4 (V5) was merged. **Not committed, not pushed** — waiting for approval.
+
+## Phase 0 audit
+- V5 + Living Workspace + Connected Accounts were merged to `main` (PR #4) before V6 started.
+- **Gaps found in V5's sync:**
+  - full re-read of 30 days on every run;
+  - no rate-limit handling, and **Google rate-limit 403s were treated as a revoked account** (a real bug, now fixed);
+  - no sync history;
+  - cancelled recurring occurrences relied on a full re-read;
+  - duplicate detection by title only;
+  - completed connected tasks vanished instead of showing their state;
+  - dial labels in the browser timezone.
+
+## Module status
+
+| Module | Status | Notes |
+|---|---|---|
+| V6-A Calendar sync (Google, Outlook) | **Done, verified with provider mocks** | incremental, rate limits, retries/back-off, scope check, DST, recurring/cancelled occurrences, account isolation |
+| V6-B Task imports (Google Tasks, Microsoft To Do, Todoist) | **Done, verified with provider mocks** | list selection, pagination, incremental (Google/Microsoft), completion status, deadlines, attribution, copy-without-duplicates. Read-only: no two-way sync |
+| V6-C Connected Accounts Hub | **Done** | per-account status, identity, permissions, selected collections, last success/attempt, sync mode, errors with next step, history, onboarding |
+| V6-D Unified timeline | **Done** | `/timeline` day/week; all sources; filters by account, source, area, type and date; external items read-only; no duplicates |
+| V6-E Conflicts & observability | **Done** | `ConflictService` with stable item IDs; `sync_runs` history; idempotent, locked, retry-safe sync |
+| V6-F Connected AI planning | **Done** | find time / plan my day / deadline conflicts / better schedule tomorrow; proposal → approval → execution → audit; consent switch respected |
+| V6-G Verification | **Done for automated checks; live accounts NOT VERIFIED** | see checklist below |
+| V6-H UX refinement | **Done** | hub, timeline, onboarding, sync toasts, empty/error states, mobile, reduced motion, dial timezone fix |
+
+## Sync design (V6-A/B)
+- **Provider contract:**
+  - `CalendarProvider::changes(token, calendarId, ?syncToken, from, to, tz): ChangeSet` and `TaskProvider::taskChanges(...)` return `upserts`, `removed`, `nextToken` and `full`.
+  - Each provider owns its paging.
+- **Google Calendar:**
+  - The first read is `singleEvents=true` over the window (recurring series expanded into occurrences).
+  - Later reads use `nextSyncToken`.
+  - Cancelled occurrences, free/transparent events and events outside the window are removed.
+  - `iCalUID`, `recurringEventId` and `originalStartTime` are kept.
+- **Outlook:**
+  - Uses `calendarView/delta` with `Prefer: outlook.timezone="UTC"` and following `@odata.nextLink` / `@odata.deltaLink`.
+  - `@removed`, `isCancelled` and free/working-elsewhere events are removed.
+  - Delta links are only followed on `graph.microsoft.com`.
+- **Google Tasks:** `updatedMin` incremental with deleted tasks. **Microsoft To Do:** `tasks/delta`. **Todoist:** full read each time (no public incremental endpoint for this use).
+- **Full re-reads:** a full read runs every 24 h (`FULL_SYNC_HOURS`) so the window moves forward. An expired token (410 `syncStateNotFound` / `resyncRequired`) falls back to a full read automatically.
+- **Rate limits:**
+  - These map to `RateLimitedException`: HTTP 429; 503 with `Retry-After`; Google 403 `rateLimitExceeded`, `userRateLimitExceeded` and `quotaExceeded`.
+  - The delay is clamped to 30 s–1 h and stored as `retry_after`. The queued job `release()`s itself, and "Sync now" returns 429 with `retry_after`.
+- **Back-off:** after 3 consecutive failures, scheduled syncs back off `min(6 h, 1 h·2^(n-3))`.
+- **Idempotency:**
+  - Upserts are keyed by `(account, calendar/list, external_id)`.
+  - A cache lock `connected-sync:{id}` prevents parallel runs.
+  - A partly failed run keeps the previous data and token for the failed collection only (`partial` status).
+- **Scopes:**
+  - On callback, the granted scopes are compared with `requiredScopes()`.
+  - Unticking read access on the consent screen stores `scopes_ok=false`, shows "Permission missing", and blocks sync (422) until reconnect.
+- **Revocation:**
+  - `invalid_grant` or 401 after refresh sets the account to `revoked` and keeps the user's selections.
+  - Disconnect revokes at Google (Microsoft and Todoist have no revocation endpoint) and deletes imported events and tasks plus tokens. Copied LifeOS tasks are kept.
+- **Moves and cancellations:** a changed start is stored as `previous_starts_at` and `changed_at` (shown as "moved from …" and reported to Copilot). Cancellations are counted in the run details (up to 10 titles).
+- **Stable de-duplication:** identity is `iCalUID` + original start, so the same meeting invited to Google and Outlook appears once even if renamed ("FW: …"). Title + time remains as a fallback.
+- **Observability:**
+  - `sync_runs` stores mode, trigger (`scheduled`/`manual`/`selection`/`connect`), status, counts, duration and an actionable error.
+  - The hub shows the last 5 runs. Tokens never appear in runs, logs or API output.
+
+## Timeline, conflicts and AI (V6-D/E/F)
+- **`GET /api/timeline`:**
+  - Parameters: `from`, `to` (≤ 31 days) and CSV filters `sources`, `accounts` (0 = LifeOS), `areas`, `kinds`.
+  - Returns `range` (with timezone), `items`, `conflicts` and `facets`.
+  - Item IDs are stable: `ev:e{id}`, `ev:x{id}`, `task:{id}`, `xt:{id}`, `focus:{id}`, `goal:{id}`, `habit:{id}:{date}`.
+  - A copied connected task is shown once, as the LifeOS task.
+  - Items are sorted all-day first, then by absolute time.
+- **Conflict types:**
+  - high severity: `overlap`, `busy_task` (planned work during a meeting), `deadline` (not enough free planning time before a due date);
+  - informational: `duplicate`, `timezone` (organiser zone ≠ yours), `moved`, `cancelled`.
+  - Conflicted items are flagged in the stream.
+- **Copilot intents:**
+  - `plan_day` ("Plan my day around my Google Calendar", "Suggest a better schedule for tomorrow") gives a read-only suggestion plus a deep link to `/today/plan?date=&variant=`.
+  - `find_time` ("Find time for my study tasks") creates a **pending proposal** of `create_event` actions around all calendars, within area windows and before due dates. It is applied only on approval and audited.
+  - `deadline_conflicts` ("Which deadlines conflict with my meetings?").
+  - These work in English and Arabic, locally or through the external provider.
+  - With `ai_connected_data` off, external AI sees connected events only as "Busy".
+- **Never** written to Google, Outlook, Google Tasks, Microsoft To Do or Todoist.
+
+## Migration
+`2026_10_24_222618_add_sync_reliability` is additive and reversible (rollback and re-migrate verified):
+- `calendar_accounts`: `sync_state`, `last_attempt_at`, `retry_after`, `consecutive_failures`, `scopes_ok`;
+- `external_events`: `ical_uid`, `series_id`, `original_start`, `timezone`, `previous_starts_at`, `changed_at`;
+- `external_tasks`: `status`, `completed_at`;
+- new table `sync_runs`.
+
+Existing accounts start with a full read.
+
+## Verification (automated)
+- **Backend:** **189/189 tests, 1412 assertions on SQLite and on PostgreSQL 16.**
+  - New `SyncReliabilityTest` (11): incremental moves and cancellations plus 410 fallback; daily full read; Google 403 rate limit ≠ revocation; job honours `Retry-After`; partial sync; lock; scope check at connect; iCalUID de-duplication; Outlook delta across DST with cancelled occurrences; task incremental sync and completion; back-off and no secrets in the hub.
+  - New `TimelineTest` (3) and `ConnectedPlanningTest` (4); existing suites updated for delta endpoints.
+  - Pint clean; `composer audit`: no advisories.
+- **Frontend:** **75/75 Vitest.** New `v6.test.tsx` (9): timeline sources, read-only state, conflicts, server filters, copy, week range, empty state; hub permissions, history, missing-scope/revoked/rate-limited states, 429 message, onboarding; dial timezone labels; day-plan deep link. `tsc -b` clean; ESLint 0 errors (1 pre-existing warning in `FocusWidget`); build OK (Timeline chunk 13.8 kB); `npm audit --omit=dev`: 0 vulnerabilities.
+- **Browser (Playwright, production build, demo account on PostgreSQL):**
+  - Timeline day, week and filters, plus hub and Today, in EN light 1440, AR dark 1440, EN dark 390 (reduced motion) and AR light 390 (reduced motion).
+  - No horizontal overflow. No console errors apart from the expected pre-login 401.
+- **Fixed during QA:**
+  - week rows squeezed character-by-character (compact rows now stack time over title);
+  - habits sorted out of order (mixed UTC offsets compared as strings);
+  - mobile row actions wrapping onto their own line;
+  - deadline-conflict wording when no meetings are involved.
+
+## Real-account verification checklist
+None of these were run: no provider credentials or consent were available in this environment. **Every item is NOT VERIFIED.**
+
+| # | Check | Status |
+|---|---|---|
+| 1 | Google: connect, consent shows only `calendar.readonly`, primary calendar imported | NOT VERIFIED |
+| 2 | Google: untick read access on consent → hub shows "Permission missing", sync blocked | NOT VERIFIED |
+| 3 | Google: edit/move/cancel one occurrence of a recurring event → next incremental sync reflects it, "moved from" shown | NOT VERIFIED |
+| 4 | Google: wait > 7 days idle or force 410 → automatic full read, no duplicates | NOT VERIFIED |
+| 5 | Google: remove LifeOS at myaccount.google.com/permissions → account shows "Access revoked", reconnect keeps selections | NOT VERIFIED |
+| 6 | Outlook (personal and work/school tenant): connect, choose calendars, delta sync, cancelled occurrence removed | NOT VERIFIED |
+| 7 | Outlook: event across the DST change (last Sunday of March/October) shows the right local time | NOT VERIFIED |
+| 8 | Same meeting in Google and Outlook appears once on Timeline (iCalUID) | NOT VERIFIED |
+| 9 | Google Tasks: choose lists, complete a task at source → shows "Completed in Google Tasks", hidden after 7 days | NOT VERIFIED |
+| 10 | Microsoft To Do: delta sync, completion, deleted task removed | NOT VERIFIED |
+| 11 | Todoist API v1: field names (`results`, `next_cursor`, `due.date`) and pagination with > 200 tasks | NOT VERIFIED |
+| 12 | Rate limit: real 429/403 from providers produces "Waiting for provider" and resumes | NOT VERIFIED |
+| 13 | Disconnect removes imported data; Google token revoked at provider | NOT VERIFIED |
+| 14 | Copilot "Find time…" proposal applied → only LifeOS events created, nothing written to the provider | NOT VERIFIED (verified with mocks: `Http::assertNothingSent`) |
+
+**How to run them:**
+1. Create the OAuth apps (see "Setting up a provider" in the V5 extension) with the redirect URIs shown in the hub.
+2. Set `GOOGLE_*`, `MICROSOFT_*` and `TODOIST_*` in `backend/.env`.
+3. Run `php artisan queue:work` and `php artisan schedule:work`.
+4. Use test accounts, not personal data.
+5. Record each result with the date and provider account type in this table.
+
+## Security & performance summary
+- **Tokens and access:**
+  - Tokens are encrypted at rest (model casts), hidden from serialisation, and never logged or returned.
+  - `sync_state` (sync tokens) is hidden as well.
+  - Scopes are read-only, with no provider writes anywhere in code.
+  - Outlook delta links are host-checked (no SSRF through `@odata.deltaLink`).
+- **Isolation and limits:**
+  - All queries are scoped by `user_id`; timeline account filters only match the user's own accounts.
+  - Sync and connect are rate-limited (`throttle:auth`).
+  - Every connect, disconnect, collection change, copy and applied proposal is audited.
+- **AI:**
+  - External AI receives connected events only as "Busy" unless the user enables `ai_connected_data`.
+  - Copilot actions remain proposals until approved.
+- **Performance:**
+  - Incremental sync turns a 30-day re-read into a change list (typically a few events).
+  - The calendar list is fetched once per run.
+  - The timeline is bounded to 31 days with a single conflict pass.
+  - The Timeline route is lazily loaded (13.8 kB).
+  - No new dependencies and no new 3D. Animations are spring/opacity only and disabled under reduced motion.
+
+## Known limitations (V6)
+- **Live provider behaviour is unverified** (see the checklist).
+- Todoist has no incremental sync here (full read, active tasks only), so completed Todoist tasks simply disappear.
+- Outlook reports Windows timezone names. The timezone-mismatch conflict only fires for IANA zones (Google, and Outlook events with IANA names).
+- Google sync tokens can expire after long inactivity. This is handled by the 410 fallback and the daily full read.
+- Microsoft and Todoist offer no token revocation; users remove LifeOS in the provider's settings.
+- "Plan my day" through Copilot is a suggestion with a deep link; the plan itself is accepted on the Day Plan page.
+- Imported tasks remain read-only. No two-way sync was built (requires explicit approval).
+- Headless full-page screenshots render the sticky glass sidebar incorrectly (viewport screenshots are correct).
+
+## Recommended V7 scope
+- Run the real-account checklist with test tenants, then add recorded-fixture contract tests from those responses.
+- Optional, approval-gated write-back: create LifeOS-planned blocks in a chosen Google/Outlook calendar, behind a separate write scope and per-action confirmation.
+- Webhooks/push notifications (Google `events.watch`, Microsoft Graph subscriptions) instead of 15-minute polling.
+- Map Windows to IANA timezones for Outlook so timezone-mismatch detection covers all events.
+- Todoist incremental sync via the Sync API, including completed items.
+- Commit the Playwright tour as a CI end-to-end suite (EN/AR, light/dark, mobile).
+- Timeline: drag LifeOS blocks to reschedule (with conflict preview), and an ICS subscription source.

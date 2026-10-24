@@ -15,6 +15,7 @@ use App\Http\Controllers\PlanningController;
 use App\Http\Controllers\PushController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\SecurityController;
+use App\Http\Controllers\TimelineController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -59,6 +60,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('integrations/{provider}/callback', [IntegrationController::class, 'callback'])->whereIn('provider', IntegrationController::PROVIDERS);
         Route::patch('integrations/accounts/{id}', [IntegrationController::class, 'update'])->whereNumber('id');
         Route::get('connected/tasks', [IntegrationController::class, 'tasks']);
+        Route::get('timeline', [TimelineController::class, 'index']);
         Route::post('connected/tasks/{id}/copy', [IntegrationController::class, 'copyTask'])->whereNumber('id');
         Route::post('integrations/accounts/{id}/sync', [IntegrationController::class, 'sync'])->whereNumber('id')->middleware('throttle:auth');
         Route::delete('integrations/accounts/{id}', [IntegrationController::class, 'destroy'])->whereNumber('id');

@@ -2,6 +2,7 @@
 
 namespace App\Integrations\Tasks;
 
+use App\Integrations\Calendar\ChangeSet;
 use App\Integrations\Calendar\OAuthProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
@@ -70,26 +71,40 @@ class GoogleTasksProvider extends OAuthProvider implements TaskProvider
         return array_values(array_map(fn (array $l, int $i) => ['id' => (string) $l['id'], 'name' => mb_substr((string) ($l['title'] ?? 'Tasks'), 0, 200), 'color' => null, 'primary' => $i === 0, 'default_included' => $i === 0], $lists, array_keys($lists)));
     }
 
-    public function tasks(string $accessToken, array $listIds, string $userTimezone): iterable
+    public function requiredScopes(): array
     {
-        foreach ($listIds as $listId) {
-            $pageToken = null;
-            do {
-                $page = $this->send(fn () => $this->http($accessToken)->get('https://tasks.googleapis.com/tasks/v1/lists/'.rawurlencode($listId).'/tasks', array_filter([
-                    'showCompleted' => 'false', 'showHidden' => 'false', 'maxResults' => 100, 'pageToken' => $pageToken,
-                ])))->json();
-                foreach ($page['items'] ?? [] as $item) {
-                    $title = trim((string) ($item['title'] ?? ''));
-                    if ($title === '' || ($item['status'] ?? '') === 'completed' || ($item['deleted'] ?? false)) {
-                        continue;
-                    }
-                    // Google Tasks stores only a date; the time part of "due" is always midnight UTC and must be ignored.
-                    $due = isset($item['due']) ? CarbonImmutable::parse(substr((string) $item['due'], 0, 10), $userTimezone)->setTime(23, 59) : null;
-                    yield ['id' => $listId.'|'.$item['id'], 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => true, 'priority' => null, 'url' => $item['webViewLink'] ?? null];
+        return ['tasks.readonly'];
+    }
+
+    public function taskChanges(string $accessToken, string $listId, ?string $syncToken, string $userTimezone): ChangeSet
+    {
+        // Google Tasks has no sync token; "updatedMin" (the start time of the previous read) returns changes including
+        // deleted and completed tasks. The token we store is that start time.
+        $startedAt = CarbonImmutable::now()->subMinute()->toIso8601ZuluString();
+        $params = ['showCompleted' => 'true', 'showHidden' => 'true', 'maxResults' => 100] + ($syncToken !== null ? ['updatedMin' => $syncToken, 'showDeleted' => 'true'] : []);
+        $upserts = [];
+        $removed = [];
+        $pageToken = null;
+        do {
+            $page = $this->send(fn () => $this->http($accessToken)->get('https://tasks.googleapis.com/tasks/v1/lists/'.rawurlencode($listId).'/tasks', array_filter($params + ['pageToken' => $pageToken])))->json();
+            foreach ($page['items'] ?? [] as $item) {
+                $id = $listId.'|'.$item['id'];
+                $title = trim((string) ($item['title'] ?? ''));
+                if (($item['deleted'] ?? false) || $title === '') {
+                    $removed[] = $id;
+
+                    continue;
                 }
-                $pageToken = $page['nextPageToken'] ?? null;
-            } while ($pageToken);
-        }
+                // Google Tasks stores only a date; the time part of "due" is always midnight UTC and must be ignored.
+                $due = isset($item['due']) ? CarbonImmutable::parse(substr((string) $item['due'], 0, 10), $userTimezone)->setTime(23, 59) : null;
+                $done = ($item['status'] ?? '') === 'completed';
+                $upserts[] = ['id' => $id, 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => true, 'priority' => null, 'url' => $item['webViewLink'] ?? null,
+                    'status' => $done ? 'completed' : 'open', 'completed_at' => $done && isset($item['completed']) ? CarbonImmutable::parse($item['completed'])->utc() : null];
+            }
+            $pageToken = $page['nextPageToken'] ?? null;
+        } while ($pageToken);
+
+        return new ChangeSet($upserts, $removed, $startedAt, $syncToken === null);
     }
 
     public function revoke(string $token): void

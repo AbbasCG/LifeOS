@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Integrations\Calendar\CalendarProviders;
 use App\Integrations\Calendar\ConnectedProvider;
 use App\Integrations\Calendar\ProviderException;
+use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\ConnectedCatalog;
 use App\Models\CalendarAccount;
 use App\Models\ExternalTask;
+use App\Models\SyncRun;
 use App\Models\Task;
 use App\Services\AuditLogger;
 use App\Services\CalendarSyncService;
@@ -32,7 +34,9 @@ class IntegrationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $accounts = CalendarAccount::where('user_id', $request->user()->id)->orderBy('created_at')->get()->groupBy('provider');
+        $all = CalendarAccount::where('user_id', $request->user()->id)->orderBy('created_at')->get();
+        $runs = SyncRun::whereIn('calendar_account_id', $all->pluck('id'))->orderByDesc('started_at')->limit(200)->get()->groupBy('calendar_account_id');
+        $accounts = $all->map(fn (CalendarAccount $a) => $a->setAttribute('recent_runs', $runs->get($a->id, collect())->take(5)->map(fn (SyncRun $r) => $r->present())->values()))->groupBy('provider');
         $present = fn (ConnectedProvider $provider) => [
             'provider' => $provider->name(),
             'label' => $provider->label(),
@@ -43,7 +47,8 @@ class IntegrationController extends Controller
             'scopes' => $provider->scopeSummary(),
             'env_keys' => $provider->envKeys(),
             'redirect_uri' => $provider->redirectUri(),
-            'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary())->values(),
+            'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary() + ['recent_runs' => $a->getAttribute('recent_runs')])->values(),
+            'required_scopes' => $provider->requiredScopes(),
         ];
 
         return response()->json([
@@ -108,8 +113,17 @@ class IntegrationController extends Controller
             'last_error' => null,
         ])->save();
         $this->audit->log($request->user(), 'integration_connected', $request, ['provider' => $provider]);
+        // Some consent screens let people untick permissions. Without the read scope nothing can be imported, so say so
+        // instead of showing an empty "connected" account.
+        $granted = $driver->scopesGranted($tokens->scopes);
+        $account->forceFill(['scopes_ok' => $granted])->save();
+        if ($granted === false) {
+            $account->forceFill(['status' => 'error', 'last_error' => "{$driver->label()} did not grant the read permission LifeOS needs. Reconnect and allow access."])->save();
+
+            return $back('error=scope&provider='.$provider);
+        }
         try {
-            $this->sync->sync($account);
+            $this->sync->sync($account, 'connect');
         } catch (ProviderException) {
             // The scheduled sync retries; the account shows the error meanwhile.
         }
@@ -123,13 +137,19 @@ class IntegrationController extends Controller
         if ($account->status === 'revoked') {
             throw ValidationException::withMessages(['account' => ['Access was revoked. Reconnect this calendar.']]);
         }
+        if ($account->scopes_ok === false) {
+            throw ValidationException::withMessages(['account' => ['The read permission was not granted. Reconnect and allow access.']]);
+        }
         try {
-            $imported = $this->sync->sync($account);
+            $imported = $this->sync->sync($account, 'manual');
+        } catch (RateLimitedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'retry_after' => $e->retryAfter, 'account' => $account->fresh()->summary()], 429);
         } catch (ProviderException $e) {
             return response()->json(['message' => $e->getMessage(), 'account' => $account->fresh()->summary()], 502);
         }
+        $run = SyncRun::where('calendar_account_id', $account->id)->latest('id')->first();
 
-        return response()->json(['imported' => $imported, 'account' => $account->fresh()->summary()]);
+        return response()->json(['imported' => $imported, 'run' => $run?->present(), 'account' => $account->fresh()->summary()]);
     }
 
     /**
@@ -148,7 +168,7 @@ class IntegrationController extends Controller
         $account->save();
         $this->audit->log($request->user(), 'integration_collections_changed', $request, ['provider' => $account->provider, 'included' => count($data['included'])]);
         try {
-            $imported = $account->status === 'revoked' ? 0 : $this->sync->sync($account);
+            $imported = $account->status === 'revoked' ? 0 : $this->sync->sync($account, 'selection');
         } catch (ProviderException $e) {
             return response()->json(['message' => $e->getMessage(), 'account' => $account->fresh()->summary()], 502);
         }
@@ -165,12 +185,13 @@ class IntegrationController extends Controller
         $copied = Task::where('user_id', $user->id)->whereNotNull('source_ref')->pluck('source_ref')->flip();
         $tasks = ExternalTask::query()->join('calendar_accounts', 'calendar_accounts.id', '=', 'external_tasks.calendar_account_id')
             ->where('external_tasks.user_id', $user->id)->where('calendar_accounts.status', '!=', 'revoked')
-            ->orderByRaw('external_tasks.due_at IS NULL, external_tasks.due_at ASC')->limit(300)
+            ->orderByRaw("CASE WHEN external_tasks.status = 'open' THEN 0 ELSE 1 END")->orderByRaw('external_tasks.due_at IS NULL, external_tasks.due_at ASC')->limit(300)
             ->get(['external_tasks.*', 'calendar_accounts.provider', 'calendar_accounts.email as account_email'])
             ->reject(fn (ExternalTask $t) => $copied->has($t->sourceRef($t->provider)))
             ->map(fn (ExternalTask $t) => [
                 'id' => $t->id, 'provider' => $t->provider, 'source' => $this->providers->get($t->provider)?->label() ?? $t->provider, 'account' => $t->account_email,
                 'list' => $t->list_name, 'title' => $t->title, 'due_at' => $t->due_at?->toIso8601String(), 'due_is_date' => $t->due_is_date, 'priority' => $t->priority, 'url' => $t->url,
+                'status' => $t->status, 'completed_at' => $t->completed_at?->toIso8601String(),
             ])->values();
 
         return response()->json($tasks);

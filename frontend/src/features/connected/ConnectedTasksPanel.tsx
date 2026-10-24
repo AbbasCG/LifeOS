@@ -8,7 +8,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 
-export type ConnectedTask = { id: number; provider: string; source: string; account: string | null; list: string | null; title: string; due_at: string | null; due_is_date: boolean; priority: string | null; url: string | null }
+export type ConnectedTask = { id: number; provider: string; source: string; account: string | null; list: string | null; title: string; due_at: string | null; due_is_date: boolean; priority: string | null; url: string | null; status?: 'open' | 'completed'; completed_at?: string | null }
 
 /**
  * Read-only tasks from connected apps. They stay owned by their source; copying one creates a LifeOS task that can be
@@ -29,11 +29,11 @@ export function ConnectedTasksPanel({ onCopied }: { onCopied?: () => void }) {
     <header className="row"><h2 id="connected-tasks-title"><Link2 size={18} />{t('From connected apps', 'من التطبيقات المرتبطة')}</h2><Link className="quiet" to="/settings/integrations">{t('Manage', 'إدارة')}</Link></header>
     <p className="muted small">{t('Read-only. Copy a task into LifeOS to plan, focus on and complete it here.', 'للقراءة فقط. انسخ مهمة إلى LifeOS لتخطط لها وتركز عليها وتنجزها هنا.')}</p>
     <ErrorMessage error={failure} />
-    <ul className="connected-list">{data.slice(0, 12).map(task => <li key={task.id}>
+    <ul className="connected-list">{data.slice(0, 12).map(task => <li key={task.id} className={task.status === 'completed' ? 'done' : ''}>
       <span className={`source-badge src-${task.provider}`}>{task.source}</span>
       <div className="connected-main"><strong>{task.title}</strong><small className="muted">{[task.list, due(task)].filter(Boolean).join(' · ')}</small></div>
       {task.url && <a className="icon-button" href={task.url} target="_blank" rel="noreferrer noopener" aria-label={t(`Open in ${task.source}`, `فتح في ${task.source}`)}><ExternalLink size={16} /></a>}
-      <button className="quiet" disabled={busy !== null} onClick={() => void copy(task)}><CopyPlus size={15} />{t('Copy to LifeOS', 'نسخ إلى LifeOS')}</button>
+      {task.status === 'completed' ? <span className="chip">{t(`Completed in ${task.source}`, `أُنجزت في ${task.source}`)}</span> : <button className="quiet" disabled={busy !== null} onClick={() => void copy(task)}><CopyPlus size={15} />{t('Copy to LifeOS', 'نسخ إلى LifeOS')}</button>}
     </li>)}</ul>
   </section>
 }
