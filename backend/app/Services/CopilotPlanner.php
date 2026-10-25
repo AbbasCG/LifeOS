@@ -45,15 +45,19 @@ class CopilotPlanner
     {
         $priorities = array_values(array_intersect(self::PRIORITIES, (array) ($slots['priorities'] ?? [])));
         $alternative = is_string($slots['alternative'] ?? null) ? $slots['alternative'] : null;
-        // Choices the user did not state come from what they usually choose (opt-in plan learning), else the defaults.
+        // Choices the user did not state come from what they usually choose in this situation (opt-in plan learning),
+        // else the defaults.
+        $context = PlanLearning::context($user, $intent, $slots);
         $learned = [];
-        $learn = function (string $dimension) use ($user, &$learned): ?string {
-            $value = PlanLearning::preferred($user, $dimension);
-            if ($value !== null) {
-                $learned[$dimension] = $value;
+        $scopes = [];
+        $learn = function (string $dimension) use ($user, $context, &$learned, &$scopes): ?string {
+            $preferred = PlanLearning::preferred($user, $dimension, $context);
+            if ($preferred !== null) {
+                $learned[$dimension] = $preferred['value'];
+                $scopes[$dimension] = $preferred['scope'];
             }
 
-            return $value;
+            return $preferred['value'] ?? null;
         };
         $alternative ??= match ($intent) {
             'plan_week', 'prioritize' => $learn('week_version'),
@@ -79,11 +83,23 @@ class CopilotPlanner
         if ($learned !== [] && isset($result['plan'])) {
             $names = ['week_version' => [['balanced' => 'everything by priority', 'essentials' => 'essentials only'], ['balanced' => 'كل الأعمال حسب الأولوية', 'essentials' => 'الأساسيات فقط']],
                 'focus_length' => [['short' => '45-minute blocks', 'default' => 'your usual length', 'long' => '90-minute blocks'], ['short' => 'فترات ٤٥ دقيقة', 'default' => 'المدة المعتادة', 'long' => 'فترات ٩٠ دقيقة']],
+                'day_strategy' => [['balanced' => 'a balanced day', 'deep' => 'deep focus first', 'light' => 'a light day', 'deadlines' => 'deadlines first'], ['balanced' => 'يوم متوازن', 'deep' => 'التركيز العميق أولاً', 'light' => 'يوم خفيف', 'deadlines' => 'المواعيد النهائية أولاً']],
                 'moves' => [['on' => 'moving flexible blocks when needed', 'off' => 'keeping everything in place'], ['on' => 'نقل الفترات المرنة عند الحاجة', 'off' => 'إبقاء كل شيء في مكانه']]];
-            $choices = collect($learned)->map(fn ($v, $d) => $names[$d][$ar ? 1 : 0][$v] ?? $v)->implode($ar ? '، ' : ', ');
+            $where = [['day_off' => 'on days off', 'workday' => 'on workdays', 'light' => 'in light weeks', 'normal' => 'in normal weeks', 'heavy' => 'in busy weeks'],
+                ['day_off' => 'في أيام العطلة', 'workday' => 'في أيام العمل', 'light' => 'في الأسابيع الخفيفة', 'normal' => 'في الأسابيع العادية', 'heavy' => 'في الأسابيع المزدحمة']];
+            if (isset($context['day'])) {
+                $where[0] = array_merge($where[0], ['light' => 'on light days', 'normal' => 'on normal days', 'heavy' => 'on busy days']);
+                $where[1] = array_merge($where[1], ['light' => 'في الأيام الخفيفة', 'normal' => 'في الأيام العادية', 'heavy' => 'في الأيام المزدحمة']);
+            }
+            $choices = collect($learned)->map(fn ($v, $d) => ($names[$d][$ar ? 1 : 0][$v] ?? $v).($scopes[$d] ? ' ('.$where[$ar ? 1 : 0][$scopes[$d]].')' : ''))->implode($ar ? '، ' : ', ');
             $result['plan']['explanation'][] = $ar ? "استُخدم ما تختاره عادةً: {$choices}. يمكنك تغييره هنا أو إعادة ضبط التعلّم في مركز التحكم بالذكاء الاصطناعي."
                 : "Used what you usually choose: {$choices}. Change it here, or reset learning in the AI Control Center.";
             $result['plan']['learned'] = $learned;
+            $result['plan']['learned_context'] = array_filter($scopes);
+        }
+        if ($context !== [] && isset($result['state'])) {
+            // The situation this plan was made in, so a choice made on it (or applying it) is learned for that situation.
+            $result['state']['learning_context'] = $context;
         }
 
         return $result;

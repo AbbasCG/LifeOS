@@ -27,13 +27,16 @@ export type IntelligencePrefs = {
   sources: Record<'calendar' | 'connected' | 'goals' | 'habits' | 'focus' | 'checkins', boolean>
   frequency: 'off' | 'quiet' | 'daily'; personalization: boolean; retention_days: number; conversation_reset_at?: string | null; planning_strategy: null | 'balanced' | 'deep' | 'light' | 'deadlines'
 }
+/** The situations plan learning tells apart. */
+export type LearningScope = 'day_off' | 'workday' | 'light' | 'normal' | 'heavy'
+
 export type IntelligenceSettingsData = {
   settings: IntelligencePrefs
   options: { retention_days: number[]; strategies: string[] }
   external_ai: { allowed: boolean; connected_data: boolean; provider: { label: string; model: string } | null; in_use: boolean }
   counts: { recommendations: number; feedback: number; proposals: number; conversations?: number; conversation_messages?: number }
-  /** Opt-in plan learning: counts per choice, and the preferred option once one clearly wins. */
-  learning?: { thresholds: { count: number; share: number }; dimensions: { dimension: string; counts: Record<string, number>; total: number; preferred: string | null }[] }
+  /** Opt-in plan learning: counts and recency-weighted shares per choice, the preferred option once one clearly wins, and preferences for particular situations. */
+  learning?: { thresholds: { count: number; share: number; half_life_days?: number; max_age_days?: number }; dimensions: { dimension: string; counts: Record<string, number>; total: number; shares?: Record<string, number>; preferred: string | null; contexts?: { scope: LearningScope; preferred: string }[] }[] }
 }
 export type AiActivity = {
   proposals: { id: string; kind: string; provider: string; status: string; summary: string; actions: number; created_at: string; applied_at: string | null }[]

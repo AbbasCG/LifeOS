@@ -109,7 +109,7 @@ class PlanLearningTest extends TestCase
             $this->choose($this->send('Plan my week'), 'essentials');
         }
         $this->getJson('/api/intelligence/settings')->assertOk()->assertJsonPath('settings.features.plan_learning', true)
-            ->assertJsonPath('learning.dimensions.0', ['dimension' => 'week_version', 'counts' => ['essentials' => 3], 'total' => 3, 'preferred' => 'essentials'])
+            ->assertJsonPath('learning.dimensions.0', ['dimension' => 'week_version', 'counts' => ['essentials' => 3], 'total' => 3, 'shares' => ['essentials' => 100], 'preferred' => 'essentials', 'contexts' => []])
             ->assertJsonPath('learning.thresholds.count', 3);
 
         $this->deleteJson('/api/intelligence/learning')->assertOk()->assertJsonPath('cleared', 3);

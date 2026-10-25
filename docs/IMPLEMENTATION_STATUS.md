@@ -1625,7 +1625,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (f274829) after PR
 
 # V14 — Suggestions to Copilot and plan learning
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d99f467) after PR #12 (V13) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d99f467) after PR #12 (V13) was merged. Merged into `main` as PR #13.
 
 ## What changed
 - **Ask Copilot from a suggestion.** Every proactive suggestion (V9) has an "Ask Copilot" button.
@@ -1680,3 +1680,55 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d99f467) after PR
 - **Counts never decay;** a change of habit needs several new choices, or a reset.
 - **"Ask Copilot" answers come from the local planners.** The external provider is not consulted for the seeded first answer; follow-up messages use it as usual.
 - **Suggestions without a task or goal** (for example a conflict) open the general check rather than one about that specific item.
+
+# V15 — Smarter plan learning
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (4317fd9) after PR #13 (V14) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Observations instead of counts.** `PlanLearning` now stores one small observation per choice: the choice, the option, the date and the situation. Situations:
+  - `day`: workday or day off (only for one-day requests);
+  - `load`: light, normal or heavy (the share of working hours already booked: below 35%, 35–69%, 70% or more).
+
+  Nothing else is stored, and nothing is sent to an AI provider. At most 300 observations are kept.
+- **Recent choices count more.** An observation's weight halves every 30 days, and observations older than 180 days are dropped.
+  - A preference is used once its option was chosen at least 3 times and holds at least 60% of the weight.
+  - Example: 3× "essentials" four months ago, then 3× "everything" now → "everything" (94%) is the default. Without weighting this would be a 50/50 tie.
+- **Learned per situation.** Before planning, Copilot works out the request's situation (`PlanLearning::context`, only computed while learning is on). It looks for a clear preference in this order: same kind of day, then same load, then all observations.
+  - Example: "deep focus first" on workdays and "light day" on days off are two separate defaults.
+  - The plan says where a default came from: "Used what you usually choose: a light day (on days off)…". It also carries `plan.learned_context`.
+- **Situation recorded with each choice.** Each plan's state carries `learning_context`, so a choice made on that plan (or applying it) is recorded for the situation the plan was made in.
+- **Unchanged:** explicit requests and picking another version still win over learned defaults.
+- **AI Control Center:**
+  - per choice: counts with recent shares ("Essentials 3 (6% recent)"), the overall default, and situation defaults ("Days off: Light day", "Busy periods: Essentials");
+  - a forget button per choice, `DELETE /api/intelligence/learning?dimension=…`, audited with the choice;
+  - the hint explains the half-life and the 180-day limit.
+- **Compatibility:** V14 counts are read as observations dated on the day they are first read, so they start to fade from then. They are rewritten in the new form on the next recorded choice. No migration and no schema change.
+
+## Testing
+- **Backend:** `SmarterLearningTest` (6 tests).
+  - Recency: an old habit is overtaken by 3 recent choices but not by 2; recent shares are 6% / 94%; observations older than 180 days are dropped.
+  - Day strategy per workday and day off: chat on Monday and on Saturday, with the explanation text; a choice on a day-off plan is recorded as a day-off choice.
+  - Week version per busy and light week: a fully booked week gives essentials, an empty one balanced; picking another version still wins; the summary lists situation defaults.
+  - No situation is computed or stored while learning is off.
+  - V14 counts still work and are converted on the next choice.
+  - Forgetting one choice: other choices are kept and the action is audited; an invalid choice name returns 422.
+  - The V14 summary expectation now includes `shares` and `contexts`.
+- **Vitest:** `v15.test.tsx` (2 tests): situation chips, recent shares, the hint text and the per-choice forget request, in English and Arabic.
+- **Playwright:** `learning.spec.ts`, desktop and mobile.
+  - It turns learning on, picks "Essentials only" three times, and checks that a fresh plan starts with essentials and says so.
+  - The Control Center shows "Essentials 3 (100% recent)" and the default; the test forgets week plans only, then turns learning off and deletes its conversations.
+- **Results:**
+  - **Backend:** 267/267 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 115/115.
+  - **Playwright:** 32/32.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** with demo data and seeded observations (EN desktop, AR Pixel 7 dark): no overflow and no unexpected console errors. The demo learning was cleared afterwards.
+- **Live AI:** situation-aware defaults also apply to plans requested through an external provider, but that path was tested only against a simulated API. Live behaviour is **NOT VERIFIED**.
+
+## Known limitations (V15)
+- **Fixed situations.** Only two are told apart: kind of day and booked share. Energy check-ins, time of year and individual weekdays are not used.
+- **One situation at a time.** Situations are tried one after the other, not combined (no "busy days off").
+- **Booked share counts calendar events in working hours only.** Study and personal windows and outstanding tasks do not make a period "busy".
+- **Week plans never learn per day:** only their load is used.
+- **Fixed thresholds.** The 30-day half-life and the 35% / 70% load bands cannot be changed in the app.
