@@ -13,13 +13,21 @@ export type CopilotMessage = Partial<Omit<AssistantReply, 'message' | 'suggestio
   id: number; role: 'user' | 'assistant'; content: string; intent: string | null; provider: string | null; created_at: string
   proposal?: AssistantProposal | null; plan?: CopilotPlan | null; clarify?: { intent: string | null; slot: string; options: ClarifyOption[] } | null; context?: CopilotContext; notice?: string
 }
-export type Conversation = { id: string; title: string; language: 'en' | 'ar'; last_message_at: string; created_at: string }
+export type Conversation = { id: string; title: string; language: 'en' | 'ar'; last_message_at: string; created_at: string; match?: string | null }
+/** A saved week plan: blocks by ISO weekday (1 = Monday) and local start time. */
+export type PlanTemplate = { id: number; name: string; blocks: { weekday: number; start: string; minutes: number; title: string; task_id: number | null }[]; minutes: number; days: number; updated_at: string }
 export type ConversationList = { conversations: Conversation[]; suggestions: string[]; personalization: boolean; retention_days: number }
 export type SendResult = { conversation: Conversation; user_message: CopilotMessage; message: CopilotMessage; replayed: boolean }
 export type Choice = { type: 'option' | 'alternative'; message_id: number; value: string }
 export type Stage = 'received' | 'context' | 'provider' | 'validating' | 'planning' | 'fallback' | 'saving'
 
 const base = import.meta.env.VITE_API_BASE_URL || ''
+
+/** Download link for one conversation (same-origin session cookie; the server sends it as an attachment). */
+export const exportUrl = (id: string, format: 'md' | 'json') => `${base}/api/copilot/conversations/${id}/export?format=${format}`
+
+/** Tell open pages that templates changed (saved from a proposal card elsewhere on the page). */
+export const TEMPLATES_CHANGED = 'lifeos:templates-changed'
 
 /** A client id per message, so a retried request is answered once. */
 export function clientId(): string {

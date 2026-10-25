@@ -27,7 +27,7 @@ use Illuminate\Validation\Rule;
 class IntelligenceController extends Controller
 {
     /** Audit actions shown in the AI activity history. */
-    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'conversation_deleted',
+    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'conversation_deleted', 'conversation_exported', 'plan_template_saved',
         'calendar_write', 'calendar_write_failed', 'calendar_write_granted', 'calendar_write_enabled', 'calendar_write_disabled'];
 
     public function __construct(private RecommendationService $recommendations, private AuditLogger $audit) {}

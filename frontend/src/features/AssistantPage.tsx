@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { Send, Sparkles, ShieldCheck, Play, ListPlus, CheckCircle2, Bot, User as UserIcon, MessageSquarePlus, History, Trash2, Pencil, X, HelpCircle } from 'lucide-react'
+import { Send, Sparkles, ShieldCheck, Play, ListPlus, CheckCircle2, Bot, User as UserIcon, MessageSquarePlus, History, Trash2, Pencil, X, HelpCircle, Search, Download, LayoutTemplate, CalendarPlus } from 'lucide-react'
 import { api, type RecordItem, type AssistantStatus, type AssistantProposal, type TodayData } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useText } from '../lib/i18n'
@@ -11,7 +11,7 @@ import { useApi } from '../lib/useApi'
 import { ProposalCard } from './assistant/ProposalCard'
 import { ContextChips, PlanCard, SourceBadge } from './assistant/PlanCard'
 import { LivingOrb } from '../components/orb/LivingOrb'
-import { clientId, sendCopilot, type Choice, type ConversationList, type CopilotMessage, type Stage } from '../lib/copilot'
+import { clientId, exportUrl, sendCopilot, TEMPLATES_CHANGED, type Choice, type ConversationList, type CopilotMessage, type PlanTemplate, type Stage } from '../lib/copilot'
 
 /**
  * The Copilot workspace: conversations with history, planning answers with alternatives, clarifying questions and
@@ -32,9 +32,16 @@ export default function AssistantPage() {
   const { data: pendingProposals } = useApi<AssistantProposal[]>('/api/assistant/proposals')
   const { data: linkedProposal } = useApi<AssistantProposal>(linked && /^[0-9a-f-]{36}$/.test(linked) ? `/api/assistant/proposals/${linked}` : null)
   const { data: list, reload: reloadList } = useApi<ConversationList>(`/api/copilot/conversations?language=${language}`)
+  const [query, setQuery] = useState(''), [searchFor, setSearchFor] = useState('')
+  const { data: found } = useApi<ConversationList>(searchFor ? `/api/copilot/conversations?language=${language}&q=${encodeURIComponent(searchFor)}` : null)
+  const { data: templateList, reload: reloadTemplates } = useApi<{ templates: PlanTemplate[] }>('/api/copilot/templates')
+  const templates = templateList?.templates ?? []
+  useEffect(() => { const id = setTimeout(() => setSearchFor(query.trim().slice(0, 100)), 300); return () => clearTimeout(id) }, [query])
+  useEffect(() => { window.addEventListener(TEMPLATES_CHANGED, reloadTemplates); return () => window.removeEventListener(TEMPLATES_CHANGED, reloadTemplates) }, [reloadTemplates])
   const { data: today } = useApi<TodayData>('/api/today')
   const conversations = list?.conversations ?? []
   const current = conversations.find(c => c.id === active)
+  const shown = searchFor ? (found?.conversations ?? []) : conversations
   const defaults = language === 'ar'
     ? ['خطط أسبوعي القادم حول اجتماعاتي', 'أعطِ الأولوية للدراسة ومشاريعي', 'اعثر على ثلاث فترات تركيز دون نقل المواعيد الثابتة', 'أعد تنظيم يومي بعد مقاطعة', 'بماذا أبدأ اليوم؟', 'هل لدي تعارضات؟', 'قسّم مهمتي الأهم إلى خطوات', 'ساعدني على التأمل في أسبوعي']
     : ['Plan my next week around my meetings', 'Prioritize studying and my projects', 'Find three focus blocks without moving fixed appointments', 'Reorganize today after an interruption', 'What should I focus on today?', 'Do I have any conflicts?', 'Break down my top task into steps', 'Help me reflect on my week']
@@ -103,6 +110,10 @@ export default function AssistantPage() {
     if (!window.confirm(t('Delete all conversations? This cannot be undone.', 'حذف كل المحادثات؟ لا يمكن التراجع عن ذلك.'))) return
     try { await api('/api/copilot/conversations', 'DELETE'); open(null); reloadList() } catch (e) { setError((e as Error).message) }
   }
+  async function removeTemplate(template: PlanTemplate) {
+    if (!window.confirm(t(`Delete the template “${template.name}”? Plans already applied stay.`, `حذف القالب «${template.name}»؟ تبقى الخطط المطبقة كما هي.`))) return
+    try { await api(`/api/copilot/templates/${template.id}`, 'DELETE'); reloadTemplates() } catch (e) { setError((e as Error).message) }
+  }
   async function rename(e: FormEvent, id: string) {
     e.preventDefault()
     try { await api(`/api/copilot/conversations/${id}`, 'PATCH', { title }); setRenaming(null); reloadList() } catch (err) { setError((err as Error).message) }
@@ -122,16 +133,29 @@ export default function AssistantPage() {
       <button type="button" className="primary" onClick={() => open(null)}><MessageSquarePlus size={16} />{t('New conversation', 'محادثة جديدة')}</button>
       <button type="button" className="icon-button drawer-close" onClick={() => setDrawer(false)} aria-label={t('Close history', 'إغلاق السجل')}><X size={16} /></button>
     </div>
-    {conversations.length === 0 ? <p className="muted small">{t('Your conversations appear here.', 'تظهر محادثاتك هنا.')}</p> : <ul className="conversation-list">
-      {conversations.map(c => <li key={c.id} className={c.id === active ? 'active' : ''}>
+    <label className="search conversation-search"><Search size={15} aria-hidden="true" /><span className="sr-only">{t('Search conversations', 'ابحث في المحادثات')}</span>
+      <input type="search" value={query} maxLength={100} onChange={e => setQuery(e.target.value)} placeholder={t('Search conversations', 'ابحث في المحادثات')} /></label>
+    {searchFor && found && <p className="muted small" role="status">{t(`${shown.length} conversation(s) found`, `وُجدت ${shown.length} محادثة`)}</p>}
+    {shown.length === 0 ? (!searchFor && <p className="muted small">{t('Your conversations appear here.', 'تظهر محادثاتك هنا.')}</p>) : <ul className="conversation-list">
+      {shown.map(c => <li key={c.id} className={c.id === active ? 'active' : ''}>
         {renaming === c.id ? <form onSubmit={e => void rename(e, c.id)} className="rename-form"><label className="sr-only" htmlFor={`rename-${c.id}`}>{t('Conversation title', 'عنوان المحادثة')}</label><input id={`rename-${c.id}`} value={title} maxLength={120} onChange={e => setTitle(e.target.value)} autoFocus required /><button className="icon-button" aria-label={t('Save title', 'حفظ العنوان')}><CheckCircle2 size={15} /></button></form>
-          : <button type="button" className="conversation-open" aria-current={c.id === active ? 'true' : undefined} onClick={() => open(c.id)}><span>{c.title}</span><small className="muted">{new Date(c.last_message_at).toLocaleDateString(language, { day: 'numeric', month: 'short' })}</small></button>}
+          : <button type="button" className="conversation-open" aria-current={c.id === active ? 'true' : undefined} onClick={() => open(c.id)}><span>{c.title}</span>{c.match && <small className="search-match">{c.match}</small>}<small className="muted">{new Date(c.last_message_at).toLocaleDateString(language, { day: 'numeric', month: 'short' })}</small></button>}
         <span className="conversation-tools">
           <button type="button" className="icon-button" onClick={() => { setRenaming(c.id); setTitle(c.title) }} aria-label={t(`Rename “${c.title}”`, `إعادة تسمية «${c.title}»`)}><Pencil size={13} /></button>
           <button type="button" className="icon-button" onClick={() => void remove(c.id)} aria-label={t(`Delete “${c.title}”`, `حذف «${c.title}»`)}><Trash2 size={13} /></button>
         </span>
       </li>)}
     </ul>}
+    <section className="template-list" aria-label={t('Week templates', 'قوالب الأسبوع')}>
+      <h3><LayoutTemplate size={14} />{t('Week templates', 'قوالب الأسبوع')}</h3>
+      {templates.length === 0 ? <p className="muted small">{t('Save a plan with “Save as template” to reuse it.', 'احفظ خطة بزر «حفظ كقالب» لإعادة استخدامها.')}</p> : <ul>
+        {templates.map(tp => <li key={tp.id}>
+          <span className="template-name">{tp.name}<small className="muted">{t(`${tp.blocks.length} block(s) · ${tp.days} day(s)`, `${tp.blocks.length} فترة · ${tp.days} يوم`)}</small></span>
+          <button type="button" className="icon-button" disabled={busy} onClick={() => { setDrawer(false); void send(t(`Plan next week from my template “${tp.name}”`, `خطط الأسبوع القادم من قالبي «${tp.name}»`)) }} aria-label={t(`Plan next week from “${tp.name}”`, `خطط الأسبوع القادم من «${tp.name}»`)}><CalendarPlus size={14} /></button>
+          <button type="button" className="icon-button" onClick={() => void removeTemplate(tp)} aria-label={t(`Delete template “${tp.name}”`, `حذف القالب «${tp.name}»`)}><Trash2 size={13} /></button>
+        </li>)}
+      </ul>}
+    </section>
     <div className="copilot-sidebar-foot">
       <p className="muted small">{t(`Kept for ${list?.retention_days ?? 90} days, then deleted automatically.`, `تُحفظ ${list?.retention_days ?? 90} يوماً ثم تُحذف تلقائياً.`)} <Link to="/settings/ai">{t('AI Control Center', 'مركز التحكم بالذكاء الاصطناعي')}</Link></p>
       {conversations.length > 0 && <button type="button" className="quiet danger" onClick={() => void removeAll()}><Trash2 size={14} />{t('Delete all conversations', 'حذف كل المحادثات')}</button>}
@@ -147,6 +171,7 @@ export default function AssistantPage() {
         <div className="chat-toolbar">
           <button type="button" className="quiet history-toggle" onClick={() => setDrawer(true)} aria-expanded={drawer}><History size={16} />{t('History', 'السجل')}</button>
           <h2 className="chat-title">{current?.title ?? t('New conversation', 'محادثة جديدة')}</h2>
+          {active && messages.length > 0 && <span className="export-links"><Download size={14} aria-hidden="true" /><a href={exportUrl(active, 'md')} download aria-label={t('Export this conversation as Markdown', 'تصدير هذه المحادثة بصيغة Markdown')}>Markdown</a><a href={exportUrl(active, 'json')} download aria-label={t('Export this conversation as JSON', 'تصدير هذه المحادثة بصيغة JSON')}>JSON</a></span>}
         </div>
         <p className="privacy-note"><ShieldCheck size={16} />{status && status.active.provider !== 'local'
           ? t(`Answers come from ${status.active.label}. It receives your request, a few earlier turns and only the data the question needs (as allowed in the AI Control Center). It can only suggest changes — you approve each one.`, `تأتي الإجابات من ${status.active.label}. يتلقى طلبك وبعض الرسائل السابقة والبيانات التي يحتاجها السؤال فقط (حسب إعدادات مركز التحكم). يقترح التغييرات دون تنفيذها — أنت توافق على كل تغيير.`)

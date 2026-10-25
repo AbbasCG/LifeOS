@@ -1521,7 +1521,7 @@ The existing V5 "rebalance" proposal now uses the same rules, so it also stops m
 
 # V12 — Study and personal focus with per-area daily limits
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (9495f6d) after PR #10 (V11) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (9495f6d) after PR #10 (V11) was merged. Merged into `main` as PR #11 (with a CI fix: `API_REQUESTS_PER_MINUTE`, default 300, raised only for the isolated browser-test server).
 
 Scope (from the V10 roadmap): focus blocks and plans use your study and personal windows too, with an optional daily limit per area.
 
@@ -1569,3 +1569,56 @@ Scope (from the V10 roadmap): focus blocks and plans use your study and personal
 - **Personal time** is used for focus blocks only when asked, and is never used by week plans for work tasks.
 - **Day load** in the week summary covers working hours only; study and personal load are not shown separately yet.
 - **Copilot focus-block limits** count existing task blocks only (not other events) towards an area's limit.
+
+# V13 — Conversation search, export and week-plan templates
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (f274829) after PR #11 (V12) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Search:**
+  - The Copilot sidebar has a search box. `GET /api/copilot/conversations?q=` matches the user's own conversation titles and message text, case-insensitively.
+  - `%` and `_` are taken literally, and queries are limited to 100 characters.
+  - Each result shows a snippet of the first matching message.
+- **Export:**
+  - `GET /api/copilot/conversations/{id}/export?format=md|json` downloads one conversation as an attachment.
+  - **Markdown** contains every message, labelled You or Copilot (rule-based / AI · provider), each plan's explanation and conflicts, and each proposal's changes with their current status.
+  - **JSON** has the same messages as the API, without client ids.
+  - Each export is recorded in the AI activity (`conversation_exported`).
+  - The links sit in the chat header of an open conversation.
+- **Week templates:**
+  - **Save:** "Save as template" on any proposal that adds blocks (`POST /api/copilot/templates {proposal_id, name, action_ids?}`).
+    - Each new block is stored as ISO weekday, local start time, length, title and task link. Moves are not stored.
+    - At most 30 blocks per template and 50 templates per user. Recorded as `plan_template_saved`.
+  - **Use:** from the sidebar ("Plan next week from …") or in words ("Plan next week from my template Deep week", Arabic «قالب»).
+    - Copilot creates a normal pending proposal (`kind = template`), with the same preview, partial approval, re-validation at apply time and undo.
+    - Blocks that are already past or would clash with anything in the calendar are left out and listed; nothing existing moves.
+    - Task links are kept only for tasks that are still open.
+  - **Options:** the plan offers "This week / Next week". With several templates and none named, Copilot asks which one. Templates can be renamed and deleted (`PATCH` / `DELETE /api/copilot/templates/{id}`).
+- **Schema:** migration `add_plan_templates` creates the `plan_templates` table. It is additive, and rollback was verified on PostgreSQL 16. The demo reset removes templates.
+- **Privacy:**
+  - Search, export and templates only ever read the signed-in user's data, and nothing is sent to a provider.
+  - Templates are things you saved yourself, so "Delete AI data" keeps them; delete them in the sidebar.
+
+## Testing
+- **Backend:** `CopilotLibraryTest` (5 tests).
+  - Search covers titles and messages, the snippet, a literal `%`, other users' conversations never appearing, and the 100-character limit.
+  - Markdown and JSON export check the headers, contents and audit entry; an unknown format returns 422 and another user gets 404.
+  - Saving a template checks weekday/local time and the subset option; a proposal without new blocks returns 422, another user's proposal 404, and a name over the limit 422.
+  - Using a template checks the same days and times next week, a clash with a fixed event being skipped, links only to open tasks, nothing written before approval, a partial apply, and that the this-week option skips past blocks.
+  - Choosing between several templates, rename/delete isolation, and the no-templates reply.
+- **Vitest:** `v13.test.tsx` (4) covers save-as-template (request and the sidebar refresh event), the template proposal label, search with snippet and export links, and planning from a template plus delete confirmation.
+- **Playwright:** `library.spec.ts`, desktop and mobile.
+  - Plan, save as template, export Markdown (headers and contents), plan next week from the template, search, clean up.
+- **Results:**
+  - **Backend:** 256/256 on SQLite and PostgreSQL 16.
+  - **Frontend:** Vitest 111/111.
+  - **Playwright:** 28/28.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning), build, `npm audit --omit=dev` (0) and `composer audit` (none).
+- **Manual check** with demo data (EN desktop, AR Pixel 7 dark): no overflow, no console errors besides the expected 401 on the login page. Fixed during QA: the sidebar search box used the global label layout (icon on its own line); it now uses the existing `.search` style.
+- **Live AI:** the provider path for `use_template` was tested only against a simulated API. Live behaviour is **NOT VERIFIED**.
+
+## Known limitations (V13)
+- **Search** uses a simple substring match: no ranking, no stemming, and Arabic diacritics must match exactly.
+- **Export** covers one conversation at a time, in Markdown or JSON (no PDF), and proposals show their current status, not their history.
+- **Templates** repeat the same weekdays and times. They don't adapt to a changed calendar beyond skipping clashing blocks, and there is no per-week variation or recurrence.
+- **Templates are not managed in the AI Control Center;** they are listed and deleted in the Copilot sidebar.

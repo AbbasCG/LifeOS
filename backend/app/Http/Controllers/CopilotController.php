@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AssistantProposal;
 use App\Models\Conversation;
+use App\Models\PlanTemplate;
 use App\Services\AuditLogger;
 use App\Services\ConversationService;
+use App\Services\CopilotPlanner;
 use App\Services\IntelligenceSettings;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -27,8 +31,13 @@ class CopilotController extends Controller
         $user = $request->user();
         $language = $request->query('language') === 'ar' ? 'ar' : 'en';
 
+        $query = trim((string) $request->query('q', ''));
+        if (mb_strlen($query) > 100) {
+            abort(422, 'Search for at most 100 characters.');
+        }
+
         return response()->json([
-            'conversations' => $this->conversations->list($user)->map->present()->values(),
+            'conversations' => $query !== '' ? $this->conversations->search($user, $query) : $this->conversations->list($user)->map->present()->values(),
             'suggestions' => $this->conversations->suggestions($user, $language),
             'personalization' => IntelligenceSettings::feature($user, 'conversation_personalization'),
             'retention_days' => IntelligenceSettings::for($user)['retention_days'],
@@ -40,6 +49,63 @@ class CopilotController extends Controller
         $conversation = $this->conversations->find($request->user(), $id);
 
         return response()->json(['conversation' => $conversation->present(), 'messages' => $this->conversations->messages($conversation)]);
+    }
+
+    /**
+     * Download one conversation as Markdown (default) or JSON.
+     */
+    public function export(Request $request, string $id): Response
+    {
+        $format = $request->query('format', 'md');
+        if (! in_array($format, ['md', 'json'], true)) {
+            abort(422, 'Choose md or json.');
+        }
+        $conversation = $this->conversations->find($request->user(), $id);
+        $this->audit->log($request->user(), 'conversation_exported', $request, ['type' => $format]);
+        $name = 'lifeos-conversation-'.$conversation->created_at?->format('Y-m-d').'-'.substr($conversation->id, 0, 8).'.'.$format;
+        $body = $format === 'json'
+            ? json_encode(['conversation' => $conversation->present(), 'messages' => $this->conversations->messages($conversation)], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            : $this->conversations->markdown($conversation);
+
+        return response($body, 200, ['Content-Type' => ($format === 'json' ? 'application/json' : 'text/markdown').'; charset=utf-8', 'Content-Disposition' => 'attachment; filename="'.$name.'"', 'X-Content-Type-Options' => 'nosniff']);
+    }
+
+    public function templates(Request $request): JsonResponse
+    {
+        return response()->json(['templates' => PlanTemplate::where('user_id', $request->user()->id)->latest('updated_at')->limit(50)->get()->map->present()->values()]);
+    }
+
+    /**
+     * Save the new blocks of one of the user's Copilot proposals as a week template.
+     */
+    public function saveTemplate(Request $request, CopilotPlanner $planner): JsonResponse
+    {
+        $data = $request->validate(['proposal_id' => 'required|uuid', 'name' => 'required|string|max:80', 'action_ids' => 'sometimes|array|max:60', 'action_ids.*' => 'string|max:10']);
+        $user = $request->user();
+        if (PlanTemplate::where('user_id', $user->id)->count() >= 50) {
+            abort(422, 'You can keep up to 50 templates. Delete one first.');
+        }
+        $proposal = AssistantProposal::where('user_id', $user->id)->findOrFail($data['proposal_id']);
+        $template = $planner->saveTemplate($user, $proposal, $data['name'], $data['action_ids'] ?? []);
+        $this->audit->log($user, 'plan_template_saved', $request, ['actions' => count($template->blocks)]);
+
+        return response()->json(['template' => $template->present()], 201);
+    }
+
+    public function renameTemplate(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['name' => 'required|string|max:80']);
+        $template = PlanTemplate::where('user_id', $request->user()->id)->findOrFail($id);
+        $template->update(['name' => trim($data['name'])]);
+
+        return response()->json(['template' => $template->present()]);
+    }
+
+    public function destroyTemplate(Request $request, int $id): JsonResponse
+    {
+        PlanTemplate::where('user_id', $request->user()->id)->findOrFail($id)->delete();
+
+        return response()->json(['deleted' => 1]);
     }
 
     public function rename(Request $request, string $id): JsonResponse

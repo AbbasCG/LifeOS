@@ -62,7 +62,7 @@ export default function AiControlCenter() {
   const actionName: Record<string, string> = {
     ai_action_executed: t('Applied a Copilot proposal', 'طُبّق اقتراح المساعد'), ai_action_undone: t('Undid a Copilot proposal', 'تم التراجع عن اقتراح'), recommendation_acted: t('Turned a suggestion into a proposal', 'حُوّل اقتراح إلى عرض'),
     recommendation_dismissed: t('Dismissed a suggestion', 'أُخفي اقتراح'), ai_settings_changed: t('Changed AI settings', 'تغيير إعدادات الذكاء الاصطناعي'), ai_personalization_reset: t('Reset personalization', 'إعادة ضبط التخصيص'),
-    ai_data_deleted: t('Deleted AI data', 'حذف بيانات الذكاء الاصطناعي'), conversation_deleted: t('Deleted Copilot conversations', 'حذف محادثات المساعد'), calendar_write: t('Changed a connected calendar (confirmed)', 'تغيير تقويم مرتبط (مؤكد)'), calendar_write_failed: t('Calendar change refused', 'رُفض تغيير التقويم'),
+    ai_data_deleted: t('Deleted AI data', 'حذف بيانات الذكاء الاصطناعي'), conversation_deleted: t('Deleted Copilot conversations', 'حذف محادثات المساعد'), conversation_exported: t('Exported a Copilot conversation', 'تصدير محادثة مع المساعد'), plan_template_saved: t('Saved a week template', 'حفظ قالب أسبوعي'), calendar_write: t('Changed a connected calendar (confirmed)', 'تغيير تقويم مرتبط (مؤكد)'), calendar_write_failed: t('Calendar change refused', 'رُفض تغيير التقويم'),
     calendar_write_granted: t('Allowed adding events', 'السماح بإضافة المواعيد'), calendar_write_enabled: t('Turned on adding events', 'تفعيل إضافة المواعيد'), calendar_write_disabled: t('Turned off adding events', 'إيقاف إضافة المواعيد'),
   }
 

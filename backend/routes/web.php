@@ -43,6 +43,11 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('copilot/conversations/{id}', [CopilotController::class, 'show'])->whereUuid('id');
         Route::patch('copilot/conversations/{id}', [CopilotController::class, 'rename'])->whereUuid('id');
         Route::delete('copilot/conversations/{id}', [CopilotController::class, 'destroy'])->whereUuid('id');
+        Route::get('copilot/conversations/{id}/export', [CopilotController::class, 'export'])->whereUuid('id');
+        Route::get('copilot/templates', [CopilotController::class, 'templates']);
+        Route::post('copilot/templates', [CopilotController::class, 'saveTemplate']);
+        Route::patch('copilot/templates/{id}', [CopilotController::class, 'renameTemplate'])->whereNumber('id');
+        Route::delete('copilot/templates/{id}', [CopilotController::class, 'destroyTemplate'])->whereNumber('id');
         Route::post('copilot/messages', [CopilotController::class, 'message'])->middleware('throttle:assistant');
         Route::get('user', fn (Request $r) => response()->json($r->user()));
         Route::post('logout', [AuthController::class, 'logout']);

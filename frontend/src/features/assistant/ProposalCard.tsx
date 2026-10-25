@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { CalendarPlus, ArrowRight, CheckCircle2, X, Lightbulb, Clock, ListPlus, CalendarClock, Undo2 } from 'lucide-react'
+import { CalendarPlus, ArrowRight, CheckCircle2, X, Lightbulb, Clock, ListPlus, CalendarClock, Undo2, LayoutTemplate } from 'lucide-react'
 import { api, type AssistantProposal } from '../../lib/api'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
+import { TEMPLATES_CHANGED } from '../../lib/copilot'
 
 /**
  * Reviewable changes suggested by the assistant. Nothing changes until the user approves specific items.
@@ -13,7 +14,7 @@ import { ErrorMessage } from '../../components/ui/Shared'
 export function ProposalCard({ proposal: initial }: { proposal: AssistantProposal }) {
   const t = useText(), { language } = useLanguage(), toast = useToast()
   const [proposal, setProposal] = useState(initial), [selected, setSelected] = useState<string[]>(initial.actions.map(a => a.id))
-  const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [naming, setNaming] = useState(false), [templateName, setTemplateName] = useState('')
   const open = proposal.status === 'pending'
   const day = (iso: string) => new Date(iso).toLocaleDateString(language, { weekday: 'short', day: 'numeric', month: 'short' })
   const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
@@ -37,10 +38,22 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
+  async function saveTemplate(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true); setError('')
+    try {
+      await api('/api/copilot/templates', 'POST', { proposal_id: proposal.id, name: templateName.trim() })
+      setNaming(false); setTemplateName('')
+      window.dispatchEvent(new Event(TEMPLATES_CHANGED))
+      toast(t('Saved as a week template. Use it from the Copilot sidebar.', 'حُفظ كقالب أسبوعي. استخدمه من الشريط الجانبي للمساعد.'))
+    } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
+  }
+
   if (proposal.actions.length === 0) return null
+  const canTemplate = proposal.actions.some(a => a.type === 'create_event') && proposal.kind !== 'template'
   const chosen = proposal.actions.filter(a => selected.includes(a.id)), mixed = chosen.some(a => a.type === 'move_event') && chosen.some(a => a.type === 'create_event')
   const verb = proposal.kind === 'rebalance' || (chosen.length > 0 && chosen.every(a => a.type === 'move_event')) ? t('Move', 'انقل') : t('Add', 'أضف')
-  const heading = { rebalance: t('Suggested changes', 'تغييرات مقترحة'), goal_plan: t('Proposed tasks', 'مهام مقترحة'), triage: t('New deadlines', 'مواعيد جديدة'), find_time: t('Time found for your tasks', 'وقت مقترح لمهامك'), plan_week: t('Proposed week plan', 'خطة الأسبوع المقترحة'), prioritize: t('Your priorities, planned first', 'أولوياتك مخططة أولاً'), focus_blocks: t('Proposed focus blocks', 'فترات تركيز مقترحة'), reorganize_day: t('Reorganized day', 'يوم مُعاد تنظيمه') }[proposal.kind] ?? t('Proposed schedule', 'جدول مقترح')
+  const heading = { rebalance: t('Suggested changes', 'تغييرات مقترحة'), goal_plan: t('Proposed tasks', 'مهام مقترحة'), triage: t('New deadlines', 'مواعيد جديدة'), find_time: t('Time found for your tasks', 'وقت مقترح لمهامك'), template: t('Week from your template', 'أسبوع من قالبك'), plan_week: t('Proposed week plan', 'خطة الأسبوع المقترحة'), prioritize: t('Your priorities, planned first', 'أولوياتك مخططة أولاً'), focus_blocks: t('Proposed focus blocks', 'فترات تركيز مقترحة'), reorganize_day: t('Reorganized day', 'يوم مُعاد تنظيمه') }[proposal.kind] ?? t('Proposed schedule', 'جدول مقترح')
   const applyLabel = proposal.kind === 'goal_plan' ? t(`Create ${selected.length} task(s)`, `أنشئ ${selected.length} مهمة`) : proposal.kind === 'triage' ? t(`Reschedule ${selected.length} task(s)`, `أعد جدولة ${selected.length} مهمة`) : mixed ? t(`Apply ${selected.length} change(s)`, `طبّق ${selected.length} تغيير`) : `${verb} ${selected.length} ${t('to calendar', 'إلى التقويم')}`
   return <div className={`proposal-card state-${proposal.status}`}>
     <div className="proposal-head">
@@ -82,6 +95,14 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
       <button className="primary" disabled={busy || selected.length === 0} onClick={() => void run('apply')}>{taskKind ? <ListPlus size={16} /> : <CalendarPlus size={16} />}{applyLabel}</button>
       <button className="quiet" disabled={busy} onClick={() => void run('dismiss')}><X size={16} />{t('Not now', 'ليس الآن')}</button>
     </div>}
+    {canTemplate && (naming
+      ? <form className="template-save" onSubmit={e => void saveTemplate(e)}>
+        <label className="sr-only" htmlFor={`template-${proposal.id}`}>{t('Template name', 'اسم القالب')}</label>
+        <input id={`template-${proposal.id}`} value={templateName} maxLength={80} required autoFocus onChange={e => setTemplateName(e.target.value)} placeholder={t('Template name, e.g. Deep work week', 'اسم القالب، مثلاً أسبوع العمل العميق')} />
+        <button className="primary" disabled={busy || !templateName.trim()}>{t('Save template', 'حفظ القالب')}</button>
+        <button type="button" className="quiet" onClick={() => setNaming(false)}>{t('Cancel', 'إلغاء')}</button>
+      </form>
+      : <button type="button" className="quiet save-template" disabled={busy} onClick={() => setNaming(true)}><LayoutTemplate size={15} />{t('Save as template', 'حفظ كقالب')}</button>)}
     {proposal.undo_until && <div className="toolbar"><button className="quiet" disabled={busy} onClick={() => void run('undo')}><Undo2 size={16} />{t('Undo these changes', 'التراجع عن هذه التغييرات')}</button>
       <small className="muted">{t(`Available until ${dueLabel(proposal.undo_until)}. Anything you edited since is kept.`, `متاح حتى ${dueLabel(proposal.undo_until)}. يُحتفظ بكل ما عدّلته لاحقاً.`)}</small></div>}
     {proposal.status === 'applied' && (taskKind ? <Link className="quiet" to="/tasks">{t('Open tasks', 'فتح المهام')}</Link> : <Link className="quiet" to="/calendar">{t('Open calendar', 'فتح التقويم')}</Link>)}

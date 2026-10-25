@@ -28,13 +28,13 @@ class AssistantService
 
     /** Data the local assistant reads for each intent (shown as context chips; nothing leaves the server). */
     public const LOCAL_SOURCES = [
-        'plan_week' => ['tasks', 'calendar', 'workload'], 'prioritize' => ['tasks', 'projects', 'calendar', 'workload'], 'focus_blocks' => ['calendar', 'tasks'], 'reorganize_day' => ['calendar', 'tasks', 'checkins'],
+        'plan_week' => ['tasks', 'calendar', 'workload'], 'use_template' => ['calendar', 'tasks'], 'prioritize' => ['tasks', 'projects', 'calendar', 'workload'], 'focus_blocks' => ['calendar', 'tasks'], 'reorganize_day' => ['calendar', 'tasks', 'checkins'],
         'plan_day' => ['calendar', 'tasks', 'checkins'], 'schedule' => ['calendar', 'tasks'], 'rebalance' => ['calendar', 'tasks'], 'find_time' => ['calendar', 'tasks', 'projects'], 'triage' => ['tasks', 'calendar'],
         'deadline_conflicts' => ['tasks', 'calendar'], 'conflicts' => ['tasks', 'calendar'], 'goal_plan' => ['goals', 'tasks'], 'explain' => ['tasks', 'goals'], 'reflection' => ['tasks', 'focus', 'habits'],
         'query' => ['tasks', 'projects', 'goals'], 'review' => ['tasks', 'focus'], 'habits' => ['habits'], 'overdue' => ['tasks'], 'plan' => ['tasks', 'goals'], 'help' => [],
     ];
 
-    public const INTENTS = ['answer', 'schedule', 'rebalance', 'breakdown', 'query', 'explain', 'conflicts', 'goal_plan', 'triage', 'reflection', 'find_time', 'plan_day', 'deadline_conflicts', 'plan_week', 'prioritize', 'focus_blocks', 'reorganize_day', 'clarify'];
+    public const INTENTS = ['answer', 'schedule', 'rebalance', 'breakdown', 'query', 'explain', 'conflicts', 'goal_plan', 'triage', 'reflection', 'find_time', 'plan_day', 'deadline_conflicts', 'plan_week', 'prioritize', 'focus_blocks', 'reorganize_day', 'use_template', 'clarify'];
 
     public function __construct(private BriefingService $briefing, private AnalyticsService $analytics, private AiProviders $providers, private AssistantActions $actions, private CalendarService $calendar, private CopilotService $copilot) {}
 
@@ -107,6 +107,7 @@ class AssistantService
             .'"focus_blocks" when they want focus blocks found (fill plan.count 1-6, plan.minutes 30-180, plan.within today|tomorrow|week, and plan.area work|study|personal when they name one); '
             .'"reorganize_day" when their day was interrupted and needs reorganizing (fill target.date, plan.busy_until HH:MM and/or plan.lost_minutes when stated); '
             .'For plan_week, prioritize and reorganize_day set plan.moves to false only when the user asks not to move any existing events (the app may otherwise propose moving flexible blocks; it never moves fixed or connected events). '
+            .'"use_template" when they want a week planned from one of their saved templates (set plan.next_week); '
             .'"deadline_conflicts" when they ask which deadlines clash with meetings; '
             .'"clarify" only when the request is genuinely ambiguous: ask one short question in message and give 2-4 short answer options in clarification_options; otherwise "answer". '
             .'Use the earlier conversation to resolve follow-ups such as "make it shorter" or "tomorrow instead". '
@@ -171,7 +172,7 @@ class AssistantService
         $slots = array_filter($data['plan'] ?? [], fn ($v) => $v !== null);
         if (in_array($data['intent'], CopilotPlanner::INTENTS, true)) {
             $progress('planning');
-            $slots += ['date' => $data['target']['date'] ?? null, 'interruption' => array_filter(['busy_until' => $slots['busy_until'] ?? null, 'lost_minutes' => $slots['lost_minutes'] ?? null])];
+            $slots += ['message' => $message, 'date' => $data['target']['date'] ?? null, 'interruption' => array_filter(['busy_until' => $slots['busy_until'] ?? null, 'lost_minutes' => $slots['lost_minutes'] ?? null])];
             $planned = app(CopilotPlanner::class)->run($user, $data['intent'], $slots, $ar, $provider->name());
 
             return array_intersect_key($planned, $base + ['message' => 1]) + $base;
@@ -286,7 +287,7 @@ class AssistantService
             $progress('planning');
         }
         $response = match ($intent) {
-            'plan_week', 'prioritize', 'focus_blocks', 'reorganize_day' => app(CopilotPlanner::class)->run($user, $intent, CopilotPlanner::slotsFrom($intent, $message, $now), $ar, 'local'),
+            'plan_week', 'prioritize', 'focus_blocks', 'reorganize_day', 'use_template' => app(CopilotPlanner::class)->run($user, $intent, CopilotPlanner::slotsFrom($intent, $message, $now), $ar, 'local'),
             'schedule' => $this->proposalReply($this->actions->proposeSchedule($user, $request['date'], $request['available_minutes'], $request['items'], $request['start_after'], $ar, 'local')),
             'rebalance' => $this->proposalReply($this->actions->proposeRebalance($user, $ar, 'local')),
             'breakdown' => $this->breakdown($user, $message, $ar),
@@ -324,6 +325,7 @@ class AssistantService
         $has = fn (array $words) => collect($words)->contains(fn (string $word) => str_contains($text, $word));
         $overdueWords = ['overdue', 'late', 'behind', 'missed', 'متأخر', 'فات'];
         $intent = match (true) {
+            $has(['template', 'قالب', 'القالب']) => 'use_template',
             $has(['reorganize', 'reorganise', 'reshuffle', 'interrupt', 'derailed', 'lost time', 'lost an hour', 'lost two hours', 'أعد تنظيم', 'اعد تنظيم', 'إعادة تنظيم', 'مقاطعة', 'انقطاع', 'ضاع وقت', 'ضاعت']) => 'reorganize_day',
             $has(['focus block', 'focus session', 'focus slot', 'deep work block', 'deep-work block', 'study block', 'study session', 'personal block', 'فترات تركيز', 'فترة تركيز', 'فترتي تركيز', 'فترات للتركيز', 'جلسات تركيز', 'فترات دراسة', 'فترتي دراسة', 'جلسات دراسة']) => 'focus_blocks',
             $has(['prioritize', 'prioritise', 'give priority', 'put first', 'أعط الأولوية', 'أعطِ الأولوية', 'اعط الأولوية', 'الأولوية ل', 'قدّم', 'رتب أولوياتي', 'رتّب أولوياتي']) && (CopilotPlanner::prioritiesIn($message) !== [] || $has(['week', 'أسبوع', 'اسبوع', 'my priorities', 'أولوياتي'])) => 'prioritize',
