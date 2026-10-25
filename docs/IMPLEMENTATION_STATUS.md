@@ -1266,7 +1266,7 @@ This release implements Proactive Personal AI as specified in the V9 prompt.
 
 # V10 — AI Copilot 4.0 and intelligent conversations
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b1c9efe) after PR #8 (V9) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b1c9efe) after PR #8 (V9) was merged. Merged into `main` as PR #9.
 
 - **Copilot is now conversational:** multi-turn conversations with stored history, clarifying questions, deterministic follow-ups and multi-step planning (a week, priorities, focus blocks, a day after an interruption).
 - **Every change is still a proposal.** Plans become the existing pending proposals (preview, partial approval, re-validation at apply time, 24-hour undo). Saying "yes" in chat never applies anything, and nothing is written to Google or Outlook.
@@ -1444,3 +1444,77 @@ CopilotPlanner
 - Conversation search and export; pinning a plan as a template for future weeks.
 - Proactive suggestions (V9) that open a pre-filled Copilot conversation.
 - Opt-in, explainable learning of preferred plan variants (same reset and deletion controls).
+
+# V11 — Copilot plans that move flexible events
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (2dc8ebc) after PR #9 (V10) was merged. **Not committed, not pushed** — waiting for approval.
+
+Scope chosen for V11 (from the V10 roadmap): Copilot plans may also propose **moving** existing flexible LifeOS events, with the V7 conflict preview. The other roadmap items are not part of this release:
+- live provider verification (needs your API key and authorization);
+- study and personal windows for focus blocks;
+- search, export and templates;
+- suggestions that open Copilot, and learned plan variants.
+
+## What changed
+- **Week plans and priority plans** (`plan_week`, `prioritize`): when a day in the week is at least 90% booked, the plan includes moves of flexible blocks to lighter work days. The same algorithm as the existing "rebalance" proposal is reused through `AssistantActions::rebalanceMoves()`.
+- **Reorganizing after an interruption** (`reorganize_day` with "busy until"): flexible blocks the interruption now overlaps (from now until busy-until, today) move to the first free slot later that day, otherwise to the next work days within a week.
+- **One proposal holds both.** Moves come first, then new blocks.
+  - New blocks are planned around where moved events land: `reserved` time is passed to `PlanningService::compute()` and `DayPlanner::plan()`.
+  - New blocks never reuse the time a move frees.
+  - So every action is independent, and approving any subset is safe.
+- **Preview on each move:**
+  - each move action carries a `reason` and a `conflicts` preview from `TimelineService::preview` (the V7 move preview);
+  - the proposal card shows "Moves an existing block", the from→to times, the reason, and "No conflicts at the new time" (or what it overlaps);
+  - the plan card says how many blocks move and offers "Keep everything in place" / "Move flexible blocks if needed".
+- **Opting out:**
+  - In words: "don't move anything", "keep everything in place", "لا تنقل أي شيء" — as a follow-up or in the original request.
+  - Through the plan-card switch (choice `moves:off` / `moves:on`).
+  - Through the provider schema field `plan.moves = false`.
+  - "Without moving fixed appointments" does not count, since fixed appointments never move anyway.
+
+## What can never move
+`AssistantActions::movable()` decides at planning time and `execute()` re-checks at apply time:
+
+| Event | Moves? |
+|---|---|
+| Fixed appointments (`kind = fixed`) | Never (planning + apply) |
+| Recurring series | Never (planning + apply) |
+| Connected-calendar events (Google, Outlook, ICS) | Never; they are not LifeOS events |
+| LifeOS events copied to a connected calendar (V8 write-back link) | Never (planning + apply, new in V11). Moving them locally would make the copy stale, and LifeOS never writes to connected calendars on its own |
+| Events starting within 5 minutes or in the past | Not proposed |
+| Flexible, non-recurring, future LifeOS events you own | Proposed; moved only after you apply, and only if unchanged since the proposal and the new time is still free |
+
+- **Apply** re-checks ownership, kind, recurrence, write-back links, "unchanged since the suggestion", and that the new time is free. Any failure refuses the whole apply with a clear message.
+- **Undo** puts an event back only if it is still exactly where the plan left it and its original time is still free.
+- At most 10 moves per proposal.
+
+The existing V5 "rebalance" proposal now uses the same rules, so it also stops moving written-back events.
+
+## Testing
+- **Backend:** `MovePlanningTest` (7 tests).
+  - The week plan moves only the flexible block; fixed, recurring, written-back and connected events stay. Moves come first with a preview and reason. New blocks avoid the destination and don't reuse the freed time.
+  - A move applies alone and undoes, with no request to Google.
+  - Apply refuses a move that became unsafe (copied to a calendar since, or made fixed).
+  - Keep-in-place works by follow-up, by choice and in the original request; invalid choices return 422.
+  - An interruption moves a caught block after "busy until" and never moves a fixed appointment.
+  - Rebalance ignores written-back events.
+  - The provider can set `plan.moves = false`.
+- **Vitest:** `v11.test.tsx` (4) covers the moves row and its switch, the move preview (reason, conflict check, overlaps), and the mixed "Apply N change(s)" label sending only the chosen ids.
+- **Playwright:** `moves.spec.ts`, desktop and mobile.
+  - It builds a fully booked day without overlaps: every free gap gets a fixed appointment, and the largest gets a flexible block.
+  - It asks for a week plan, checks that fixed appointments are not in the moves, and applies only the first move. It then verifies the event in the database, undoes, and confirms that "Keep everything in place" removes the moves.
+- **Results:**
+  - **Backend:** 245/245 on SQLite and PostgreSQL 16.
+  - **Frontend:** Vitest 105/105.
+  - **Playwright:** 26/26.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning), build, `npm audit --omit=dev` (0) and `composer audit` (none).
+- **Manual check** with demo data (EN desktop 1440, AR Pixel 7 dark): the plan shows 1 move with its reason and conflict check; no overflow, no console errors besides the expected 401 on the login page.
+- **Simulated versus live:** the provider path (`plan.moves`) was tested only against a simulated Anthropic API. Live behavior is **NOT VERIFIED**.
+
+## Known limitations (V11)
+- **Interruptions:** only "busy until" triggers moves; "time lost" alone shrinks capacity but moves nothing.
+- **Freed time:** the time a move frees is not used for new blocks in the same proposal. Ask again after applying to use it.
+- **Overload warnings:** the plan's "Needs your attention" list is computed from the current calendar, so a day can still show as overloaded although the plan moves a block off it.
+- **Where moves go:** destinations use working hours for week plans, and all of that day's windows (work, study, personal) for interruptions; moves never go to days outside the plan's week.
+- **Focus blocks** never move anything; they only use free time.
+- **Language at page load:** if a message is sent within about a second of the page loading, the language the app had before switching (e.g. the previous session's) can still be used for that one reply. This is existing behavior, seen during manual QA.

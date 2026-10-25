@@ -40,16 +40,18 @@ class CopilotPlanner
     {
         $priorities = array_values(array_intersect(self::PRIORITIES, (array) ($slots['priorities'] ?? [])));
         $alternative = is_string($slots['alternative'] ?? null) ? $slots['alternative'] : null;
+        // Moving flexible blocks is on unless the user asked to keep everything in place.
+        $moves = (bool) ($slots['moves'] ?? true);
         $tz = $user->timezone();
 
         return match ($intent) {
-            'plan_week' => $this->planWeek($user, $ar, $provider, $priorities, in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', (bool) ($slots['next_week'] ?? false)),
-            'prioritize' => $this->prioritize($user, $ar, $provider, $priorities, (bool) ($slots['next_week'] ?? false), in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced'),
+            'plan_week' => $this->planWeek($user, $ar, $provider, $priorities, in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', (bool) ($slots['next_week'] ?? false), 'plan_week', $moves),
+            'prioritize' => $this->prioritize($user, $ar, $provider, $priorities, (bool) ($slots['next_week'] ?? false), in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', $moves),
             'focus_blocks' => $this->focusBlocks($user, $ar, $provider, (int) ($slots['count'] ?? 3), isset($slots['minutes']) ? (int) $slots['minutes'] : null,
                 in_array($slots['within'] ?? null, ['today', 'tomorrow', 'week'], true) ? $slots['within'] : 'week', in_array($alternative, ['short', 'default', 'long'], true) ? $alternative : 'default'),
             'reorganize_day' => $this->reorganizeDay($user, $ar, $provider, $this->date($slots['date'] ?? null, $tz),
                 array_filter(['busy_until' => $slots['interruption']['busy_until'] ?? null, 'lost_minutes' => $slots['interruption']['lost_minutes'] ?? null]),
-                (bool) ($slots['ask_interruption'] ?? false), in_array($alternative, DayPlanner::VARIANTS, true) ? $alternative : null),
+                (bool) ($slots['ask_interruption'] ?? false), in_array($alternative, DayPlanner::VARIANTS, true) ? $alternative : null, $moves),
         };
     }
 
@@ -65,7 +67,7 @@ class CopilotPlanner
         $tomorrow = (bool) preg_match('/tomorrow|غدا|غداً|الغد|بكرة|بكره/u', $text);
 
         return match ($intent) {
-            'plan_week', 'prioritize' => ['priorities' => self::prioritiesIn($text), 'next_week' => $nextWeek, 'alternative' => preg_match('/essential|only the important|الأساسي|الضروري/u', $text) ? 'essentials' : 'balanced'],
+            'plan_week', 'prioritize' => ['priorities' => self::prioritiesIn($text), 'next_week' => $nextWeek, 'alternative' => preg_match('/essential|only the important|الأساسي|الضروري/u', $text) ? 'essentials' : 'balanced', 'moves' => ! self::keepsInPlace($text)],
             'focus_blocks' => array_filter([
                 'count' => self::countIn($text),
                 'minutes' => self::minutesIn($text),
@@ -75,9 +77,19 @@ class CopilotPlanner
                 'date' => ($tomorrow ? $now->addDay() : $now)->toDateString(),
                 'interruption' => array_filter(['busy_until' => self::untilIn($text), 'lost_minutes' => preg_match('/lost|lose|wasted|ضاع|خسرت|فقدت/u', $text) ? self::minutesIn($text) : null]),
                 'ask_interruption' => (bool) preg_match('/interrupt|disrupt|derail|emergenc|مقاطع|انقطاع|طارئ/u', $text),
+                'moves' => ! self::keepsInPlace($text),
             ],
             default => [],
         };
+    }
+
+    /**
+     * "Don't move anything", "keep everything in place", "without moving my events" (fixed appointments are never moved
+     * anyway, so "without moving fixed appointments" does not count).
+     */
+    public static function keepsInPlace(string $text): bool
+    {
+        return (bool) preg_match('/(don.?t|do not|without|no) mov(e|ing) (anything|any|my|events|blocks|things)(?! ?fixed)|keep (everything|it all|things) (in place|where)|لا تنقل|بدون نقل|دون نقل (أي|شيء)|أبق.? كل شيء/u', mb_strtolower($text));
     }
 
     public static function countIn(string $text): ?int
@@ -145,14 +157,17 @@ class CopilotPlanner
      * @param  list<string>  $priorities
      * @return array<string, mixed>
      */
-    public function planWeek(User $user, bool $ar, string $provider, array $priorities = [], string $alternative = 'balanced', bool $nextWeek = false, string $kind = 'plan_week'): array
+    public function planWeek(User $user, bool $ar, string $provider, array $priorities = [], string $alternative = 'balanced', bool $nextWeek = false, string $kind = 'plan_week', bool $allowMoves = true): array
     {
         $c = $this->planning->config($user);
         $now = CarbonImmutable::now($c['tz']);
         $start = $nextWeek ? $now->startOfDay()->next(CarbonImmutable::MONDAY) : $now->startOfDay();
         $priorityIds = $this->taskIdsFor($user, $priorities, $start, 7);
         $only = $alternative === 'essentials' ? $this->essentialIds($user, $start, 7, $priorityIds) : [];
-        $plan = $this->planning->compute($user, $start->toDateString(), 7, $only, $priorityIds);
+        // Moves first: they take flexible blocks off overloaded days, and new blocks are planned around where they land.
+        $rebalance = $this->actions->rebalanceMoves($user, $start, 7, $ar);
+        $moves = $allowMoves ? $rebalance['actions'] : [];
+        $plan = $this->planning->compute($user, $start->toDateString(), 7, $only, $priorityIds, $this->destinations($moves));
         $items = array_slice($plan['items'], 0, self::MAX_BLOCKS);
         $commitments = $this->calendar->occurrences($user, $start->utc(), $start->addDays(7)->utc());
         $fixed = $commitments->where('kind', 'fixed')->count();
@@ -160,12 +175,13 @@ class CopilotPlanner
         $range = $this->range($start, $start->addDays(6), $ar);
 
         $explanation = [
-            $ar ? "خطة {$range} حول ".$commitments->count()." التزاماً ({$fixed} ثابتاً). لا يُنقل أي موعد قائم؛ الفترات الجديدة تستخدم الوقت المتاح فقط." : "Plan for {$range} around ".$commitments->count()." commitment(s) ({$fixed} fixed). No existing event moves; new blocks only use free time.",
+            $ar ? "خطة {$range} حول ".$commitments->count()." التزاماً ({$fixed} ثابتاً). الفترات الجديدة تستخدم الوقت المتاح فقط." : "Plan for {$range} around ".$commitments->count()." commitment(s) ({$fixed} fixed). New blocks only use free time.",
             $ar ? 'الفترات ضمن ساعات عملك مع استراحات، والأعمال الكبيرة مقسّمة إلى فترات تركيز.' : 'Blocks stay inside your working hours with breaks; large work is split into focus-sized blocks.',
         ];
         if ($labels) {
             $explanation[] = $ar ? 'خُطّطت أولوياتك أولاً: '.implode('، ', $labels).'.' : 'Your priorities were planned first: '.implode(', ', $labels).'.';
         }
+        $explanation = array_merge($explanation, $this->moveExplanation($moves, $rebalance['overloaded'], $allowMoves, $ar));
         if ($alternative === 'essentials') {
             $explanation[] = $ar ? 'نسخة الأساسيات: العاجل والمهم وما يستحق هذا الأسبوع فقط.' : 'Essentials version: only urgent, high-priority and due-this-week work.';
         }
@@ -173,10 +189,12 @@ class CopilotPlanner
             $explanation[] = $ar ? 'عُرضت أول '.self::MAX_BLOCKS.' فترة؛ اطلب الخطة مجدداً بعد تطبيقها للبقية.' : 'Showing the first '.self::MAX_BLOCKS.' blocks; ask again after applying them for the rest.';
         }
         $blocks = array_map(fn (array $i) => ['title' => $i['title'], 'task_id' => $i['task_id'], 'starts_at' => CarbonImmutable::parse($i['starts_at']), 'ends_at' => CarbonImmutable::parse($i['ends_at'])], $items);
-        $summary = $blocks === []
-            ? ($ar ? "لم يتسع {$range} لفترات جديدة حول التزاماتك." : "{$range} has no room for new blocks around your commitments.")
-            : ($ar ? 'اقتراح '.count($blocks)." فترة لـ{$range}. راجعها واختر ما تضيفه." : 'Suggested '.count($blocks)." block(s) for {$range}. Review them and choose what to add.");
-        $proposal = $blocks ? $this->actions->proposeBlocks($user, $kind, $provider, $summary, $explanation, $blocks) : null;
+        $summary = match (true) {
+            $blocks === [] && $moves === [] => $ar ? "لم يتسع {$range} لفترات جديدة حول التزاماتك." : "{$range} has no room for new blocks around your commitments.",
+            $moves === [] => $ar ? 'اقتراح '.count($blocks)." فترة لـ{$range}. راجعها واختر ما تضيفه." : 'Suggested '.count($blocks)." block(s) for {$range}. Review them and choose what to add.",
+            default => $ar ? 'اقتراح '.count($blocks).' فترة جديدة ونقل '.count($moves)." فترة مرنة لـ{$range}. راجعها واختر ما تطبّقه." : 'Suggested '.count($blocks).' new block(s) and '.count($moves)." move(s) of flexible blocks for {$range}. Review them and choose what to apply.",
+        };
+        $proposal = $blocks || $moves ? $this->actions->proposeBlocks($user, $kind, $provider, $summary, $explanation, $blocks, $moves) : null;
         $days = collect($plan['summary']['days']);
         $busiest = $days->sortByDesc('load_percent')->first();
 
@@ -194,9 +212,10 @@ class CopilotPlanner
                     ['key' => 'essentials', 'label' => $ar ? 'الأساسيات فقط' : 'Essentials only', 'current' => $alternative === 'essentials'],
                 ],
                 'impact' => ['blocks' => count($blocks), 'planned_minutes' => (int) array_sum(array_column($items, 'minutes')), 'tasks_scheduled' => count(array_unique(array_column($items, 'task_id'))),
-                    'tasks_unscheduled' => count($plan['warnings']), 'busiest_day' => $busiest ? ['date' => $busiest['date'], 'load_percent' => $busiest['load_percent']] : null],
+                    'tasks_unscheduled' => count($plan['warnings']), 'moved_events' => count($moves), 'busiest_day' => $busiest ? ['date' => $busiest['date'], 'load_percent' => $busiest['load_percent']] : null],
+                'moves' => $this->movesMeta($moves, $rebalance['actions'], $allowMoves),
             ],
-            'state' => ['intent' => $kind, 'slots' => ['priorities' => $priorities, 'alternative' => $alternative, 'next_week' => $nextWeek]],
+            'state' => ['intent' => $kind, 'slots' => ['priorities' => $priorities, 'alternative' => $alternative, 'next_week' => $nextWeek, 'moves' => $allowMoves]],
         ];
     }
 
@@ -204,7 +223,7 @@ class CopilotPlanner
      * @param  list<string>  $priorities
      * @return array<string, mixed>
      */
-    public function prioritize(User $user, bool $ar, string $provider, array $priorities, bool $nextWeek = false, string $alternative = 'balanced'): array
+    public function prioritize(User $user, bool $ar, string $provider, array $priorities, bool $nextWeek = false, string $alternative = 'balanced', bool $allowMoves = true): array
     {
         if ($priorities === []) {
             return $this->clarify($ar, 'prioritize', 'priorities',
@@ -212,7 +231,7 @@ class CopilotPlanner
                 collect(self::PRIORITIES)->map(fn ($p) => ['value' => $p, 'label' => ['en' => ucfirst($this->priorityLabels([$p], false)[0]), 'ar' => $this->priorityLabels([$p], true)[0]]])->all());
         }
 
-        return $this->planWeek($user, $ar, $provider, $priorities, $alternative, $nextWeek, 'prioritize');
+        return $this->planWeek($user, $ar, $provider, $priorities, $alternative, $nextWeek, 'prioritize', $allowMoves);
     }
 
     /**
@@ -291,7 +310,7 @@ class CopilotPlanner
      * @param  array{busy_until?: string|null, lost_minutes?: int|null}  $interruption
      * @return array<string, mixed>
      */
-    public function reorganizeDay(User $user, bool $ar, string $provider, string $date, array $interruption, bool $askedAboutInterruption, ?string $variant = null): array
+    public function reorganizeDay(User $user, bool $ar, string $provider, string $date, array $interruption, bool $askedAboutInterruption, ?string $variant = null, bool $allowMoves = true): array
     {
         if ($askedAboutInterruption && empty($interruption['busy_until']) && empty($interruption['lost_minutes'])) {
             return $this->clarify($ar, 'reorganize_day', 'interruption', $ar ? 'كم من الوقت ضاع، أو حتى متى أنت مشغول؟' : 'How much time did you lose, or until when are you busy?', [
@@ -301,20 +320,26 @@ class CopilotPlanner
                 ['value' => 'none', 'label' => ['en' => 'Just re-plan', 'ar' => 'أعد التخطيط فقط']],
             ], ['date' => $date]);
         }
-        $plan = $this->day->plan($user, $date, true, $interruption);
+        // Flexible blocks caught behind the interruption move to later free time first; the day is then planned around them.
+        $displaced = $this->displacedMoves($user, $date, $interruption['busy_until'] ?? null, $ar);
+        $moves = $allowMoves ? $displaced : [];
+        $plan = $this->day->plan($user, $date, true, $interruption, $this->destinations($moves));
         $key = $variant && in_array($variant, DayPlanner::VARIANTS, true) ? $variant : $plan['recommended'];
         $chosen = collect($plan['alternatives'])->firstWhere('key', $key);
         $now = CarbonImmutable::now();
         $items = collect($chosen['items'] ?? [])->filter(fn ($i) => CarbonImmutable::parse($i['starts_at'])->gt($now))->take(self::MAX_BLOCKS)->values();
         $label = CarbonImmutable::parse($date, $plan['timezone'])->locale($ar ? 'ar' : 'en')->translatedFormat('l j F');
         $explanation = array_values(array_filter(array_map(fn ($e) => $e[$ar ? 'ar' : 'en'] ?? null, array_merge($plan['explanation'], $chosen['explanation'] ?? []))));
-        $explanation[] = $ar ? 'تبقى المواعيد الحالية في أماكنها؛ تُضاف فترات جديدة في الوقت المتبقي فقط.' : 'Existing events stay where they are; new blocks only use the time that is left.';
+        $explanation = array_merge($this->moveExplanation($moves, $displaced === [] ? 0 : 1, $allowMoves, $ar, true), $explanation);
+        $explanation[] = $ar ? 'المواعيد الثابتة والمتكررة والمرتبطة تبقى في أماكنها؛ تُضاف فترات جديدة في الوقت المتبقي فقط.' : 'Fixed, recurring and connected events stay where they are; new blocks only use the time that is left.';
         $blocks = $items->map(fn ($i) => ['title' => $i['title'], 'task_id' => $i['task_id'], 'starts_at' => CarbonImmutable::parse($i['starts_at']), 'ends_at' => CarbonImmutable::parse($i['ends_at'])])->all();
         $title = $chosen['title'][$ar ? 'ar' : 'en'] ?? $key;
-        $summary = $blocks === []
-            ? ($ar ? "لا يتسع يوم {$label} لفترات جديدة بعد المقاطعة." : "{$label} has no room for new blocks after the interruption.")
-            : ($ar ? "خطة «{$title}» ليوم {$label}: ".count($blocks).' فترات.' : "“{$title}” plan for {$label}: ".count($blocks).' block(s).');
-        $proposal = $blocks ? $this->actions->proposeBlocks($user, 'reorganize_day', $provider, $summary, $explanation, $blocks) : null;
+        $summary = match (true) {
+            $blocks === [] && $moves === [] => $ar ? "لا يتسع يوم {$label} لفترات جديدة بعد المقاطعة." : "{$label} has no room for new blocks after the interruption.",
+            $moves === [] => $ar ? "خطة «{$title}» ليوم {$label}: ".count($blocks).' فترات.' : "“{$title}” plan for {$label}: ".count($blocks).' block(s).',
+            default => $ar ? "خطة «{$title}» ليوم {$label}: ".count($blocks).' فترات جديدة ونقل '.count($moves).' فترة.' : "“{$title}” plan for {$label}: ".count($blocks).' new block(s) and '.count($moves).' move(s).',
+        };
+        $proposal = $blocks || $moves ? $this->actions->proposeBlocks($user, 'reorganize_day', $provider, $summary, $explanation, $blocks, $moves) : null;
 
         return [
             'message' => $summary, 'proposal' => $proposal?->present(),
@@ -322,9 +347,97 @@ class CopilotPlanner
                 'conflicts' => array_merge(array_map(fn ($w) => ['type' => 'unscheduled', 'title' => $w['title'], 'detail' => $ar ? $w['reason_ar'] : $w['reason'], 'minutes' => $w['needed_minutes']], $chosen['warnings'] ?? []),
                     $plan['overload'] ? [['type' => 'overloaded', 'title' => $label, 'detail' => $plan['overload'][$ar ? 'ar' : 'en'], 'minutes' => null]] : []),
                 'alternatives' => collect($plan['alternatives'])->map(fn ($a) => ['key' => $a['key'], 'label' => $a['title'][$ar ? 'ar' : 'en'], 'current' => $a['key'] === $key, 'planned_minutes' => $a['metrics']['planned_minutes']])->values()->all(),
-                'impact' => ['blocks' => count($blocks), 'planned_minutes' => (int) $items->sum('minutes'), 'capacity_minutes' => $plan['budget']['capacity_minutes'], 'must_do_left' => count($chosen['warnings'] ?? [])]],
-            'state' => ['intent' => 'reorganize_day', 'slots' => ['date' => $date, 'interruption' => $interruption, 'variant' => $key]],
+                'impact' => ['blocks' => count($blocks), 'planned_minutes' => (int) $items->sum('minutes'), 'capacity_minutes' => $plan['budget']['capacity_minutes'], 'must_do_left' => count($chosen['warnings'] ?? []), 'moved_events' => count($moves)],
+                'moves' => $this->movesMeta($moves, $displaced, $allowMoves)],
+            'state' => ['intent' => 'reorganize_day', 'slots' => ['date' => $date, 'interruption' => $interruption, 'variant' => $key, 'moves' => $allowMoves]],
         ];
+    }
+
+    /**
+     * Moves for flexible blocks that the interruption now overlaps (from now until busy-until, today only): to the
+     * first free slot later that day, otherwise the next work days.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function displacedMoves(User $user, string $date, ?string $busyUntil, bool $ar): array
+    {
+        $c = $this->planning->config($user);
+        $day = CarbonImmutable::parse($date, $c['tz'])->startOfDay();
+        $now = CarbonImmutable::now($c['tz']);
+        if (! $busyUntil || ! $day->isSameDay($now)) {
+            return [];
+        }
+        $until = $day->setTimeFromTimeString($busyUntil);
+        $occurrences = $this->calendar->occurrences($user, $day->utc(), $day->addDays(8)->utc());
+        $displaced = $this->actions->movable($user, $occurrences)->filter(fn (array $o) => $o['starts_at'] < $until->utc() && $o['starts_at']->setTimezone($c['tz'])->isSameDay($day))
+            ->sortBy(fn (array $o) => $o['starts_at']->getTimestamp())->take(AssistantActions::MAX_MOVES);
+        $busy = $occurrences->map(fn (array $o) => [$o['starts_at']->subMinutes($c['buffer']), $o['ends_at']->addMinutes($c['buffer'])])->all();
+        $moves = [];
+        foreach ($displaced as $o) {
+            $minutes = (int) $o['starts_at']->diffInMinutes($o['ends_at']);
+            $slot = null;
+            for ($d = 0; $d < 8 && ! $slot; $d++) {
+                $target = $day->addDays($d);
+                foreach ($this->planning->windows($c, $target) as $window) {
+                    $from = max($window[0], $d === 0 ? $until : $window[0], $now->addMinutes(15));
+                    $free = $from < $window[1] ? collect($this->planning->freeIntervals($from->utc(), $window[1]->utc(), $busy))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes) : null;
+                    if ($free) {
+                        $slot = [$free[0], $free[0]->addMinutes($minutes)];
+                        break;
+                    }
+                }
+            }
+            if (! $slot) {
+                continue;
+            }
+            $busy[] = [$slot[0]->subMinutes($c['buffer']), $slot[1]->addMinutes($c['buffer'])];
+            $when = $slot[0]->setTimezone($c['tz']);
+            $reason = $ar
+                ? "«{$o['title']}» كانت ضمن وقت المقاطعة؛ تنتقل إلى ".$when->locale('ar')->translatedFormat($when->isSameDay($day) ? 'H:i' : 'l H:i').'.'
+                : "“{$o['title']}” fell inside the interruption; it moves to ".$when->format($when->isSameDay($day) ? 'H:i' : 'l H:i').'.';
+            $moves[] = $this->actions->moveAction($user, $o, $slot[0], $slot[1], $reason, 'm'.(count($moves) + 1));
+        }
+
+        return $moves;
+    }
+
+    /**
+     * Where proposed moves will land, reserved so new blocks are planned around them.
+     *
+     * @param  list<array<string, mixed>>  $moves
+     * @return list<array{0: CarbonImmutable, 1: CarbonImmutable}>
+     */
+    private function destinations(array $moves): array
+    {
+        return array_map(fn (array $m) => [CarbonImmutable::parse($m['starts_at']), CarbonImmutable::parse($m['ends_at'])], $moves);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $moves
+     * @return list<string>
+     */
+    private function moveExplanation(array $moves, int $pressure, bool $allowed, bool $ar, bool $interruption = false): array
+    {
+        if ($moves !== []) {
+            return [$ar
+                ? 'تنتقل '.count($moves).' فترة مرنة '.($interruption ? 'خارج وقت المقاطعة' : 'من الأيام المزدحمة').'. لا تُنقل المواعيد الثابتة أو المتكررة أو المرتبطة أبداً، والوقت الذي تحرّره لا يُستخدم في هذا الاقتراح.'
+                : count($moves).' flexible block(s) move '.($interruption ? 'out of the interruption' : 'off overloaded days').'. Fixed, recurring and connected events never move, and the time a move frees is not reused in this proposal.'];
+        }
+        if (! $allowed && $pressure > 0) {
+            return [$ar ? 'طلبت إبقاء كل شيء في مكانه، لذلك لا تُنقل أي فترة.' : 'You asked to keep everything in place, so nothing moves.'];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $moves
+     * @param  list<array<string, mixed>>  $possible  moves the plan would make if allowed
+     * @return array{allowed: bool, count: int, available: int}
+     */
+    private function movesMeta(array $moves, array $possible, bool $allowed): array
+    {
+        return ['allowed' => $allowed, 'count' => count($moves), 'available' => count($possible)];
     }
 
     /**

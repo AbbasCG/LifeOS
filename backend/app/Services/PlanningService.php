@@ -112,15 +112,16 @@ class PlanningService
      *
      * @param  list<int>  $onlyTaskIds
      * @param  list<int>  $priorityTaskIds
+     * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $reserved  extra busy time (e.g. where proposed moves would go)
      * @return array{starts_on: string, items: list<array<string, mixed>>, warnings: list<array<string, mixed>>, summary: array<string, mixed>}
      */
-    public function compute(User $user, string $date, int $days, array $onlyTaskIds = [], array $priorityTaskIds = []): array
+    public function compute(User $user, string $date, int $days, array $onlyTaskIds = [], array $priorityTaskIds = [], array $reserved = []): array
     {
         $c = $this->config($user);
         $first = CarbonImmutable::parse($date, $c['tz'])->startOfDay();
         $now = CarbonImmutable::now();
         $earliest = $now->addMinutes(5 - $now->minute % 5)->startOfMinute();
-        $busy = $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
+        $busy = array_merge($this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all(), $reserved);
 
         $open = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])
             ->when($onlyTaskIds, fn ($q) => $q->whereIn('id', $onlyTaskIds))

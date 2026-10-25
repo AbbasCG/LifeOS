@@ -522,3 +522,13 @@ i.focus { background: var(--color-success); }
   .drawer-scrim { display: block; position: fixed; inset: 0; z-index: 59; background: #080d2455; border: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .copilot-sidebar { transition: none; } }
+
+/* V11 — plans that move flexible blocks */
+.plan-moves { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--color-surface-muted); }
+.plan-moves p { margin: 0; flex: 1 1 260px; display: inline-flex; align-items: flex-start; gap: 6px; font-size: 13px; }
+.plan-moves p svg { flex-shrink: 0; margin-top: 3px; color: var(--color-primary); }
+.proposal-actions .move-chip { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 35%, transparent); }
+.proposal-actions .move-detail { display: grid; gap: 2px; flex-basis: 100%; padding-inline-start: 26px; }
+.conflict-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.conflict-check.ok { color: var(--color-success); }
+.conflict-check.warn { color: var(--color-warning); }

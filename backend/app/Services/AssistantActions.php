@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AssistantProposal;
 use App\Models\CalendarEvent;
+use App\Models\CalendarWriteLink;
 use App\Models\Category;
 use App\Models\FocusSession;
 use App\Models\Goal;
@@ -28,6 +29,9 @@ class AssistantActions
     public const TTL_HOURS = 24;
 
     public const MAX_BLOCK_MINUTES = 480;
+
+    /** Existing events one proposal may move. */
+    public const MAX_MOVES = 10;
 
     public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit, private GoalIntelligence $goals) {}
 
@@ -124,27 +128,50 @@ class AssistantActions
     public function proposeRebalance(User $user, bool $ar, string $provider): AssistantProposal
     {
         $c = $this->planning->config($user);
-        $first = CarbonImmutable::now($c['tz'])->startOfDay();
-        $summary = $this->planning->summary($user, $first, 7, [], [], $c);
-        $days = collect($summary['days']);
-        $overloaded = $days->where('overloaded', true)->values();
+        $plan = $this->rebalanceMoves($user, CarbonImmutable::now($c['tz'])->startOfDay(), 7, $ar);
+        $summaryText = match (true) {
+            $plan['overloaded'] === 0 => $ar ? 'لا يوجد يوم مزدحم خلال الأيام السبعة القادمة. توزيعك متوازن.' : 'No day in the next seven is overloaded. Your week looks balanced.',
+            $plan['actions'] === [] => $ar ? 'هناك أيام مزدحمة، لكن لا توجد فترات مرنة يمكن نقلها تلقائياً. فكّر في تقصير أو إلغاء بعض الالتزامات.' : 'Some days are overloaded, but there are no flexible blocks I can move safely. Consider shortening or dropping something.',
+            default => $ar ? 'أقترح نقل '.count($plan['actions']).' فترة مرنة لتخفيف الأيام المزدحمة. الالتزامات الثابتة والمتكررة والخارجية لن تتغير.' : 'I suggest moving '.count($plan['actions']).' flexible block(s) to lighten overloaded days. Fixed, recurring and external events stay where they are.',
+        };
+
+        return $this->store($user, 'rebalance', $provider, $summaryText, $plan['explanation'], $plan['actions']);
+    }
+
+    /**
+     * Moves that take flexible blocks off overloaded days (above 80% of capacity) to the lightest work days in range.
+     * Nothing is saved: the moves become actions of a proposal.
+     *
+     * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $reserved  time other proposed changes will use
+     * @return array{actions: list<array<string, mixed>>, explanation: list<string>, overloaded: int}
+     */
+    public function rebalanceMoves(User $user, CarbonImmutable $first, int $days, bool $ar, array $reserved = []): array
+    {
+        $c = $this->planning->config($user);
+        $summary = $this->planning->summary($user, $first, $days, [], [], $c);
+        $dayList = collect($summary['days']);
+        $overloaded = $dayList->where('overloaded', true)->values();
         $actions = [];
         $explanation = [];
-        $occurrences = $this->calendar->occurrences($user, $first->utc(), $first->addDays(7)->utc());
-        $busy = $occurrences->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
+        $occurrences = $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc());
+        $movable = $this->movable($user, $occurrences);
+        $busy = array_merge($occurrences->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all(), $reserved);
         $now = CarbonImmutable::now();
         foreach ($overloaded as $day) {
+            if (count($actions) >= self::MAX_MOVES) {
+                break;
+            }
             $explanation[] = $ar ? "يوم {$day['date']} محجوز بنسبة {$day['load_percent']}٪ من ساعات عملك." : "{$day['date']} is {$day['load_percent']}% booked against your working hours.";
             $local = CarbonImmutable::parse($day['date'], $c['tz']);
-            $candidates = $occurrences->filter(fn (array $o) => ($o['source'] ?? '') === 'lifeos' && ! $o['recurring'] && $o['kind'] !== 'fixed' && $o['starts_at'] > $now
-                && $o['starts_at'] >= $local->utc() && $o['starts_at'] < $local->addDay()->utc())->sortByDesc(fn (array $o) => $o['starts_at']->diffInMinutes($o['ends_at']));
+            $candidates = $movable->filter(fn (array $o) => $o['starts_at'] >= $local->utc() && $o['starts_at'] < $local->addDay()->utc())
+                ->sortByDesc(fn (array $o) => $o['starts_at']->diffInMinutes($o['ends_at']));
             $excess = (int) ceil(($day['load_percent'] - 80) / 100 * max(1, $day['capacity_minutes']));
             foreach ($candidates as $occurrence) {
-                if ($excess <= 0) {
+                if ($excess <= 0 || count($actions) >= self::MAX_MOVES) {
                     break;
                 }
                 $minutes = (int) $occurrence['starts_at']->diffInMinutes($occurrence['ends_at']);
-                foreach ($days->where('work_day', true)->where('overloaded', false)->sortBy('load_percent') as $target) {
+                foreach ($dayList->where('work_day', true)->where('overloaded', false)->sortBy('load_percent') as $target) {
                     if ($target['date'] === $day['date'] || $target['free_minutes'] < $minutes + $c['break']) {
                         continue;
                     }
@@ -156,24 +183,52 @@ class AssistantActions
                         continue;
                     }
                     $busy[] = $slot;
-                    $actions[] = [
-                        'id' => 'a'.(count($actions) + 1), 'type' => 'move_event', 'event_id' => $occurrence['event_id'], 'title' => $occurrence['title'],
-                        'from_starts_at' => $occurrence['starts_at']->toIso8601String(), 'from_ends_at' => $occurrence['ends_at']->toIso8601String(),
-                        'starts_at' => $slot[0]->toIso8601String(), 'ends_at' => $slot[1]->toIso8601String(), 'minutes' => $minutes,
-                    ];
-                    $explanation[] = $ar ? "«{$occurrence['title']}» مرنة، ويوم {$target['date']} أخف ({$target['load_percent']}٪)." : "“{$occurrence['title']}” is flexible, and {$target['date']} is lighter ({$target['load_percent']}%).";
+                    $reason = $ar ? "«{$occurrence['title']}» مرنة، ويوم {$target['date']} أخف ({$target['load_percent']}٪)." : "“{$occurrence['title']}” is flexible, and {$target['date']} is lighter ({$target['load_percent']}%).";
+                    $actions[] = $this->moveAction($user, $occurrence, $slot[0], $slot[1], $reason, 'a'.(count($actions) + 1));
+                    $explanation[] = $reason;
                     $excess -= $minutes;
                     break;
                 }
             }
         }
-        $summaryText = match (true) {
-            $overloaded->isEmpty() => $ar ? 'لا يوجد يوم مزدحم خلال الأيام السبعة القادمة. توزيعك متوازن.' : 'No day in the next seven is overloaded. Your week looks balanced.',
-            $actions === [] => $ar ? 'هناك أيام مزدحمة، لكن لا توجد فترات مرنة يمكن نقلها تلقائياً. فكّر في تقصير أو إلغاء بعض الالتزامات.' : 'Some days are overloaded, but there are no flexible blocks I can move safely. Consider shortening or dropping something.',
-            default => $ar ? 'أقترح نقل '.count($actions).' فترة مرنة لتخفيف الأيام المزدحمة. الالتزامات الثابتة والمتكررة والخارجية لن تتغير.' : 'I suggest moving '.count($actions).' flexible block(s) to lighten overloaded days. Fixed, recurring and external events stay where they are.',
-        };
 
-        return $this->store($user, 'rebalance', $provider, $summaryText, $explanation, $actions);
+        return ['actions' => $actions, 'explanation' => $explanation, 'overloaded' => $overloaded->count()];
+    }
+
+    /**
+     * Occurrences a plan may move: the user's own flexible, non-recurring LifeOS events that start in the future and
+     * were never copied to a connected calendar. Fixed appointments, recurring series and imported events never move.
+     *
+     * @param  Collection<int, array<string, mixed>>  $occurrences
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function movable(User $user, Collection $occurrences): Collection
+    {
+        $linked = CalendarWriteLink::where('user_id', $user->id)->whereNotNull('calendar_event_id')->pluck('calendar_event_id')->flip();
+        $soon = CarbonImmutable::now()->addMinutes(5);
+
+        return $occurrences->filter(fn (array $o) => ($o['source'] ?? 'lifeos') === 'lifeos' && ! empty($o['event_id']) && ! ($o['recurring'] ?? false)
+            && $o['kind'] !== 'fixed' && $o['starts_at'] > $soon && ! $linked->has($o['event_id']))->values();
+    }
+
+    /**
+     * A move_event action with the same conflict preview the timeline shows before a manual move (checked now, and
+     * again when the user applies it).
+     *
+     * @param  array<string, mixed>  $occurrence
+     * @return array<string, mixed>
+     */
+    public function moveAction(User $user, array $occurrence, CarbonImmutable $start, CarbonImmutable $end, string $reason, string $id): array
+    {
+        $event = CalendarEvent::where('user_id', $user->id)->find($occurrence['event_id']);
+        $preview = $event ? app(TimelineService::class)->preview($user, $event, null, $start->utc(), $end->utc()) : ['conflicts' => []];
+
+        return [
+            'id' => $id, 'type' => 'move_event', 'event_id' => $occurrence['event_id'], 'title' => mb_substr($occurrence['title'], 0, 200),
+            'from_starts_at' => $occurrence['starts_at']->utc()->toIso8601String(), 'from_ends_at' => $occurrence['ends_at']->utc()->toIso8601String(),
+            'starts_at' => $start->utc()->toIso8601String(), 'ends_at' => $end->utc()->toIso8601String(), 'minutes' => (int) $start->diffInMinutes($end),
+            'reason' => $reason, 'conflicts' => array_map(fn (array $c) => array_intersect_key($c, array_flip(['title', 'source_label', 'starts_at', 'ends_at', 'minutes'])), $preview['conflicts']),
+        ];
     }
 
     /**
@@ -341,13 +396,19 @@ class AssistantActions
      * New LifeOS calendar blocks computed by a planner (Copilot plans) as one proposal: the same preview, partial
      * approval, re-validation at apply time and undo as every other proposal. Never writes to connected calendars.
      *
+     * Moves (from moveAction) come first. Each action stands on its own: new blocks avoid where moved events will go and
+     * never reuse the time a move frees, so any subset can be approved.
+     *
      * @param  list<array{title: string, task_id: int|null, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>  $blocks
      * @param  list<string>  $explanation
+     * @param  list<array<string, mixed>>  $moves
      */
-    public function proposeBlocks(User $user, string $kind, string $provider, string $summary, array $explanation, array $blocks): AssistantProposal
+    public function proposeBlocks(User $user, string $kind, string $provider, string $summary, array $explanation, array $blocks, array $moves = []): AssistantProposal
     {
-        $actions = array_values(array_map(fn (array $b, int $i) => ['id' => 'a'.($i + 1), 'type' => 'create_event', 'title' => mb_substr($b['title'], 0, 200), 'task_id' => $b['task_id'],
-            'starts_at' => $b['starts_at']->utc()->toIso8601String(), 'ends_at' => $b['ends_at']->utc()->toIso8601String(), 'minutes' => (int) $b['starts_at']->diffInMinutes($b['ends_at'])], $blocks, array_keys($blocks)));
+        $creates = array_map(fn (array $b) => ['type' => 'create_event', 'title' => mb_substr($b['title'], 0, 200), 'task_id' => $b['task_id'],
+            'starts_at' => $b['starts_at']->utc()->toIso8601String(), 'ends_at' => $b['ends_at']->utc()->toIso8601String(), 'minutes' => (int) $b['starts_at']->diffInMinutes($b['ends_at'])], $blocks);
+        $all = array_merge(array_slice($moves, 0, self::MAX_MOVES), $creates);
+        $actions = array_values(array_map(fn (array $a, int $i) => ['id' => 'a'.($i + 1)] + $a, $all, array_keys($all)));
 
         return $this->store($user, $kind, $provider, $summary, $explanation, $actions);
     }
@@ -514,6 +575,9 @@ class AssistantActions
         $event = CalendarEvent::where('user_id', $user->id)->whereKey($action['event_id'])->whereNull('recurrence')->lockForUpdate()->first();
         if (! $event || $event->kind === 'fixed') {
             $fail('This event can no longer be moved.');
+        }
+        if (CalendarWriteLink::where('user_id', $user->id)->where('calendar_event_id', $event->id)->exists()) {
+            $fail('This event was copied to a connected calendar, so it is not moved from here.');
         }
         if (! $event->starts_at->equalTo(CarbonImmutable::parse($action['from_starts_at']))) {
             $fail('This event changed since the suggestion was made.');
