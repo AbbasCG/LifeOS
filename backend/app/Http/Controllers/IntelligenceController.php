@@ -28,7 +28,7 @@ use Illuminate\Validation\Rule;
 class IntelligenceController extends Controller
 {
     /** Audit actions shown in the AI activity history. */
-    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'plan_learning_reset', 'recommendation_discussed', 'conversation_deleted', 'conversation_exported', 'plan_template_saved',
+    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'plan_learning_reset', 'recommendation_discussed', 'conversation_deleted', 'conversation_exported', 'plan_template_saved', 'weekly_draft_prepared', 'weekly_draft_settings_changed',
         'calendar_write', 'calendar_write_failed', 'calendar_write_granted', 'calendar_write_enabled', 'calendar_write_disabled'];
 
     public function __construct(private RecommendationService $recommendations, private AuditLogger $audit) {}
@@ -131,7 +131,7 @@ class IntelligenceController extends Controller
             ]),
             'recommendations' => Recommendation::where('user_id', $user->id)->latest('updated_at')->limit(30)->get()->map->present(),
             'events' => AuditLog::where('user_id', $user->id)->whereIn('action', self::ACTIVITY)->latest('id')->limit(50)->get()->map(fn (AuditLog $l) => [
-                'action' => $l->action, 'at' => $l->created_at?->toIso8601String(), 'meta' => array_intersect_key($l->meta ?? [], array_flip(['kind', 'type', 'op', 'provider', 'reversed', 'kept', 'actions', 'reason', 'changed', 'deleted'])),
+                'action' => $l->action, 'at' => $l->created_at?->toIso8601String(), 'meta' => array_intersect_key($l->meta ?? [], array_flip(['kind', 'type', 'op', 'provider', 'reversed', 'kept', 'actions', 'reason', 'changed', 'deleted', 'week', 'scheduled', 'source'])),
             ]),
         ]);
     }

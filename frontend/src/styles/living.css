@@ -554,3 +554,10 @@ i.focus { background: var(--color-success); }
 .learned-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; }
 .learned-list .quiet { justify-self: start; }
 .learned-list .learned-forget { margin-inline-start: auto; min-width: 32px; min-height: 32px; }
+.weekly-draft { display: grid; gap: 10px; padding: 4px 0 12px; border-bottom: 1px solid var(--hairline); }
+.weekly-draft .ai-toggle { border-bottom: 0; padding-bottom: 0; }
+.weekly-draft-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.weekly-draft-fields label:last-child { grid-column: 1 / -1; }
+@media (min-width: 900px) { .weekly-draft-fields { grid-template-columns: 1fr 1fr 2fr; } .weekly-draft-fields label:last-child { grid-column: auto; } }
+.weekly-draft-fields label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.weekly-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }

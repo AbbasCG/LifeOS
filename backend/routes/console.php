@@ -12,3 +12,4 @@ Schedule::command('lifeos:reminders')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('lifeos:sync-calendars')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('lifeos:automations')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('lifeos:recommendations')->hourly()->withoutOverlapping();
+Schedule::command('lifeos:weekly-drafts')->everyFifteenMinutes()->withoutOverlapping();

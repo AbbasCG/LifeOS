@@ -7,6 +7,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { WeeklyDraftSettings } from './WeeklyDraftSettings'
 import type { AiActivity, IntelligencePrefs, IntelligenceSettingsData, LearningScope } from '../../lib/intelligence'
 
 function Toggle({ id, label, hint, checked, disabled, onChange }: { id: string; label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
@@ -66,7 +67,7 @@ export default function AiControlCenter() {
   const actionName: Record<string, string> = {
     ai_action_executed: t('Applied a Copilot proposal', 'طُبّق اقتراح المساعد'), ai_action_undone: t('Undid a Copilot proposal', 'تم التراجع عن اقتراح'), recommendation_acted: t('Turned a suggestion into a proposal', 'حُوّل اقتراح إلى عرض'),
     recommendation_dismissed: t('Dismissed a suggestion', 'أُخفي اقتراح'), ai_settings_changed: t('Changed AI settings', 'تغيير إعدادات الذكاء الاصطناعي'), ai_personalization_reset: t('Reset personalization', 'إعادة ضبط التخصيص'),
-    ai_data_deleted: t('Deleted AI data', 'حذف بيانات الذكاء الاصطناعي'), conversation_deleted: t('Deleted Copilot conversations', 'حذف محادثات المساعد'), conversation_exported: t('Exported a Copilot conversation', 'تصدير محادثة مع المساعد'), recommendation_discussed: t('Opened a suggestion in Copilot', 'فتح اقتراح في المساعد'), plan_learning_reset: t('Forgot learned plan preferences', 'نسيان تفضيلات الخطط المتعلَّمة'), plan_template_saved: t('Saved a week template', 'حفظ قالب أسبوعي'), calendar_write: t('Changed a connected calendar (confirmed)', 'تغيير تقويم مرتبط (مؤكد)'), calendar_write_failed: t('Calendar change refused', 'رُفض تغيير التقويم'),
+    ai_data_deleted: t('Deleted AI data', 'حذف بيانات الذكاء الاصطناعي'), conversation_deleted: t('Deleted Copilot conversations', 'حذف محادثات المساعد'), conversation_exported: t('Exported a Copilot conversation', 'تصدير محادثة مع المساعد'), recommendation_discussed: t('Opened a suggestion in Copilot', 'فتح اقتراح في المساعد'), plan_learning_reset: t('Forgot learned plan preferences', 'نسيان تفضيلات الخطط المتعلَّمة'), plan_template_saved: t('Saved a week template', 'حفظ قالب أسبوعي'), weekly_draft_prepared: t('Prepared a weekly plan draft', 'إعداد مسودة خطة أسبوعية'), weekly_draft_settings_changed: t('Changed weekly draft settings', 'تغيير إعدادات المسودة الأسبوعية'), calendar_write: t('Changed a connected calendar (confirmed)', 'تغيير تقويم مرتبط (مؤكد)'), calendar_write_failed: t('Calendar change refused', 'رُفض تغيير التقويم'),
     calendar_write_granted: t('Allowed adding events', 'السماح بإضافة المواعيد'), calendar_write_enabled: t('Turned on adding events', 'تفعيل إضافة المواعيد'), calendar_write_disabled: t('Turned off adding events', 'إيقاف إضافة المواعيد'),
   }
 
@@ -117,6 +118,7 @@ export default function AiControlCenter() {
     <Section icon={<CalendarCog size={18} />} title={t('Planning preferences', 'تفضيلات التخطيط')}>
       <div className="ai-row"><label htmlFor="ai-strategy"><strong>{t('Preferred planning strategy', 'استراتيجية التخطيط المفضلة')}</strong></label>
         <select id="ai-strategy" value={s.planning_strategy ?? ''} disabled={busy || off || !s.features.planner} onChange={e => save({ planning_strategy: (e.target.value || null) as IntelligencePrefs['planning_strategy'] })}>{strategies.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</select></div>
+      <WeeklyDraftSettings disabled={off} />
       <p className="muted small">{t('Low energy always suggests a light day first. Focus hours, working hours and buffers are in', 'الطاقة المنخفضة تقترح دائماً يوماً خفيفاً أولاً. ساعات التركيز والعمل والفواصل في')} <Link to="/settings">{t('General settings', 'الإعدادات العامة')}</Link>.</p>
     </Section>
 
