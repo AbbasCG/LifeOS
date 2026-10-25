@@ -478,6 +478,7 @@ progress::-moz-progress-bar { background: var(--bar, var(--color-primary)); bord
 .health-card { display: grid; gap: 8px; align-content: start; padding: 14px; border-radius: 14px; background: var(--color-surface-muted); border-inline-start: 4px solid var(--color-border); }
 .health-card.status-at_risk, .health-card.status-overdue { border-inline-start-color: var(--color-danger, #dc2626); }
 .health-card.status-behind { border-inline-start-color: var(--color-warning, #d97706); }
+.health-card .review-goal { justify-self: start; }
 .health-card.status-on_track { border-inline-start-color: var(--color-success); }
 .health-card .row { gap: 8px; align-items: flex-start; }
 .health-card progress { margin: 0; }

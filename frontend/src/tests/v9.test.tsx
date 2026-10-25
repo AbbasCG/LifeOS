@@ -94,7 +94,7 @@ describe('recommendation card', () => {
 })
 
 const settings: IntelligenceSettingsData = {
-  settings: { enabled: true, features: { briefing: true, recommendations: true, weekly: true, planner: true, ai_narrative: false, conversation_personalization: false, plan_learning: false }, sources: { calendar: true, connected: true, goals: true, habits: true, focus: true, checkins: true }, frequency: 'quiet', personalization: false, retention_days: 90, planning_strategy: null },
+  settings: { enabled: true, features: { briefing: true, recommendations: true, weekly: true, planner: true, ai_narrative: false, conversation_personalization: false, plan_learning: false, goal_reviews: false }, sources: { calendar: true, connected: true, goals: true, habits: true, focus: true, checkins: true }, frequency: 'quiet', personalization: false, retention_days: 90, planning_strategy: null },
   options: { retention_days: [30, 90, 180], strategies: ['balanced', 'deep', 'light', 'deadlines'] },
   external_ai: { allowed: true, connected_data: false, provider: null, in_use: false }, counts: { recommendations: 4, feedback: 2, proposals: 3 },
 }

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AssistantProposal;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
+use App\Models\Goal;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -290,6 +291,13 @@ class ConversationService
         $ar = $language === 'ar';
         $state = $answering->payload['state'] ?? [];
         $intent = $state['intent'] ?? null;
+        if ($choice['type'] === 'option' && $intent === 'goal_review') {
+            // A goal picked from the monthly overview: its full review for that month and a proposed next step.
+            $goal = Goal::where('user_id', $user->id)->findOrFail((int) $choice['value']);
+            $progress('planning');
+
+            return app(GoalReviewService::class)->reply($user, $goal, $ar, (bool) ($state['slots']['previous_month'] ?? false));
+        }
         if ($choice['type'] === 'option') {
             if (! in_array($intent, CopilotPlanner::INTENTS, true)) {
                 // A provider's free-text question: the chosen answer continues the conversation as a normal message.

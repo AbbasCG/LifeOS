@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\AssistantProposal;
 use App\Models\Conversation;
+use App\Models\Goal;
 use App\Models\PlanTemplate;
 use App\Services\AuditLogger;
 use App\Services\ConversationService;
 use App\Services\CopilotPlanner;
+use App\Services\GoalReviewService;
 use App\Services\IntelligenceSettings;
 use App\Services\WeeklyDraftService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -105,6 +107,17 @@ class CopilotController extends Controller
         $data = $request->validate(['language' => 'required|in:en,ar']);
 
         return response()->json($drafts->prepare($request->user(), $data['language'], false, $request), 201);
+    }
+
+    /**
+     * Review one of the user's goals for the month so far, as a new conversation with a proposed next step.
+     */
+    public function reviewGoal(Request $request, int $id, GoalReviewService $reviews): JsonResponse
+    {
+        $data = $request->validate(['language' => 'required|in:en,ar']);
+        $goal = Goal::where('user_id', $request->user()->id)->findOrFail($id);
+
+        return response()->json($reviews->reviewGoal($request->user(), $goal, $data['language'], $request), 201);
     }
 
     public function templates(Request $request): JsonResponse

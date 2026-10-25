@@ -30,7 +30,7 @@ class AssistantService
     public const LOCAL_SOURCES = [
         'plan_week' => ['tasks', 'calendar', 'workload'], 'use_template' => ['calendar', 'tasks'], 'prioritize' => ['tasks', 'projects', 'calendar', 'workload'], 'focus_blocks' => ['calendar', 'tasks'], 'reorganize_day' => ['calendar', 'tasks', 'checkins'],
         'plan_day' => ['calendar', 'tasks', 'checkins'], 'schedule' => ['calendar', 'tasks'], 'rebalance' => ['calendar', 'tasks'], 'find_time' => ['calendar', 'tasks', 'projects'], 'triage' => ['tasks', 'calendar'],
-        'deadline_conflicts' => ['tasks', 'calendar'], 'conflicts' => ['tasks', 'calendar'], 'goal_plan' => ['goals', 'tasks'], 'explain' => ['tasks', 'goals'], 'reflection' => ['tasks', 'focus', 'habits'],
+        'deadline_conflicts' => ['tasks', 'calendar'], 'conflicts' => ['tasks', 'calendar'], 'goal_plan' => ['goals', 'tasks'], 'goal_review' => ['goals', 'tasks', 'focus'], 'explain' => ['tasks', 'goals'], 'reflection' => ['tasks', 'focus', 'habits'],
         'query' => ['tasks', 'projects', 'goals'], 'review' => ['tasks', 'focus'], 'habits' => ['habits'], 'overdue' => ['tasks'], 'plan' => ['tasks', 'goals'], 'help' => [],
     ];
 
@@ -59,7 +59,8 @@ class AssistantService
     {
         $progress ??= fn (string $stage) => null;
         $provider = $this->provider($user);
-        if ($provider) {
+        // A goal review is computed entirely from the user's own data, so it never needs the provider.
+        if ($provider && $this->intentOf($message) !== 'goal_review') {
             try {
                 return $this->external($provider, $user, $message, $language, $history, $progress);
             } catch (Throwable $e) {
@@ -296,6 +297,7 @@ class AssistantService
             'plan_day' => $this->planDay($user, $message, $ar),
             'deadline_conflicts' => $this->copilot->conflicts($user, $ar, 7, true),
             'goal_plan' => $this->goalPlan($user, $message, $ar, 'local'),
+            'goal_review' => $this->goalReview($user, $message, $ar),
             'explain' => $this->copilot->explain($user, $message, $ar),
             'conflicts' => $this->copilot->conflicts($user, $ar),
             'reflection' => $this->copilot->reflection($user, $ar),
@@ -335,6 +337,7 @@ class AssistantService
             $has(['find time', 'make time for my', 'time for my', 'اعثر على وقت', 'أوجد وقت', 'اوجد وقت', 'ابحث عن وقت', 'وقتاً لمهام', 'وقت لمهام']) => 'find_time',
             $request !== null => 'schedule',
             $has($overdueWords) && $has(['reschedule', 'new date', 'new deadline', 'move', 'postpone', 'triage', 'أعد جدولة', 'اعد جدولة', 'أجل', 'أجّل', 'اجل', 'تأجيل', 'موعد جديد', 'مواعيد جديدة']) => 'triage',
+            $has(['goal', 'هدف', 'الهدف', 'أهداف', 'اهداف']) && $has(['review', 'progress', 'how is', 'how am i doing', 'monthly', 'this month', 'last month', 'مراجعة', 'راجع', 'تقدم', 'الشهر']) => 'goal_review',
             $has(['goal', 'هدف', 'الهدف', 'أهداف', 'اهداف']) && $has(['plan', 'steps', 'next step', 'achieve', 'reach', 'roadmap', 'خطة', 'خطط', 'خطوات', 'أحقق', 'احقق', 'تحقيق', 'أصل']) => 'goal_plan',
             $has(['why', 'explain', 'reason', 'لماذا', 'ليش', 'لمَ', 'اشرح', 'سبب']) => 'explain',
             $has(['conflict', 'clash', 'overlap', 'double-book', 'double book', 'تعارض', 'تضارب', 'تداخل', 'يتعارض']) => 'conflicts',
@@ -356,6 +359,21 @@ class AssistantService
      * @param  list<array{title: string, estimated_minutes?: int|null}>  $steps
      * @return array<string, mixed>
      */
+    /**
+     * A goal's review for the month so far (V18), with its proposed next step.
+     *
+     * @return array<string, mixed>
+     */
+    private function goalReview(User $user, string $message, bool $ar): array
+    {
+        $goal = $this->copilot->goalFor($user, $message);
+        if (! $goal) {
+            return ['message' => $ar ? 'لا توجد أهداف بعد. أنشئ هدفاً بموعد ومعالم، ثم اطلب مراجعته.' : 'You don’t have any goals yet. Create one with a deadline and milestones, then ask for a review.'];
+        }
+
+        return app(GoalReviewService::class)->reply($user, $goal, $ar);
+    }
+
     private function goalPlan(User $user, string $message, bool $ar, string $provider, ?int $goalId = null, array $steps = []): array
     {
         $goal = $this->copilot->goalFor($user, $message, $goalId);

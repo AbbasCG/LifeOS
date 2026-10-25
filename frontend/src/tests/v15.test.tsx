@@ -17,7 +17,7 @@ function stub(handler: (url: string, init?: RequestInit) => unknown) {
 beforeEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals() })
 
 const data: IntelligenceSettingsData = {
-  settings: { enabled: true, features: { briefing: true, recommendations: true, weekly: true, planner: true, ai_narrative: false, conversation_personalization: false, plan_learning: true }, sources: { calendar: true, connected: true, goals: true, habits: true, focus: true, checkins: true }, frequency: 'quiet', personalization: false, retention_days: 90, planning_strategy: null },
+  settings: { enabled: true, features: { briefing: true, recommendations: true, weekly: true, planner: true, ai_narrative: false, conversation_personalization: false, plan_learning: true, goal_reviews: false }, sources: { calendar: true, connected: true, goals: true, habits: true, focus: true, checkins: true }, frequency: 'quiet', personalization: false, retention_days: 90, planning_strategy: null },
   options: { retention_days: [30, 90, 180], strategies: ['balanced', 'deep', 'light', 'deadlines'] },
   external_ai: { allowed: true, connected_data: false, provider: null, in_use: false }, counts: { recommendations: 0, feedback: 0, proposals: 0 },
   learning: { thresholds: { count: 3, share: 0.6, half_life_days: 30, max_age_days: 180 }, dimensions: [
