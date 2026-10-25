@@ -45,11 +45,27 @@ class CopilotPlanner
     {
         $priorities = array_values(array_intersect(self::PRIORITIES, (array) ($slots['priorities'] ?? [])));
         $alternative = is_string($slots['alternative'] ?? null) ? $slots['alternative'] : null;
-        // Moving flexible blocks is on unless the user asked to keep everything in place.
-        $moves = (bool) ($slots['moves'] ?? true);
+        // Choices the user did not state come from what they usually choose (opt-in plan learning), else the defaults.
+        $learned = [];
+        $learn = function (string $dimension) use ($user, &$learned): ?string {
+            $value = PlanLearning::preferred($user, $dimension);
+            if ($value !== null) {
+                $learned[$dimension] = $value;
+            }
+
+            return $value;
+        };
+        $alternative ??= match ($intent) {
+            'plan_week', 'prioritize' => $learn('week_version'),
+            'focus_blocks' => isset($slots['minutes']) ? null : $learn('focus_length'),
+            'reorganize_day' => $learn('day_strategy'),
+            default => null,
+        };
+        // Moving flexible blocks is on unless the user asked to keep everything in place (or usually does).
+        $moves = array_key_exists('moves', $slots) && $slots['moves'] !== null ? (bool) $slots['moves'] : (in_array($intent, ['plan_week', 'prioritize', 'reorganize_day'], true) ? $learn('moves') !== 'off' : true);
         $tz = $user->timezone();
 
-        return match ($intent) {
+        $result = match ($intent) {
             'plan_week' => $this->planWeek($user, $ar, $provider, $priorities, in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', (bool) ($slots['next_week'] ?? false), 'plan_week', $moves),
             'prioritize' => $this->prioritize($user, $ar, $provider, $priorities, (bool) ($slots['next_week'] ?? false), in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', $moves),
             'focus_blocks' => $this->focusBlocks($user, $ar, $provider, (int) ($slots['count'] ?? 3), isset($slots['minutes']) ? (int) $slots['minutes'] : null,
@@ -60,6 +76,17 @@ class CopilotPlanner
                 array_filter(['busy_until' => $slots['interruption']['busy_until'] ?? null, 'lost_minutes' => $slots['interruption']['lost_minutes'] ?? null]),
                 (bool) ($slots['ask_interruption'] ?? false), in_array($alternative, DayPlanner::VARIANTS, true) ? $alternative : null, $moves),
         };
+        if ($learned !== [] && isset($result['plan'])) {
+            $names = ['week_version' => [['balanced' => 'everything by priority', 'essentials' => 'essentials only'], ['balanced' => 'كل الأعمال حسب الأولوية', 'essentials' => 'الأساسيات فقط']],
+                'focus_length' => [['short' => '45-minute blocks', 'default' => 'your usual length', 'long' => '90-minute blocks'], ['short' => 'فترات ٤٥ دقيقة', 'default' => 'المدة المعتادة', 'long' => 'فترات ٩٠ دقيقة']],
+                'moves' => [['on' => 'moving flexible blocks when needed', 'off' => 'keeping everything in place'], ['on' => 'نقل الفترات المرنة عند الحاجة', 'off' => 'إبقاء كل شيء في مكانه']]];
+            $choices = collect($learned)->map(fn ($v, $d) => $names[$d][$ar ? 1 : 0][$v] ?? $v)->implode($ar ? '، ' : ', ');
+            $result['plan']['explanation'][] = $ar ? "استُخدم ما تختاره عادةً: {$choices}. يمكنك تغييره هنا أو إعادة ضبط التعلّم في مركز التحكم بالذكاء الاصطناعي."
+                : "Used what you usually choose: {$choices}. Change it here, or reset learning in the AI Control Center.";
+            $result['plan']['learned'] = $learned;
+        }
+
+        return $result;
     }
 
     /**
@@ -74,7 +101,7 @@ class CopilotPlanner
         $tomorrow = (bool) preg_match('/tomorrow|غدا|غداً|الغد|بكرة|بكره/u', $text);
 
         return match ($intent) {
-            'plan_week', 'prioritize' => ['priorities' => self::prioritiesIn($text), 'next_week' => $nextWeek, 'alternative' => preg_match('/essential|only the important|الأساسي|الضروري/u', $text) ? 'essentials' : 'balanced', 'moves' => ! self::keepsInPlace($text)],
+            'plan_week', 'prioritize' => ['priorities' => self::prioritiesIn($text), 'next_week' => $nextWeek, 'alternative' => preg_match('/essential|only the important|الأساسي|الضروري/u', $text) ? 'essentials' : null, 'moves' => self::keepsInPlace($text) ? false : null],
             'focus_blocks' => array_filter([
                 'count' => self::countIn($text),
                 'minutes' => self::minutesIn($text),
@@ -86,7 +113,7 @@ class CopilotPlanner
                 'date' => ($tomorrow ? $now->addDay() : $now)->toDateString(),
                 'interruption' => array_filter(['busy_until' => self::untilIn($text), 'lost_minutes' => preg_match('/lost|lose|wasted|ضاع|خسرت|فقدت/u', $text) ? self::minutesIn($text) : null]),
                 'ask_interruption' => (bool) preg_match('/interrupt|disrupt|derail|emergenc|مقاطع|انقطاع|طارئ/u', $text),
-                'moves' => ! self::keepsInPlace($text),
+                'moves' => self::keepsInPlace($text) ? false : null,
             ],
             default => [],
         };

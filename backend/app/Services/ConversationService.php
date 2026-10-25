@@ -203,6 +203,28 @@ class ConversationService
     }
 
     /**
+     * Start a conversation from something outside the chat (a proactive suggestion): the user's question and an
+     * answer computed for it are stored like a normal turn, with any proposal linked to the conversation.
+     *
+     * @param  array<string, mixed>  $result  an assistant result (message, intent, provider, plan, proposal, …)
+     * @return array{conversation: array<string, mixed>, user_message: array<string, mixed>, message: array<string, mixed>}
+     */
+    public function seed(User $user, string $text, string $language, array $result): array
+    {
+        return DB::transaction(function () use ($user, $text, $language, $result) {
+            $conversation = Conversation::create(['user_id' => $user->id, 'title' => $this->title($text, $language), 'language' => $language, 'last_message_at' => now()]);
+            $question = ConversationMessage::create(['conversation_id' => $conversation->id, 'user_id' => $user->id, 'role' => 'user', 'content' => $text]);
+            $reply = ConversationMessage::create(['conversation_id' => $conversation->id, 'user_id' => $user->id, 'role' => 'assistant', 'content' => (string) ($result['message'] ?? ''),
+                'intent' => $result['intent'] ?? null, 'provider' => $result['provider'] ?? 'local', 'payload' => array_intersect_key($result, array_flip(self::PAYLOAD_KEYS))]);
+            if (isset($result['proposal']['id'])) {
+                AssistantProposal::where('user_id', $user->id)->whereKey($result['proposal']['id'])->update(['conversation_id' => $conversation->id]);
+            }
+
+            return ['conversation' => $conversation->present(), 'user_message' => $question->present(), 'message' => $reply->present()];
+        });
+    }
+
+    /**
      * Prompt suggestions: the defaults, or — only with conversation personalization switched on — the kinds of request
      * this user makes most often (counted from their own conversations since the last reset), first.
      *
@@ -288,6 +310,7 @@ class ConversationService
                 str_starts_with($choice['value'], 'week:') => array_merge($state['slots'] ?? [], ['next_week' => $choice['value'] === 'week:next']),
                 default => array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]),
             };
+            $this->learn($user, $intent, $choice['value']);
             $this->dismissPrevious($user, $answering);
         }
         $progress('planning');
@@ -389,6 +412,12 @@ class ConversationService
         }
         $progress('planning');
         $this->dismissPrevious($user, $previous);
+        if (isset($changes['alternative'])) {
+            $this->learn($user, $intent, $changes['alternative']);
+        }
+        if (isset($changes['moves'])) {
+            $this->learn($user, $intent, $changes['moves'] ? 'moves:on' : 'moves:off');
+        }
 
         return $this->planned($user, $intent, array_merge($slots, $changes, ['ask_interruption' => false]), $ar, $previous->provider === 'local' ? 'local' : $previous->provider);
     }
@@ -406,6 +435,35 @@ class ConversationService
         $sources = AssistantService::LOCAL_SOURCES[$intent] ?? ['tasks'];
 
         return $result + ['provider' => $provider ?: 'local', 'intent' => $intent, 'context' => ['shared' => false, 'sources' => array_map(fn ($s) => ['source' => $s], $sources)]];
+    }
+
+    /**
+     * Count a plan choice the user made (opt-in plan learning; a no-op when learning is off).
+     */
+    private function learn(User $user, string $intent, string $choice): void
+    {
+        match (true) {
+            in_array($choice, self::MOVE_CHOICES, true) => PlanLearning::record($user, 'moves', $choice === 'moves:on' ? 'on' : 'off'),
+            in_array($intent, ['plan_week', 'prioritize'], true) => PlanLearning::record($user, 'week_version', $choice),
+            $intent === 'focus_blocks' => PlanLearning::record($user, 'focus_length', $choice),
+            $intent === 'reorganize_day' => PlanLearning::record($user, 'day_strategy', $choice),
+            default => null,
+        };
+    }
+
+    /**
+     * Learn from a plan the user applied: the version they applied counts as their choice.
+     */
+    public function learnFromApplied(User $user, AssistantProposal $proposal): void
+    {
+        if (! PlanLearning::enabled($user) || ! $proposal->conversation_id) {
+            return;
+        }
+        $message = ConversationMessage::where('conversation_id', $proposal->conversation_id)->where('user_id', $user->id)->where('role', 'assistant')->orderByDesc('id')->get()
+            ->first(fn (ConversationMessage $m) => ($m->payload['proposal']['id'] ?? null) === $proposal->id);
+        if ($message && isset($message->payload['state'])) {
+            PlanLearning::recordState($user, $message->payload['state']);
+        }
     }
 
     /**

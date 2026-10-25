@@ -23,7 +23,7 @@ export type MorningBriefing = { enabled: false } | {
   suggestions: Recommendation[]
 }
 export type IntelligencePrefs = {
-  enabled: boolean; features: Record<'briefing' | 'recommendations' | 'weekly' | 'planner' | 'ai_narrative' | 'conversation_personalization', boolean>
+  enabled: boolean; features: Record<'briefing' | 'recommendations' | 'weekly' | 'planner' | 'ai_narrative' | 'conversation_personalization' | 'plan_learning', boolean>
   sources: Record<'calendar' | 'connected' | 'goals' | 'habits' | 'focus' | 'checkins', boolean>
   frequency: 'off' | 'quiet' | 'daily'; personalization: boolean; retention_days: number; conversation_reset_at?: string | null; planning_strategy: null | 'balanced' | 'deep' | 'light' | 'deadlines'
 }
@@ -32,6 +32,8 @@ export type IntelligenceSettingsData = {
   options: { retention_days: number[]; strategies: string[] }
   external_ai: { allowed: boolean; connected_data: boolean; provider: { label: string; model: string } | null; in_use: boolean }
   counts: { recommendations: number; feedback: number; proposals: number; conversations?: number; conversation_messages?: number }
+  /** Opt-in plan learning: counts per choice, and the preferred option once one clearly wins. */
+  learning?: { thresholds: { count: number; share: number }; dimensions: { dimension: string; counts: Record<string, number>; total: number; preferred: string | null }[] }
 }
 export type AiActivity = {
   proposals: { id: string; kind: string; provider: string; status: string; summary: string; actions: number; created_at: string; applied_at: string | null }[]

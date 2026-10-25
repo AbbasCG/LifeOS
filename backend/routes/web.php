@@ -88,10 +88,12 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('intelligence/activity', [IntelligenceController::class, 'activity']);
         Route::post('intelligence/reset-personalization', [IntelligenceController::class, 'resetPersonalization']);
         Route::delete('intelligence/data', [IntelligenceController::class, 'deleteData']);
+        Route::delete('intelligence/learning', [IntelligenceController::class, 'forgetLearning']);
         Route::get('recommendations', [IntelligenceController::class, 'recommendations']);
         Route::post('recommendations/{id}/dismiss', [IntelligenceController::class, 'dismiss'])->whereNumber('id');
         Route::post('recommendations/{id}/feedback', [IntelligenceController::class, 'feedback'])->whereNumber('id');
         Route::post('recommendations/{id}/act', [IntelligenceController::class, 'act'])->whereNumber('id');
+        Route::post('recommendations/{id}/discuss', [IntelligenceController::class, 'discuss'])->whereNumber('id')->middleware('throttle:assistant');
         Route::post('reviews/{week}/narrative', [IntelligenceController::class, 'narrative'])->where('week', '\d{4}-\d{2}-\d{2}')->middleware('throttle:assistant');
         Route::get('timeline', [TimelineController::class, 'index']);
         Route::get('timeline/preview', [TimelineController::class, 'preview']);

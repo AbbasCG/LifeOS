@@ -13,6 +13,7 @@ use App\Services\AuditLogger;
 use App\Services\ConversationService;
 use App\Services\IntelligenceSettings;
 use App\Services\MorningIntelligence;
+use App\Services\PlanLearning;
 use App\Services\RecommendationService;
 use App\Services\WeeklyIntelligence;
 use App\Services\WeeklyReviewService;
@@ -27,7 +28,7 @@ use Illuminate\Validation\Rule;
 class IntelligenceController extends Controller
 {
     /** Audit actions shown in the AI activity history. */
-    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'conversation_deleted', 'conversation_exported', 'plan_template_saved',
+    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'plan_learning_reset', 'recommendation_discussed', 'conversation_deleted', 'conversation_exported', 'plan_template_saved',
         'calendar_write', 'calendar_write_failed', 'calendar_write_granted', 'calendar_write_enabled', 'calendar_write_disabled'];
 
     public function __construct(private RecommendationService $recommendations, private AuditLogger $audit) {}
@@ -59,6 +60,16 @@ class IntelligenceController extends Controller
         return response()->json($this->recommendations->feedback($request->user(), $this->find($request, $id), (bool) $data['useful'])->present());
     }
 
+    /**
+     * Open a suggestion as a Copilot conversation (any change in it is a pending proposal).
+     */
+    public function discuss(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['language' => 'required|in:en,ar']);
+
+        return response()->json($this->recommendations->discuss($request->user(), $this->find($request, $id), $data['language'], $request), 201);
+    }
+
     public function act(Request $request, int $id): JsonResponse
     {
         return response()->json($this->recommendations->act($request->user(), $this->find($request, $id), $request)->present(), 201);
@@ -80,6 +91,7 @@ class IntelligenceController extends Controller
             'counts' => ['recommendations' => Recommendation::where('user_id', $user->id)->count(), 'feedback' => Recommendation::where('user_id', $user->id)->whereNotNull('feedback')->count(),
                 'proposals' => AssistantProposal::where('user_id', $user->id)->count(), 'conversations' => Conversation::where('user_id', $user->id)->count(),
                 'conversation_messages' => ConversationMessage::where('user_id', $user->id)->count()],
+            'learning' => ['thresholds' => ['count' => PlanLearning::MIN_COUNT, 'share' => PlanLearning::MIN_SHARE], 'dimensions' => PlanLearning::summary($user)],
         ]);
     }
 
@@ -132,6 +144,7 @@ class IntelligenceController extends Controller
     {
         $cleared = Recommendation::where('user_id', $request->user()->id)->whereNotNull('feedback')->update(['feedback' => null, 'feedback_at' => null]);
         IntelligenceSettings::save($request->user(), ['conversation_reset_at' => now()->toIso8601String()]);
+        $cleared += PlanLearning::reset($request->user());
         $this->audit->log($request->user(), 'ai_personalization_reset', $request, ['deleted' => $cleared]);
 
         return response()->json(['cleared' => $cleared]);
@@ -145,10 +158,21 @@ class IntelligenceController extends Controller
     {
         $user = $request->user();
         $deleted = ['recommendations' => Recommendation::where('user_id', $user->id)->delete(), 'proposals' => AssistantProposal::where('user_id', $user->id)->delete(),
-            'conversations' => Conversation::where('user_id', $user->id)->delete()];
+            'conversations' => Conversation::where('user_id', $user->id)->delete(), 'plan_learning' => PlanLearning::reset($user)];
         $this->audit->log($user, 'ai_data_deleted', $request, ['deleted' => array_sum($deleted)]);
 
         return response()->json(['deleted' => $deleted]);
+    }
+
+    /**
+     * Forget learned plan preferences only (the plan-learning switch stays as it is).
+     */
+    public function forgetLearning(Request $request): JsonResponse
+    {
+        $cleared = PlanLearning::reset($request->user());
+        $this->audit->log($request->user(), 'plan_learning_reset', $request, ['deleted' => $cleared]);
+
+        return response()->json(['cleared' => $cleared]);
     }
 
     public function narrative(Request $request, string $week, WeeklyReviewService $reviews, WeeklyIntelligence $weekly): JsonResponse

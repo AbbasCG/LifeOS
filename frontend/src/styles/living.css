@@ -547,3 +547,9 @@ i.focus { background: var(--color-success); }
 .template-save { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .template-save input { flex: 1 1 200px; min-width: 0; }
 .save-template { justify-self: start; }
+
+/* V14 — learned plan preferences */
+.learned-list { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--color-surface-muted); }
+.learned-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.learned-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; }
+.learned-list .quiet { justify-self: start; }
