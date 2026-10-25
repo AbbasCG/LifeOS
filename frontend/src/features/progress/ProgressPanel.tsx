@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
-import { TrendingUp, TrendingDown, Minus, Play, Plus, Lightbulb, Flame, AlertTriangle } from 'lucide-react'
+import { Link, useNavigate } from 'react-router'
+import { TrendingUp, TrendingDown, Minus, Play, Plus, Lightbulb, Flame, AlertTriangle, ClipboardCheck } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
@@ -22,13 +22,18 @@ const TrendIcon = ({ d }: { d: 'up' | 'down' | 'flat' }) => d === 'up' ? <Trendi
  * Explainable health for goals, projects or habits, shown above the matching list.
  */
 export function ProgressPanel({ resource, onChange }: { resource: 'goals' | 'projects' | 'habits'; onChange?: () => void }) {
-  const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar'
+  const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar', navigate = useNavigate()
   const { data, error, reload } = useApi<Progress>('/api/insights/progress')
   const [busy, setBusy] = useState('')
   const statusLabel: Record<string, string> = { completed: t('Completed', 'مكتمل'), on_track: t('On track', 'على المسار'), behind: t('Behind', 'متأخر قليلاً'), at_risk: t('At risk', 'في خطر'), overdue: t('Past deadline', 'تجاوز الموعد'), no_deadline: t('No deadline', 'بلا موعد'), healthy: t('Healthy', 'سليم'), attention: t('Needs attention', 'يحتاج اهتماماً'), paused: t('Paused', 'متوقف') }
   async function addTask(goal: GoalHealth, title: string) {
     setBusy(`${goal.id}:${title}`)
     try { await api('/api/tasks', 'POST', { title, goal_id: goal.id, status: 'todo' }); toast(t(`Added “${title}” to your tasks.`, `أُضيفت «${title}» إلى مهامك.`)); reload(); onChange?.() } catch (e) { toast((e as Error).message, 'error') } finally { setBusy('') }
+  }
+  // A review of the month so far opens in Copilot; its proposed next step waits for approval there.
+  async function review(goal: GoalHealth) {
+    setBusy(`review:${goal.id}`)
+    try { const r = await api<{ conversation: { id: string } }>(`/api/goals/${goal.id}/review`, 'POST', { language }); navigate(`/assistant?c=${r.conversation.id}`) } catch (e) { toast((e as Error).message, 'error'); setBusy('') }
   }
   if (error) return <ErrorMessage error={error} />
   if (!data) return <section className="panel"><Skeleton lines={3} /></section>
@@ -50,6 +55,7 @@ export function ProgressPanel({ resource, onChange }: { resource: 'goals' | 'pro
         <ul className="reasons">{g.reasons.map((r, i) => <li key={i}>{ar ? r.ar : r.en}</li>)}<li className="trend"><TrendIcon d={g.trend.direction} />{t(`${g.trend.recent} task(s) done in 14 days (previously ${g.trend.previous})`, `${g.trend.recent} مهمة خلال ١٤ يوماً (سابقاً ${g.trend.previous})`)}</li></ul>
         {g.next_actions[0] && <Link className="next-action" to={`/focus?task=${g.next_actions[0].id}`}><Play size={14} />{t('Next:', 'التالي:')} {g.next_actions[0].title}</Link>}
         {g.recommendations.map((r, i) => <p key={i} className="recommendation"><Lightbulb size={14} />{ar ? r.ar : r.en}</p>)}
+        <button className="quiet review-goal" disabled={busy !== ''} onClick={() => void review(g)} aria-label={t(`Review “${g.title}” this month`, `راجع «${g.title}» لهذا الشهر`)}><ClipboardCheck size={15} />{busy === `review:${g.id}` ? t('Reviewing…', 'جارٍ المراجعة…') : t('Review this month', 'مراجعة هذا الشهر')}</button>
         {g.suggested_tasks.length > 0 && <div className="suggested"><small className="muted">{t('From your milestones:', 'من مراحلك:')}</small>{g.suggested_tasks.map(s => <button key={s.title} className="chip-button" disabled={busy !== ''} onClick={() => void addTask(g, s.title)}><Plus size={13} />{s.title}</button>)}</div>}
       </article>)}</div>
     </section>

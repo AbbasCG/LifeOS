@@ -1793,7 +1793,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (eabfeca) after PR
 
 # V17 — Voice in Copilot
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ef77767) after PR #15 (V16) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ef77767) after PR #15 (V16) was merged. Merged into `main` as PR #16.
 
 ## What changed
 - **Dictation in the Copilot composer.** A microphone button next to Send uses the browser's built-in speech recognition (Web Speech API, `src/lib/voice.ts`). No new dependency, and no LifeOS endpoint receives audio.
@@ -1836,3 +1836,63 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ef77767) after PR
 - **Depends on the browser.** Firefox has no Web Speech recognition, so no button. Chrome and Edge need a network connection to their speech service.
 - **Language follows the app language;** a mixed English/Arabic sentence is transcribed in one language.
 - **Consent is per browser.** Clearing site data asks again.
+
+# V18 — Goal progress reviews
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (db2cf35) after PR #16 (V17) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Reviewing a goal** (`GoalReviewService`) states what happened in a month:
+  - progress, and its change since the previous review;
+  - linked tasks completed in the month;
+  - focus minutes on those tasks;
+  - milestones;
+  - open and overdue tasks;
+  - the existing goal status with its reasons;
+  - the pace needed per month to finish by the deadline.
+- **Proposed next step** (a pending proposal, nothing applied):
+  - time this week for the goal's three most important open tasks (find-time, V11);
+  - or, without open tasks, dated tasks from its milestones (goal plan, V5);
+  - a completed goal gets no proposal.
+- **Where reviews come from:**
+  - **"Review this month"** on each goal card on the Goals page (`POST /api/goals/{id}/review {language}`, `throttle:assistant`). It opens a new Copilot conversation with the review of the month so far.
+  - **In chat:** "How is my progress on my marathon goal?", "Review my goal …", "راجع هدفي …" route to the new local `goal_review` intent. The review is computed from the user's own data, so it is answered locally even when an external provider is on.
+  - **Monthly review** (opt-in feature `goal_reviews` in the AI Control Center, off by default). `lifeos:goal-reviews` runs hourly. On the 1st of the month from 09:00 local, once per month, it prepares one Copilot conversation for the month that ended:
+    - one line per goal that is not completed (at most 8, those needing attention first): percent, change, status, tasks, focus minutes;
+    - a button per goal ("Review “…”") that opens that goal's full review for the month, with its proposed next step. The overview itself proposes nothing.
+    - It sends one "review" notification.
+- **Snapshots** (new table `goal_reviews`, additive migration): one row per goal and month with percent, tasks done, focus minutes and status. They let the next review show the change, and are refreshed when a month is reviewed again. They are deleted with the goal and with "Delete AI data".
+- **Audit:** `goal_reviewed`, shown in the AI activity log.
+- **Arabic:** goal titles inside Arabic review texts and buttons are wrapped in Unicode direction isolates, so an English title keeps its word order.
+
+## Testing
+- **Backend:** `GoalReviewTest` (4 tests).
+  - A review of the month so far, with a `find_time` proposal for the open task:
+    - only this month's task and focus minutes count;
+    - milestones, open tasks and pace (12%/month) are stated;
+    - a snapshot is stored, nothing is written, and the action is audited.
+  - A month later the Arabic review shows "+15٪", with the title isolated.
+  - Without open tasks: a goal plan from the milestones. A completed goal: no proposal.
+  - Chat routing and privacy: another user's goal returns 404, an invalid language 422, and "Delete AI data" removes the snapshots.
+  - The monthly review:
+    - off by default; not before 09:00; prepared once;
+    - an overview without the completed goal and without proposals; snapshots; the notification;
+    - picking a goal opens its October review with a goal plan; a goal that wasn't offered returns 422; the next month is prepared again.
+  - `AiControlCenterTest` expects `goal_reviews` in "Delete AI data", and the existing fixtures include the new feature.
+- **Vitest:** `v18.test.tsx` (2 tests): "Review this month" posts and opens the conversation; the Arabic label.
+- **Playwright:** `goal-review.spec.ts`, desktop and mobile. It creates a goal with a milestone, reviews it from the Goals page, and checks the review text and a pending proposal with the milestone task; then it deletes the conversation and the goal.
+- **Results:**
+  - **Backend:** 278/278 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 125/125.
+  - **Playwright:** 40/40.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** with demo data (EN desktop, AR Pixel 7 dark): goal card, single-goal review with three time blocks, and the monthly overview with 8 goal buttons. No overflow and no unexpected console errors.
+  - Fixed during QA: English titles in Arabic text were reordered ("«workouts this year 150»").
+  - The demo conversations, snapshots, notification and setting were removed afterwards.
+
+## Known limitations (V18)
+- **Progress history starts with the first review.** Goals keep only their current progress, so the first review cannot show a change, and changes between reviews are not dated more finely.
+- **"Tasks done" relies on `completed_at`.** Tasks completed before that field was set are not counted.
+- **The monthly time is fixed:** the 1st at 09:00 local, with the hourly scheduler (cron) required. A missed day is not caught up.
+- **At most 8 goals in the monthly overview.** Completed goals are left out.
+- **Next steps cover this week only** (find-time) or the goal's milestones (goal plan). There is no multi-week schedule for the month ahead.

@@ -47,6 +47,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('copilot/weekly-draft', [CopilotController::class, 'weeklyDraft']);
         Route::put('copilot/weekly-draft', [CopilotController::class, 'saveWeeklyDraft']);
         Route::post('copilot/weekly-draft', [CopilotController::class, 'prepareWeeklyDraft'])->middleware('throttle:assistant');
+        Route::post('goals/{id}/review', [CopilotController::class, 'reviewGoal'])->whereNumber('id')->middleware('throttle:assistant');
         Route::get('copilot/templates', [CopilotController::class, 'templates']);
         Route::post('copilot/templates', [CopilotController::class, 'saveTemplate']);
         Route::patch('copilot/templates/{id}', [CopilotController::class, 'renameTemplate'])->whereNumber('id');

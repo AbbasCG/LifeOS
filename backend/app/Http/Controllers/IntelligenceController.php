@@ -7,6 +7,7 @@ use App\Models\AssistantProposal;
 use App\Models\AuditLog;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
+use App\Models\GoalReview;
 use App\Models\Recommendation;
 use App\Services\AssistantService;
 use App\Services\AuditLogger;
@@ -28,7 +29,7 @@ use Illuminate\Validation\Rule;
 class IntelligenceController extends Controller
 {
     /** Audit actions shown in the AI activity history. */
-    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'plan_learning_reset', 'recommendation_discussed', 'conversation_deleted', 'conversation_exported', 'plan_template_saved', 'weekly_draft_prepared', 'weekly_draft_settings_changed',
+    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'plan_learning_reset', 'recommendation_discussed', 'conversation_deleted', 'conversation_exported', 'plan_template_saved', 'weekly_draft_prepared', 'weekly_draft_settings_changed', 'goal_reviewed',
         'calendar_write', 'calendar_write_failed', 'calendar_write_granted', 'calendar_write_enabled', 'calendar_write_disabled'];
 
     public function __construct(private RecommendationService $recommendations, private AuditLogger $audit) {}
@@ -158,7 +159,8 @@ class IntelligenceController extends Controller
     {
         $user = $request->user();
         $deleted = ['recommendations' => Recommendation::where('user_id', $user->id)->delete(), 'proposals' => AssistantProposal::where('user_id', $user->id)->delete(),
-            'conversations' => Conversation::where('user_id', $user->id)->delete(), 'plan_learning' => PlanLearning::reset($user)];
+            'conversations' => Conversation::where('user_id', $user->id)->delete(), 'plan_learning' => PlanLearning::reset($user),
+            'goal_reviews' => GoalReview::where('user_id', $user->id)->delete()];
         $this->audit->log($user, 'ai_data_deleted', $request, ['deleted' => array_sum($deleted)]);
 
         return response()->json(['deleted' => $deleted]);

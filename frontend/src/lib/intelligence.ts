@@ -23,7 +23,7 @@ export type MorningBriefing = { enabled: false } | {
   suggestions: Recommendation[]
 }
 export type IntelligencePrefs = {
-  enabled: boolean; features: Record<'briefing' | 'recommendations' | 'weekly' | 'planner' | 'ai_narrative' | 'conversation_personalization' | 'plan_learning', boolean>
+  enabled: boolean; features: Record<'briefing' | 'recommendations' | 'weekly' | 'planner' | 'ai_narrative' | 'conversation_personalization' | 'plan_learning' | 'goal_reviews', boolean>
   sources: Record<'calendar' | 'connected' | 'goals' | 'habits' | 'focus' | 'checkins', boolean>
   frequency: 'off' | 'quiet' | 'daily'; personalization: boolean; retention_days: number; conversation_reset_at?: string | null; planning_strategy: null | 'balanced' | 'deep' | 'light' | 'deadlines'
 }
