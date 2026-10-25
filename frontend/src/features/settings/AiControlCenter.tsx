@@ -8,6 +8,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import { WeeklyDraftSettings } from './WeeklyDraftSettings'
+import { hasVoiceConsent, setVoiceConsent } from '../../lib/voice'
 import type { AiActivity, IntelligencePrefs, IntelligenceSettingsData, LearningScope } from '../../lib/intelligence'
 
 function Toggle({ id, label, hint, checked, disabled, onChange }: { id: string; label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
@@ -40,7 +41,7 @@ export default function AiControlCenter() {
   }
   const save = (patch: Partial<Omit<IntelligencePrefs, 'features' | 'sources'>> & { features?: Partial<IntelligencePrefs['features']>; sources?: Partial<IntelligencePrefs['sources']> }) =>
     void run(() => api('/api/intelligence/settings', 'PUT', patch), t('Saved.', 'تم الحفظ.'))
-  const consent = (key: 'assistant_external' | 'ai_connected_data', value: boolean) => void run(() => api('/api/settings', 'PUT', { [key]: value }), t('Saved.', 'تم الحفظ.'))
+  const consent = (key: 'assistant_external' | 'ai_connected_data' | 'voice_input', value: boolean) => void run(() => api('/api/settings', 'PUT', { [key]: value }), t('Saved.', 'تم الحفظ.'))
   const off = !s.enabled
 
   const features: [keyof IntelligencePrefs['features'], string, string][] = [
@@ -94,6 +95,8 @@ export default function AiControlCenter() {
       <p className="muted small">{data.external_ai.provider ? t(`Configured: ${data.external_ai.provider.label} (${data.external_ai.provider.model}).`, `المُعدّ: ${data.external_ai.provider.label} (${data.external_ai.provider.model}).`) : t('No external provider is configured on this server; everything stays local.', 'لا يوجد مزود خارجي مُعدّ على هذا الخادم؛ يبقى كل شيء محلياً.')} <Link to="/settings/assistant">{t('Provider details', 'تفاصيل المزود')}</Link></p>
       <Toggle id="ai-ext" label={t('Allow an external AI provider', 'السماح بمزود ذكاء اصطناعي خارجي')} hint={t('For Copilot conversations and the optional weekly summary. Off = local only.', 'لمحادثات المساعد والملخص الأسبوعي الاختياري. الإيقاف = محلي فقط.')} checked={data.external_ai.allowed} disabled={busy} onChange={v => consent('assistant_external', v)} />
       <Toggle id="ai-conn" label={t('Share connected-calendar details with it', 'مشاركة تفاصيل التقويمات المرتبطة معه')} hint={t('Off by default: connected events are sent only as “Busy”, and imported tasks are never sent.', 'متوقف افتراضياً: تُرسل المواعيد المرتبطة كـ«مشغول» فقط ولا تُرسل المهام المستوردة أبداً.')} checked={data.external_ai.connected_data} disabled={busy} onChange={v => consent('ai_connected_data', v)} />
+      <Toggle id="ai-voice" label={t('Voice input in Copilot', 'الإدخال الصوتي في المساعد')} hint={t('Dictate messages with your browser’s speech recognition. Some browsers send the audio to their own speech service; LifeOS never receives audio, only the text you choose to send. Each device asks before its first use.', 'أملِ رسائلك عبر التعرّف على الكلام في متصفحك. بعض المتصفحات ترسل الصوت إلى خدمة الكلام الخاصة بها؛ لا يستقبل LifeOS أي صوت، فقط النص الذي تختار إرساله. يسأل كل جهاز قبل أول استخدام.')} checked={data.external_ai.voice !== false} disabled={busy} onChange={v => { if (!v) setVoiceConsent(false); consent('voice_input', v) }} />
+      {hasVoiceConsent() && <button className="quiet" disabled={busy} onClick={() => { setVoiceConsent(false); toast(t('This device will ask again before dictating.', 'سيسأل هذا الجهاز مجدداً قبل الإملاء.')); reload() }}><RotateCcw size={15} />{t('Forget voice consent on this device', 'انسَ موافقة الصوت على هذا الجهاز')}</button>}
     </Section>
 
     <Section icon={<BellRing size={18} />} title={t('Suggestions and personalization', 'الاقتراحات والتخصيص')}>
