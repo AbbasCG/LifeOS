@@ -6,6 +6,7 @@ use App\Integrations\Ai\AiProviders;
 use App\Models\AssistantProposal;
 use App\Services\AssistantActions;
 use App\Services\AssistantService;
+use App\Services\ConversationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -59,7 +60,10 @@ class AssistantController extends Controller
     {
         $data = $request->validate(['action_ids' => 'required|array|min:1|max:20', 'action_ids.*' => 'required|string|max:10|distinct']);
 
-        return response()->json($actions->apply($request->user(), $this->find($request, $id), $data['action_ids'], $request)->present());
+        $proposal = $actions->apply($request->user(), $this->find($request, $id), $data['action_ids'], $request);
+        app(ConversationService::class)->learnFromApplied($request->user(), $proposal);
+
+        return response()->json($proposal->present());
     }
 
     public function undo(Request $request, string $id, AssistantActions $actions): JsonResponse

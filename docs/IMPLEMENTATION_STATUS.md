@@ -1572,7 +1572,7 @@ Scope (from the V10 roadmap): focus blocks and plans use your study and personal
 
 # V13 — Conversation search, export and week-plan templates
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (f274829) after PR #11 (V12) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (f274829) after PR #11 (V12) was merged. Merged into `main` as PR #12.
 
 ## What changed
 - **Search:**
@@ -1622,3 +1622,61 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (f274829) after PR
 - **Export** covers one conversation at a time, in Markdown or JSON (no PDF), and proposals show their current status, not their history.
 - **Templates** repeat the same weekdays and times. They don't adapt to a changed calendar beyond skipping clashing blocks, and there is no per-week variation or recurrence.
 - **Templates are not managed in the AI Control Center;** they are listed and deleted in the Copilot sidebar.
+
+# V14 — Suggestions to Copilot and plan learning
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d99f467) after PR #12 (V13) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Ask Copilot from a suggestion.** Every proactive suggestion (V9) has an "Ask Copilot" button.
+  - `POST /api/recommendations/{id}/discuss {language}` (`throttle:assistant`) starts a new conversation, through `ConversationService::seed`. It holds a question in your language and an answer from the existing planners:
+
+    | Suggestion | Question | Answer |
+    |---|---|---|
+    | Deadline | "Find time for “X” before it’s due" | find-time proposal for that task |
+    | Postponed task | "Help me finally get “X” done" | find-time proposal for that task |
+    | Overloaded day | "My Wednesday is overloaded — plan my week around it" | week plan, which may move flexible blocks (V11) |
+    | Focus window | "Find a focus block today for “X”" | one focus block today |
+    | Goal | "Plan my goal X" | goal plan |
+    | Conflict | "Do I have any conflicts?" | conflict check |
+
+  - Any change is a pending proposal in that conversation.
+  - A suggestion that produced a proposal is marked as acted on.
+  - Recorded as `recommendation_discussed`.
+- **Plan learning** (`PlanLearning`; opt-in feature `plan_learning`, off by default).
+  - **What is counted:**
+    - week plans: everything vs essentials;
+    - focus-block length: 45 / usual / 90 minutes;
+    - day strategy: balanced, deep, light, deadlines;
+    - moving flexible blocks: allowed or kept in place.
+
+    One counter per option is stored in `user_settings` and never sent to an AI provider.
+  - **When it counts:** a counter goes up when you pick an alternative on a plan, change it by follow-up ("essentials only", "don't move anything"), or apply a plan (the applied version counts).
+  - **Using it:** once one option has at least 3 observations and a share of at least 60%, it becomes the default for a fresh request. The plan says so ("Used what you usually choose: essentials only…") and carries `plan.learned`. The other versions stay one click away.
+  - **What you say still wins:** explicit requests override learned defaults ("45-minute blocks", "keep everything in place", "essentials").
+  - **Control:** the AI Control Center shows the counts and the current default per choice. "Forget learned preferences" (`DELETE /api/intelligence/learning`, audited as `plan_learning_reset`), "Reset personalization" and "Delete AI data" all clear them.
+- **Rule change:** fresh requests no longer assume an explicit "balanced" / "moves on". Unstated choices are left empty and resolved as learned default, otherwise the previous default.
+
+## Testing
+- **Backend:** `PlanLearningTest` (5 tests).
+  - Off by default: nothing recorded, no learned defaults.
+  - The 3-choice threshold: two choices are not enough; after the third the default switches and is explained; switching back is learned.
+  - Applied plans and follow-ups count, and explicit minutes override the learned length; a learned "keep in place" applies.
+  - Inspect, forget (audited), reset and delete; invalid options are ignored.
+  - Each suggestion type opens the right conversation: find-time proposal linked to the conversation, suggestion marked acted, nothing applied, Arabic conversation, goal plan, conflicts. An already-handled suggestion returns 422, another user's 404, and an invalid language 422.
+- **Vitest:** `v14.test.tsx` (2) covers "Ask Copilot" (request and navigation to the conversation), and the Control Center learning summary, switch and forget.
+- **Playwright:** `suggestions.spec.ts`, desktop and mobile.
+  - It creates a task due tomorrow so a suggestion always exists, opens the first suggestion in Copilot (two messages, rule-based label, a pending proposal when present), then deletes the conversation and the task.
+- **Results:**
+  - **Backend:** 261/261 on SQLite and PostgreSQL 16.
+  - **Frontend:** Vitest 113/113.
+  - **Playwright:** 30/30, none skipped.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning), build, `npm audit --omit=dev` (0) and `composer audit` (none).
+- **Manual check** with demo data (EN desktop, AR Pixel 7 dark): no overflow and no unexpected console errors. Fixed during QA: "Reset personalization" was disabled while only learned plan preferences existed.
+- **Live AI:** learned defaults also apply to plans requested through an external provider, but that path was tested only against a simulated API. Live behaviour is **NOT VERIFIED**.
+
+## Known limitations (V14)
+- **Learning is per choice**, not per context: weekday, energy or workload are not considered.
+- **Counts never decay;** a change of habit needs several new choices, or a reset.
+- **"Ask Copilot" answers come from the local planners.** The external provider is not consulted for the seeded first answer; follow-up messages use it as usual.
+- **Suggestions without a task or goal** (for example a conflict) open the general check rather than one about that specific item.

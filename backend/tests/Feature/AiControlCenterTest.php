@@ -66,7 +66,7 @@ class AiControlCenterTest extends TestCase
         $this->assertCount(1, $a->json('recommendations'));
         $this->assertSame(['kind' => 'schedule', 'actions' => 1], $a->json('events.0.meta'), 'only safe fields are shown');
 
-        $this->deleteJson('/api/intelligence/data')->assertOk()->assertJsonPath('deleted', ['recommendations' => 1, 'proposals' => 1, 'conversations' => 0]);
+        $this->deleteJson('/api/intelligence/data')->assertOk()->assertJsonPath('deleted', ['recommendations' => 1, 'proposals' => 1, 'conversations' => 0, 'plan_learning' => 0]);
         $this->assertSame(1, AssistantProposal::count());
         $this->assertSame(1, Recommendation::count());
         $this->assertTrue($task->fresh()->exists, 'work data is never deleted');

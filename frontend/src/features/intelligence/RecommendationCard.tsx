@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { m } from 'motion/react'
-import { AlarmClock, CalendarX2, Gauge, Target, Repeat2, Sparkles, ThumbsUp, ThumbsDown, X, ChevronDown, ArrowRight, BellOff } from 'lucide-react'
+import { AlarmClock, CalendarX2, Gauge, Target, Repeat2, Sparkles, ThumbsUp, ThumbsDown, X, ChevronDown, ArrowRight, BellOff, MessagesSquare } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
@@ -19,7 +19,7 @@ const ICONS = { deadline: AlarmClock, conflict: CalendarX2, overload: Gauge, goa
  * only prepares a proposal; nothing changes until the proposal is approved.
  */
 export function RecommendationCard({ rec, onChange }: { rec: Recommendation; onChange: (id: number, gone: boolean) => void }) {
-  const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar'
+  const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar', navigate = useNavigate()
   const [why, setWhy] = useState(false), [menu, setMenu] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
   const [proposal, setProposal] = useState<AssistantProposal | null>(null), [feedback, setFeedback] = useState(rec.feedback)
   const Icon = ICONS[rec.type] ?? Sparkles
@@ -40,6 +40,11 @@ export function RecommendationCard({ rec, onChange }: { rec: Recommendation; onC
   async function act() {
     const p = await call<AssistantProposal>('act')
     if (p) setProposal(p)
+  }
+  // Open the suggestion as a Copilot conversation; any change there is still a proposal to approve.
+  async function discuss() {
+    const r = await call<{ conversation: { id: string } }>('discuss', { language })
+    if (r) navigate(`/assistant?c=${r.conversation.id}`)
   }
   const evidence = Object.entries(rec.evidence ?? {}).filter(([, v]) => typeof v === 'number' || typeof v === 'string')
   return <m.li layout className={`rec-card sev-${rec.severity} type-${rec.type}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ type: 'spring', stiffness: 360, damping: 32 }}>
@@ -64,6 +69,7 @@ export function RecommendationCard({ rec, onChange }: { rec: Recommendation; onC
     {proposal ? <ProposalCard proposal={proposal} /> : <div className="rec-actions">
       {rec.action?.kind === 'link' && <Link className="quiet" to={rec.action.to}>{rec.action.label[ar ? 'ar' : 'en']}<ArrowRight size={14} className="flip-rtl" /></Link>}
       {rec.action?.kind === 'proposal' && <button className="quiet" disabled={busy} onClick={() => void act()}>{busy ? t('Preparing…', 'جارٍ التحضير…') : rec.action.label[ar ? 'ar' : 'en']}<ArrowRight size={14} className="flip-rtl" /></button>}
+      <button className="quiet" disabled={busy} onClick={() => void discuss()}><MessagesSquare size={14} />{t('Ask Copilot', 'اسأل المساعد')}</button>
       <span className="rec-feedback" role="group" aria-label={t('Was this useful?', 'هل كان هذا مفيداً؟')}>
         <button className={`icon-button ${feedback === 'useful' ? 'on' : ''}`} aria-pressed={feedback === 'useful'} aria-label={t('Useful', 'مفيد')} disabled={busy} onClick={() => void rate(true)}><ThumbsUp size={14} /></button>
         <button className={`icon-button ${feedback === 'not_useful' ? 'on' : ''}`} aria-pressed={feedback === 'not_useful'} aria-label={t('Not useful', 'غير مفيد')} disabled={busy} onClick={() => void rate(false)}><ThumbsDown size={14} /></button>

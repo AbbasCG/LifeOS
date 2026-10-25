@@ -127,6 +127,61 @@ class RecommendationService
     }
 
     /**
+     * Open a suggestion in Copilot: a new conversation that starts with a question about it and an answer from the
+     * planners (a find-time, week or focus plan, the conflict check, or a goal plan). Any change is a pending proposal
+     * the user reviews in that conversation; nothing is applied here.
+     *
+     * @return array{conversation: array<string, mixed>, user_message: array<string, mixed>, message: array<string, mixed>}
+     */
+    public function discuss(User $user, Recommendation $rec, string $language, ?Request $request = null): array
+    {
+        if (! in_array($rec->status, ['active', 'snoozed'], true)) {
+            throw ValidationException::withMessages(['recommendation' => ['This suggestion was already handled.']]);
+        }
+        $ar = $language === 'ar';
+        $subject = $rec->payload['subject'] ?? [];
+        $task = isset($subject['task_id']) ? Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->find($subject['task_id']) : null;
+        $planner = app(CopilotPlanner::class);
+        $local = fn (string $intent, array $result) => $result + ['intent' => $intent, 'provider' => 'local', 'context' => ['shared' => false, 'sources' => array_map(fn ($s) => ['source' => $s], AssistantService::LOCAL_SOURCES[$intent] ?? ['tasks'])]];
+        $findTime = function () use ($user, $task, $ar, $local) {
+            $proposal = $this->actions->proposeFindTime($user, collect([$task]), $ar ? "«{$task->title}»" : "“{$task->title}”", $ar, 'local');
+
+            return $local('find_time', ['message' => $proposal->summary, 'proposal' => $proposal->present()]);
+        };
+        [$text, $result] = match (true) {
+            in_array($rec->type, ['deadline', 'postponed'], true) && $task !== null => [
+                $rec->type === 'deadline'
+                    ? ($ar ? "اعثر على وقت لـ«{$task->title}» قبل موعدها" : "Find time for “{$task->title}” before it’s due")
+                    : ($ar ? "ساعدني على إنجاز «{$task->title}» أخيراً" : "Help me finally get “{$task->title}” done"),
+                $findTime(),
+            ],
+            $rec->type === 'overload' => [
+                $ar ? 'يومي مزدحم جداً — خطط أسبوعي حوله' : 'My '.CarbonImmutable::parse($subject['date'] ?? 'today')->locale('en')->isoFormat('dddd').' is overloaded — plan my week around it',
+                $local('plan_week', $planner->run($user, 'plan_week', [], $ar, 'local')),
+            ],
+            $rec->type === 'focus' && $task !== null => [
+                $ar ? "اعثر على فترة تركيز اليوم لـ«{$task->title}»" : "Find a focus block today for “{$task->title}”",
+                $local('focus_blocks', $planner->run($user, 'focus_blocks', ['count' => 1, 'within' => 'today', 'minutes' => min(90, max(30, (int) ($rec->payload['evidence']['window']['minutes'] ?? 60)))], $ar, 'local')),
+            ],
+            $rec->type === 'goal' => [
+                $text = $ar ? 'ضع خطة لهدفي '.($rec->payload['title']['ar'] ?? '') : 'Plan my goal '.preg_replace('/^“(.*)” needs attention$/u', '$1', (string) ($rec->payload['title']['en'] ?? '')),
+                app(AssistantService::class)->local($user, $text, $language),
+            ],
+            default => [
+                $ar ? 'هل لدي تعارضات؟' : 'Do I have any conflicts?',
+                $local('conflicts', app(CopilotService::class)->conflicts($user, $ar)),
+            ],
+        };
+        $seeded = app(ConversationService::class)->seed($user, $text, $language, $result);
+        if (isset($result['proposal']['id'])) {
+            $rec->forceFill(['status' => 'acted', 'acted_at' => now(), 'proposal_id' => $result['proposal']['id']])->save();
+        }
+        $this->audit->log($user, 'recommendation_discussed', $request, ['type' => $rec->type]);
+
+        return $seeded;
+    }
+
+    /**
      * Types the user keeps marking "not useful" (only with opt-in personalization).
      *
      * @return list<string>

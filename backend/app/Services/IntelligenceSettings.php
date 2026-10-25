@@ -13,7 +13,7 @@ use App\Models\UserSetting;
  */
 class IntelligenceSettings
 {
-    public const FEATURES = ['briefing', 'recommendations', 'weekly', 'planner', 'ai_narrative', 'conversation_personalization'];
+    public const FEATURES = ['briefing', 'recommendations', 'weekly', 'planner', 'ai_narrative', 'conversation_personalization', 'plan_learning'];
 
     public const SOURCES = ['calendar', 'connected', 'goals', 'habits', 'focus', 'checkins'];
 
@@ -29,7 +29,7 @@ class IntelligenceSettings
      */
     public const DEFAULTS = [
         'enabled' => true,
-        'features' => ['briefing' => true, 'recommendations' => true, 'weekly' => true, 'planner' => true, 'ai_narrative' => false, 'conversation_personalization' => false],
+        'features' => ['briefing' => true, 'recommendations' => true, 'weekly' => true, 'planner' => true, 'ai_narrative' => false, 'conversation_personalization' => false, 'plan_learning' => false],
         'sources' => ['calendar' => true, 'connected' => true, 'goals' => true, 'habits' => true, 'focus' => true, 'checkins' => true],
         'frequency' => 'quiet',
         'personalization' => false,
