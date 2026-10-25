@@ -123,4 +123,45 @@ abstract class OAuthProvider implements ConnectedProvider
 
         throw new ProviderException($this->label().' returned an error ('.$status.').');
     }
+
+    /**
+     * A write request: never retried automatically (a lost answer is reported as "uncertain" instead of risking a
+     * duplicate), and failures are mapped to reasons the caller can act on without touching the account's read access.
+     *
+     * @param  callable(PendingRequest): Response  $request
+     */
+    protected function write(string $accessToken, callable $request, bool $missingIsDone = false): ?Response
+    {
+        try {
+            $response = $request(Http::withToken($accessToken)->acceptJson()->timeout(20));
+        } catch (ConnectionException $e) {
+            throw new CalendarWriteException('uncertain', 'No answer from '.$this->label().'. The change may or may not have been made — check '.$this->label().' before trying again.');
+        }
+        if ($response->successful()) {
+            return $response;
+        }
+        $status = $response->status();
+        $reasons = collect($response->json('error.errors') ?? [])->pluck('reason')->filter()->all();
+        if ($status === 429 || ($status === 503 && $response->header('Retry-After') !== '') || array_intersect($reasons, ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded']) !== []) {
+            $after = (int) ($response->header('Retry-After') ?: 0);
+            throw new CalendarWriteException('rate_limited', $this->label().' asked LifeOS to slow down. Try again in a few minutes.', max(30, min(3600, $after ?: 60)));
+        }
+        if (in_array($status, [404, 410], true)) {
+            if ($missingIsDone) {
+                return null;
+            }
+            throw new CalendarWriteException('gone', 'This copy no longer exists in '.$this->label().'.');
+        }
+        if (in_array($status, [409, 412], true)) {
+            throw new CalendarWriteException('changed', 'This event was changed in '.$this->label().' after LifeOS added it, so LifeOS left it alone. Edit it there, or remove the link.');
+        }
+        if ($status === 401) {
+            throw new ProviderAuthException($this->label().' access was revoked or has expired.');
+        }
+        if ($status === 403) {
+            throw new CalendarWriteException('denied', $this->label().' did not allow this change. Allow LifeOS to add events again, or pick a calendar you can edit.');
+        }
+
+        throw new CalendarWriteException('failed', $this->label().' could not make this change ('.$status.'). Nothing was changed in LifeOS.');
+    }
 }

@@ -4,9 +4,12 @@ namespace App\Integrations\Calendar;
 
 use Carbon\CarbonImmutable;
 
-class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvider
+class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvider, WritableCalendar
 {
     public const SCOPES = 'openid email profile offline_access User.Read Calendars.Read';
+
+    /** Create, change and delete events in the user's calendars. Only requested when the user opts in. */
+    public const WRITE_SCOPE = 'Calendars.ReadWrite';
 
     public function name(): string
     {
@@ -132,5 +135,77 @@ class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvide
     public function revoke(string $token): void
     {
         // Microsoft identity platform has no token revocation endpoint for delegated tokens; deleting our copy is sufficient.
+    }
+
+    public function writeScope(): string
+    {
+        return self::WRITE_SCOPE;
+    }
+
+    public function writeAuthorizationUrl(string $state, string $codeChallenge, ?string $loginHint): string
+    {
+        return 'https://login.microsoftonline.com/'.rawurlencode($this->config()['tenant'] ?? 'common').'/oauth2/v2.0/authorize?'.http_build_query(array_filter([
+            'client_id' => $this->config()['client_id'],
+            'redirect_uri' => $this->config()['redirect'],
+            'response_type' => 'code',
+            'response_mode' => 'query',
+            'scope' => self::SCOPES.' '.self::WRITE_SCOPE,
+            'login_hint' => $loginHint,
+            'state' => $state,
+            'code_challenge' => $codeChallenge,
+            'code_challenge_method' => 'S256',
+            'prompt' => 'consent',
+        ]));
+    }
+
+    public function writeScopeGranted(?string $granted): bool
+    {
+        foreach (preg_split('/\s+/', (string) $granted) ?: [] as $scope) {
+            if (strcasecmp($scope, self::WRITE_SCOPE) === 0 || strcasecmp($scope, 'https://graph.microsoft.com/'.self::WRITE_SCOPE) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function writableCalendars(string $accessToken): array
+    {
+        $calendars = $this->send(fn () => $this->http($accessToken)->get('https://graph.microsoft.com/v1.0/me/calendars', ['$select' => 'id,name,canEdit,isDefaultCalendar', '$top' => 100]))->json('value') ?? [];
+
+        return array_values(array_map(fn (array $c) => ['id' => (string) $c['id'], 'name' => mb_substr((string) ($c['name'] ?? 'Calendar'), 0, 200), 'primary' => (bool) ($c['isDefaultCalendar'] ?? false)],
+            array_filter($calendars, fn (array $c) => (bool) ($c['canEdit'] ?? false))));
+    }
+
+    public function createEvent(string $accessToken, string $calendarId, string $clientId, string $title, CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        // transactionId lets Graph recognise a repeated request instead of creating a second copy.
+        try {
+            $event = $this->write($accessToken, fn ($http) => $http->post('https://graph.microsoft.com/v1.0/me/calendars/'.rawurlencode($calendarId).'/events', [
+                'subject' => $title, 'transactionId' => $clientId,
+                'start' => ['dateTime' => $start->utc()->format('Y-m-d\TH:i:s'), 'timeZone' => 'UTC'], 'end' => ['dateTime' => $end->utc()->format('Y-m-d\TH:i:s'), 'timeZone' => 'UTC'],
+            ]))->json();
+        } catch (CalendarWriteException $e) {
+            if ($e->reason === 'changed') {
+                throw new CalendarWriteException('uncertain', 'Outlook reports this event may already have been added. Check Outlook before trying again.');
+            }
+            throw $e;
+        }
+
+        return ['id' => (string) $event['id'], 'etag' => $event['@odata.etag'] ?? null];
+    }
+
+    public function updateEvent(string $accessToken, string $calendarId, string $eventId, ?string $etag, string $title, CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $event = $this->write($accessToken, fn ($http) => $http->withHeaders(array_filter(['If-Match' => $etag]))->patch('https://graph.microsoft.com/v1.0/me/events/'.rawurlencode($eventId), [
+            'subject' => $title, 'start' => ['dateTime' => $start->utc()->format('Y-m-d\TH:i:s'), 'timeZone' => 'UTC'], 'end' => ['dateTime' => $end->utc()->format('Y-m-d\TH:i:s'), 'timeZone' => 'UTC'],
+        ]))->json();
+
+        return ['id' => (string) $event['id'], 'etag' => $event['@odata.etag'] ?? null];
+    }
+
+    public function deleteEvent(string $accessToken, string $calendarId, string $eventId, ?string $etag): void
+    {
+        $this->write($accessToken, fn ($http) => $http->withHeaders(array_filter(['If-Match' => $etag]))->delete('https://graph.microsoft.com/v1.0/me/events/'.rawurlencode($eventId)), missingIsDone: true);
     }
 }

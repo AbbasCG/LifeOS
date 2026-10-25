@@ -20,5 +20,11 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Playwright tests: fixtures call `use()`, which is not a React hook.
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    rules: { 'react-hooks/rules-of-hooks': 'off' },
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
 ])
 

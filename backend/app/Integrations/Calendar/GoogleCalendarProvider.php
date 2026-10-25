@@ -5,9 +5,14 @@ namespace App\Integrations\Calendar;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 
-class GoogleCalendarProvider extends OAuthProvider implements CalendarProvider
+class GoogleCalendarProvider extends OAuthProvider implements CalendarProvider, WritableCalendar
 {
     public const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar.readonly';
+
+    /** Create, change and delete events (not calendars or sharing). Only requested when the user opts in. */
+    public const WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+    private const API = 'https://www.googleapis.com/calendar/v3';
 
     public function name(): string
     {
@@ -160,5 +165,75 @@ class GoogleCalendarProvider extends OAuthProvider implements CalendarProvider
     public function revoke(string $token): void
     {
         Http::asForm()->timeout(10)->post('https://oauth2.googleapis.com/revoke', ['token' => $token]);
+    }
+
+    public function writeScope(): string
+    {
+        return self::WRITE_SCOPE;
+    }
+
+    public function writeAuthorizationUrl(string $state, string $codeChallenge, ?string $loginHint): string
+    {
+        return 'https://accounts.google.com/o/oauth2/v2/auth?'.http_build_query(array_filter([
+            'client_id' => $this->config()['client_id'],
+            'redirect_uri' => $this->config()['redirect'],
+            'response_type' => 'code',
+            'scope' => self::SCOPES.' '.self::WRITE_SCOPE,
+            'access_type' => 'offline',
+            'prompt' => 'consent',
+            'include_granted_scopes' => 'true',
+            'login_hint' => $loginHint,
+            'state' => $state,
+            'code_challenge' => $codeChallenge,
+            'code_challenge_method' => 'S256',
+        ]));
+    }
+
+    public function writeScopeGranted(?string $granted): bool
+    {
+        $scopes = preg_split('/\s+/', (string) $granted) ?: [];
+
+        return in_array(self::WRITE_SCOPE, $scopes, true) || in_array('https://www.googleapis.com/auth/calendar', $scopes, true);
+    }
+
+    public function writableCalendars(string $accessToken): array
+    {
+        $items = $this->send(fn () => $this->http($accessToken)->get(self::API.'/users/me/calendarList', ['minAccessRole' => 'writer', 'maxResults' => 250]))->json('items') ?? [];
+
+        return array_values(array_map(fn (array $c) => ['id' => (string) $c['id'], 'name' => mb_substr((string) ($c['summaryOverride'] ?? $c['summary'] ?? 'Calendar'), 0, 200), 'primary' => (bool) ($c['primary'] ?? false)], $items));
+    }
+
+    public function createEvent(string $accessToken, string $calendarId, string $clientId, string $title, CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $url = self::API.'/calendars/'.rawurlencode($calendarId).'/events';
+        try {
+            // A client-chosen id makes the request idempotent: a retry gets 409 instead of a second copy.
+            $event = $this->write($accessToken, fn ($http) => $http->post($url, [
+                'id' => $clientId, 'summary' => $title,
+                'start' => ['dateTime' => $start->utc()->toIso8601ZuluString()], 'end' => ['dateTime' => $end->utc()->toIso8601ZuluString()],
+                'extendedProperties' => ['private' => ['createdBy' => 'lifeos']],
+            ]))->json();
+        } catch (CalendarWriteException $e) {
+            if ($e->reason !== 'changed') {
+                throw $e;
+            }
+            $event = $this->write($accessToken, fn ($http) => $http->get($url.'/'.rawurlencode($clientId)))->json();
+        }
+
+        return ['id' => (string) $event['id'], 'etag' => $event['etag'] ?? null];
+    }
+
+    public function updateEvent(string $accessToken, string $calendarId, string $eventId, ?string $etag, string $title, CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $event = $this->write($accessToken, fn ($http) => $http->withHeaders(array_filter(['If-Match' => $etag]))->patch(self::API.'/calendars/'.rawurlencode($calendarId).'/events/'.rawurlencode($eventId), [
+            'summary' => $title, 'start' => ['dateTime' => $start->utc()->toIso8601ZuluString()], 'end' => ['dateTime' => $end->utc()->toIso8601ZuluString()],
+        ]))->json();
+
+        return ['id' => (string) $event['id'], 'etag' => $event['etag'] ?? null];
+    }
+
+    public function deleteEvent(string $accessToken, string $calendarId, string $eventId, ?string $etag): void
+    {
+        $this->write($accessToken, fn ($http) => $http->withHeaders(array_filter(['If-Match' => $etag]))->delete(self::API.'/calendars/'.rawurlencode($calendarId).'/events/'.rawurlencode($eventId)), missingIsDone: true);
     }
 }

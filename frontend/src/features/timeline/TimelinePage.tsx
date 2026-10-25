@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { m, AnimatePresence } from 'motion/react'
-import { CalendarDays, CheckSquare, ListChecks, Timer, Flag, Repeat, ChevronLeft, ChevronRight, SlidersHorizontal, Lock, AlertTriangle, ArrowRight, Globe, CopyPlus, ExternalLink, Info, X, Check, CalendarRange, MoveRight } from 'lucide-react'
+import { CalendarDays, CheckSquare, ListChecks, Timer, Flag, Repeat, ChevronLeft, ChevronRight, SlidersHorizontal, Lock, AlertTriangle, ArrowRight, Globe, CopyPlus, ExternalLink, Info, X, Check, CalendarRange, MoveRight, Send } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
@@ -11,6 +11,8 @@ import { localDate } from '../../lib/hooks'
 import { isValidZone } from '../../lib/dial'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import { MoveDialog } from './MoveDialog'
+import { SendToCalendar } from '../connected/SendToCalendar'
+import type { WriteData } from '../../lib/calendarWrite'
 import { addDays, type TimelineConflict, type TimelineData, type TimelineItem } from '../../lib/timeline'
 
 const KIND_ICON = { event: CalendarDays, task: CheckSquare, external_task: ListChecks, focus: Timer, goal: Flag, habit: Repeat } as const
@@ -27,12 +29,14 @@ export default function TimelinePage() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar'
   const [view, setView] = useState<'day' | 'week'>('day'), [anchor, setAnchor] = useState(localDate())
   const [filters, setFilters] = useState<{ sources: string[]; accounts: number[]; areas: string[]; kinds: string[] }>({ sources: [], accounts: [], areas: [], kinds: [] })
-  const [showFilters, setShowFilters] = useState(false), [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [moving, setMoving] = useState<TimelineItem | null>(null)
+  const [showFilters, setShowFilters] = useState(false), [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [moving, setMoving] = useState<TimelineItem | null>(null), [sending, setSending] = useState<TimelineItem | null>(null)
   const from = view === 'week' ? addDays(anchor, -((new Date(`${anchor}T12:00:00`).getDay() + 6) % 7)) : anchor
   const to = view === 'week' ? addDays(from, 6) : anchor
   const query = new URLSearchParams({ from, to })
   for (const [key, values] of Object.entries(filters)) if (values.length) query.set(key, values.join(','))
   const { data, error, loading, reload } = useApi<TimelineData>(`/api/timeline?${query}`)
+  const writes = useApi<WriteData>('/api/calendar-write')
+  const canSend = Boolean(writes.data?.enabled && writes.data.targets.length)
   const timeZone = data?.range.timezone && isValidZone(data.range.timezone) ? data.range.timezone : undefined
   const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone })
   const dayKey = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso))
@@ -80,6 +84,7 @@ export default function TimelinePage() {
         </div>}
       </div>
       {!compact && <div className="tl-actions">
+        {canSend && item.kind === 'event' && item.meta.event_id && !item.recurring && <button className="icon-button" aria-label={t('Send to a calendar', 'إرسال إلى تقويم')} title={t('Send to a calendar', 'إرسال إلى تقويم')} onClick={() => setSending(item)}><Send size={15} className="flip-rtl" /></button>}
         {item.kind === 'event' && item.meta.event_id && !item.all_day && <button className="quiet" disabled={busy !== null} onClick={() => setMoving(item)}><MoveRight size={14} className="flip-rtl" />{t('Move', 'نقل')}</button>}
         {item.kind === 'external_task' && !done && <button className="quiet" disabled={busy !== null} onClick={() => void copy(item)}><CopyPlus size={14} />{t('Copy to LifeOS', 'نسخ إلى LifeOS')}</button>}
         {item.link.startsWith('http') ? <a className="icon-button" href={item.link} target="_blank" rel="noreferrer noopener" aria-label={t(`Open in ${item.source_label}`, `فتح في ${item.source_label}`)}><ExternalLink size={15} /></a>
@@ -136,6 +141,7 @@ export default function TimelinePage() {
         {items.length === 0 ? <p className="muted small">{t('Free', 'متاح')}</p> : <ol className="tl-list">{items.map(i => row(i, view === 'week'))}</ol>}
       </section> })}
     </div>}
+    {sending && writes.data && <SendToCalendar eventId={sending.meta.event_id!} title={sending.title} data={writes.data} onClose={() => setSending(null)} onChanged={() => writes.reload()} />}
     {moving && <MoveDialog item={moving} timeZone={timeZone} onClose={() => setMoving(null)} onMoved={() => { setMoving(null); reload() }} />}
   </section>
 }

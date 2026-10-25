@@ -52,3 +52,6 @@ frontend/public/fonts/thmanyah/*.otf
 *.sqlite
 *.sql
 *.dump
+
+# Browser-test database (frontend/playwright.config.ts)
+backend/storage/e2e.sqlite*

@@ -8,6 +8,8 @@ use App\Integrations\Calendar\IcsFeedFetcher;
 use App\Integrations\Calendar\IcsProvider;
 use App\Integrations\Calendar\ProviderException;
 use App\Integrations\Calendar\RateLimitedException;
+use App\Integrations\Calendar\TokenSet;
+use App\Integrations\Calendar\WritableCalendar;
 use App\Integrations\ConnectedCatalog;
 use App\Models\CalendarAccount;
 use App\Models\ExternalTask;
@@ -15,6 +17,7 @@ use App\Models\SyncRun;
 use App\Models\Task;
 use App\Services\AuditLogger;
 use App\Services\CalendarSyncService;
+use App\Services\CalendarWriteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,7 +31,7 @@ class IntegrationController extends Controller
     /** Implemented providers that can be connected (see CalendarProviders). */
     public const PROVIDERS = ['google', 'outlook', 'google_tasks', 'microsoft_todo', 'todoist'];
 
-    public function __construct(private CalendarProviders $providers, private CalendarSyncService $sync, private AuditLogger $audit, private ConnectedCatalog $catalog) {}
+    public function __construct(private CalendarProviders $providers, private CalendarSyncService $sync, private AuditLogger $audit, private ConnectedCatalog $catalog, private CalendarWriteService $writes) {}
 
     /**
      * The Connected Accounts Hub: implemented providers with their state and the user's accounts, grouped by category
@@ -49,7 +52,8 @@ class IntegrationController extends Controller
             'scopes' => $provider->scopeSummary(),
             'env_keys' => $provider->envKeys(),
             'redirect_uri' => $provider->redirectUri(),
-            'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary() + ['recent_runs' => $a->getAttribute('recent_runs')])->values(),
+            'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary() + ['recent_runs' => $a->getAttribute('recent_runs'), 'write' => $this->writes->state($a)])->values(),
+            'supports_write' => $this->writes->featureEnabled() && $provider instanceof WritableCalendar,
             'required_scopes' => $provider->requiredScopes(),
             'connect_mode' => $provider instanceof IcsProvider ? 'url' : 'oauth',
         ];
@@ -99,6 +103,9 @@ class IntegrationController extends Controller
             report($e);
 
             return $back('error=exchange');
+        }
+        if (isset($pending['write_account_id'])) {
+            return $back($this->grantWrite($request, $driver, $pending['write_account_id'], $tokens, $profile));
         }
         $account = CalendarAccount::firstOrNew(['user_id' => $request->user()->id, 'provider' => $provider, 'external_account_id' => $profile['id']]);
         if (! $account->exists) {
@@ -164,6 +171,31 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['account' => $account->fresh()->summary()], 201);
+    }
+
+    /**
+     * Second consent for an existing account: store the tokens that now include the write permission. Refused when a
+     * different account signed in or the write permission was not granted. Nothing is written yet — the user still
+     * picks a calendar and confirms every change.
+     *
+     * @param  array{id: string, email: string|null, name: string|null}  $profile
+     */
+    private function grantWrite(Request $request, ConnectedProvider $driver, int $accountId, TokenSet $tokens, array $profile): string
+    {
+        $account = CalendarAccount::where('user_id', $request->user()->id)->find($accountId);
+        if (! $account || $account->provider !== $driver->name() || $account->external_account_id !== $profile['id']) {
+            return 'error=write_account&provider='.$driver->name();
+        }
+        if (! $driver instanceof WritableCalendar || ! $driver->writeScopeGranted($tokens->scopes)) {
+            return 'error=write_scope&provider='.$driver->name();
+        }
+        $account->forceFill([
+            'access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken ?? $account->refresh_token, 'token_expires_at' => $tokens->expiresAt,
+            'scopes' => $tokens->scopes, 'write_granted_at' => now(), 'status' => 'active', 'last_error' => null,
+        ])->save();
+        $this->audit->log($request->user(), 'calendar_write_granted', $request, ['provider' => $driver->name(), 'account_id' => $account->id]);
+
+        return 'write_granted='.$account->id;
     }
 
     public function sync(Request $request, int $id): JsonResponse
