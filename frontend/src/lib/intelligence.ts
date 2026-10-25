@@ -28,7 +28,7 @@ export type IntelligencePrefs = {
   frequency: 'off' | 'quiet' | 'daily'; personalization: boolean; retention_days: number; conversation_reset_at?: string | null; planning_strategy: null | 'balanced' | 'deep' | 'light' | 'deadlines'
 }
 /** The situations plan learning tells apart. */
-export type LearningScope = 'day_off' | 'workday' | 'light' | 'normal' | 'heavy'
+export type LearningScope = 'low_energy' | 'normal_energy' | 'high_energy' | 'day_off' | 'workday' | 'light' | 'normal' | 'heavy'
 
 export type IntelligenceSettingsData = {
   settings: IntelligencePrefs

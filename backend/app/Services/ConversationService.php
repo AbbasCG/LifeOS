@@ -449,7 +449,7 @@ class ConversationService
      * Count a plan choice the user made, in the situation the plan was made in (opt-in plan learning; a no-op when
      * learning is off).
      *
-     * @param  array{day?: string, load?: string}  $context
+     * @param  array{day?: string, load?: string, energy?: string}  $context
      */
     private function learn(User $user, string $intent, string $choice, array $context = []): void
     {

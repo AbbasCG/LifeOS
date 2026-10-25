@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DailyCheckin;
 use App\Models\User;
 use App\Models\UserSetting;
 use Carbon\CarbonImmutable;
@@ -49,8 +50,24 @@ class PlanLearning
 
     public const HEAVY_FROM = 70;
 
-    /** Situations, in the order they are tried before falling back to all observations. */
-    public const SCOPES = ['day_off', 'workday', 'light', 'normal', 'heavy'];
+    /** Energy from today's check-in (1–5): at most this is low, at least HIGH_FROM is high. */
+    public const LOW_TO = 2;
+
+    public const HIGH_FROM = 4;
+
+    /**
+     * Situations by name => [facet, value]. Facets are tried in this order (energy, kind of day, load) before falling
+     * back to all observations.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    public const SCOPES = [
+        'low_energy' => ['energy', 'low'], 'normal_energy' => ['energy', 'normal'], 'high_energy' => ['energy', 'high'],
+        'day_off' => ['day', 'day_off'], 'workday' => ['day', 'workday'],
+        'light' => ['load', 'light'], 'normal' => ['load', 'normal'], 'heavy' => ['load', 'heavy'],
+    ];
+
+    private const FACETS = ['energy' => ['low', 'normal', 'high'], 'day' => ['workday', 'day_off'], 'load' => ['light', 'normal', 'heavy']];
 
     private const KEY = 'plan_learning';
 
@@ -60,11 +77,12 @@ class PlanLearning
     }
 
     /**
-     * The situation a planning request is in: whether its one day is a workday or a day off, and how much of its
-     * working hours are already booked. Week plans only have a load. Empty when learning is off.
+     * The situation a planning request is in: whether its one day is a workday or a day off, how much of its working
+     * hours are already booked, and — when the plan starts today and check-ins may be used — the energy from today's
+     * check-in. Week plans have no kind of day. Empty when learning is off.
      *
      * @param  array<string, mixed>  $slots
-     * @return array{day?: string, load?: string}
+     * @return array{day?: string, load?: string, energy?: string}
      */
     public static function context(User $user, string $intent, array $slots): array
     {
@@ -95,12 +113,18 @@ class PlanLearning
             $booked = (int) round(($summary->sum('fixed_minutes') + $summary->sum('existing_flexible_minutes')) / $capacity * 100);
             $context['load'] = $booked < self::LIGHT_BELOW ? 'light' : ($booked >= self::HEAVY_FROM ? 'heavy' : 'normal');
         }
+        if ($first->isSameDay($today) && CheckinService::enabled($user) && IntelligenceSettings::source($user, 'checkins')) {
+            $energy = DailyCheckin::where('user_id', $user->id)->whereDate('date', $today->toDateString())->value('energy');
+            if ($energy !== null) {
+                $context['energy'] = $energy <= self::LOW_TO ? 'low' : ($energy >= self::HIGH_FROM ? 'high' : 'normal');
+            }
+        }
 
         return $context;
     }
 
     /**
-     * @param  array{day?: string, load?: string}  $context
+     * @param  array{day?: string, load?: string, energy?: string}  $context
      */
     public static function record(User $user, string $dimension, string $value, array $context = []): void
     {
@@ -111,8 +135,7 @@ class PlanLearning
         $preferences = $setting->preferences ?? [];
         $observations = self::observationsFrom($preferences[self::KEY] ?? []);
         $observations[] = ['d' => $dimension, 'v' => $value, 'at' => CarbonImmutable::now($user->timezone())->toDateString()]
-            + array_filter(['day' => in_array($context['day'] ?? null, ['workday', 'day_off'], true) ? $context['day'] : null,
-                'load' => in_array($context['load'] ?? null, ['light', 'normal', 'heavy'], true) ? $context['load'] : null]);
+            + array_filter(array_map(fn (string $facet) => in_array($context[$facet] ?? null, self::FACETS[$facet], true) ? $context[$facet] : null, array_combine(array_keys(self::FACETS), array_keys(self::FACETS))));
         $preferences[self::KEY] = ['observations' => array_slice($observations, -self::MAX_OBSERVATIONS)];
         $setting->update(['preferences' => $preferences]);
     }
@@ -142,7 +165,7 @@ class PlanLearning
      * The learned default for a dimension in a situation, with the situation it was learned for (null scope: from all
      * observations), or null while there is no clear preference (or learning is off).
      *
-     * @param  array{day?: string, load?: string}  $context
+     * @param  array{day?: string, load?: string, energy?: string}  $context
      * @return array{value: string, scope: string|null}|null
      */
     public static function preferred(User $user, string $dimension, array $context = []): ?array
@@ -151,9 +174,8 @@ class PlanLearning
             return null;
         }
         $observations = collect(self::observations($user))->where('d', $dimension);
-        foreach (array_filter([$context['day'] ?? null, $context['load'] ?? null]) as $scope) {
-            $facet = in_array($scope, ['workday', 'day_off'], true) ? 'day' : 'load';
-            if (($value = self::winner($observations->where($facet, $scope)->all())) !== null) {
+        foreach (self::SCOPES as $scope => [$facet, $situation]) {
+            if (($context[$facet] ?? null) === $situation && ($value = self::winner($observations->where($facet, $situation)->all())) !== null) {
                 return ['value' => $value, 'scope' => $scope];
             }
         }
@@ -202,7 +224,7 @@ class PlanLearning
     /**
      * Valid, unexpired observations, oldest first.
      *
-     * @return list<array{d: string, v: string, at: string, day?: string, load?: string}>
+     * @return list<array{d: string, v: string, at: string, day?: string, load?: string, energy?: string}>
      */
     public static function observations(User $user): array
     {
@@ -214,7 +236,7 @@ class PlanLearning
      * (so they start to fade from now) and are rewritten in the new form on the next change.
      *
      * @param  array<string, mixed>  $stored
-     * @return list<array{d: string, v: string, at: string, day?: string, load?: string}>
+     * @return list<array{d: string, v: string, at: string, day?: string, load?: string, energy?: string}>
      */
     private static function observationsFrom(array $stored): array
     {
@@ -265,8 +287,8 @@ class PlanLearning
             $total = array_sum($weights) ?: 1;
             $overall = self::winner($mine->all());
             $contexts = [];
-            foreach (self::SCOPES as $scope) {
-                $value = self::winner($mine->where(in_array($scope, ['workday', 'day_off'], true) ? 'day' : 'load', $scope)->all());
+            foreach (self::SCOPES as $scope => [$facet, $situation]) {
+                $value = self::winner($mine->where($facet, $situation)->all());
                 if ($value !== null && $value !== $overall) {
                     $contexts[] = ['scope' => $scope, 'preferred' => $value];
                 }
