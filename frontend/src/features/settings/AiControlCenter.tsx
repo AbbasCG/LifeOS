@@ -62,7 +62,7 @@ export default function AiControlCenter() {
   const actionName: Record<string, string> = {
     ai_action_executed: t('Applied a Copilot proposal', 'طُبّق اقتراح المساعد'), ai_action_undone: t('Undid a Copilot proposal', 'تم التراجع عن اقتراح'), recommendation_acted: t('Turned a suggestion into a proposal', 'حُوّل اقتراح إلى عرض'),
     recommendation_dismissed: t('Dismissed a suggestion', 'أُخفي اقتراح'), ai_settings_changed: t('Changed AI settings', 'تغيير إعدادات الذكاء الاصطناعي'), ai_personalization_reset: t('Reset personalization', 'إعادة ضبط التخصيص'),
-    ai_data_deleted: t('Deleted AI data', 'حذف بيانات الذكاء الاصطناعي'), calendar_write: t('Changed a connected calendar (confirmed)', 'تغيير تقويم مرتبط (مؤكد)'), calendar_write_failed: t('Calendar change refused', 'رُفض تغيير التقويم'),
+    ai_data_deleted: t('Deleted AI data', 'حذف بيانات الذكاء الاصطناعي'), conversation_deleted: t('Deleted Copilot conversations', 'حذف محادثات المساعد'), calendar_write: t('Changed a connected calendar (confirmed)', 'تغيير تقويم مرتبط (مؤكد)'), calendar_write_failed: t('Calendar change refused', 'رُفض تغيير التقويم'),
     calendar_write_granted: t('Allowed adding events', 'السماح بإضافة المواعيد'), calendar_write_enabled: t('Turned on adding events', 'تفعيل إضافة المواعيد'), calendar_write_disabled: t('Turned off adding events', 'إيقاف إضافة المواعيد'),
   }
 
@@ -96,7 +96,8 @@ export default function AiControlCenter() {
         <div className="segmented" role="radiogroup" aria-labelledby="ai-freq">{freq.map(([v, label]) => <button key={v} role="radio" aria-checked={s.frequency === v} className={s.frequency === v ? 'active' : ''} disabled={busy || off} onClick={() => save({ frequency: v })}>{label}</button>)}</div></div>
       <p className="muted small">{t('“Daily digest” adds at most one notification a day (respecting quiet hours). Suggestions are never shown again once dismissed.', '«الملخص اليومي» يضيف إشعاراً واحداً يومياً على الأكثر (مع احترام ساعات الهدوء). لا يُعاد عرض اقتراح بعد إخفائه.')} <Link to="/settings/notifications">{t('Notification settings', 'إعدادات الإشعارات')}</Link></p>
       <Toggle id="ai-pers" label={t('Learn from my feedback', 'التعلم من ملاحظاتي')} hint={t(`Opt-in. Suggestion types you mark “not useful” three times or more are shown less (urgent ones always show). ${data.counts.feedback} rating(s) stored.`, `اختياري. أنواع الاقتراحات التي تصفها بـ«غير مفيد» ثلاث مرات أو أكثر تظهر أقل (العاجلة تظهر دائماً). ${data.counts.feedback} تقييم محفوظ.`)} checked={s.personalization} disabled={busy || off} onChange={v => save({ personalization: v })} />
-      <button className="quiet" disabled={busy || data.counts.feedback === 0} onClick={() => void run(() => api('/api/intelligence/reset-personalization', 'POST'), t('Personalization reset.', 'تمت إعادة ضبط التخصيص.'))}><RotateCcw size={15} />{t('Reset personalization', 'إعادة ضبط التخصيص')}</button>
+      <Toggle id="ai-conv-pers" label={t('Personalize Copilot suggestions', 'تخصيص اقتراحات المساعد')} hint={t('Opt-in. Suggested prompts are ordered by the kinds of request you make most often, counted from your own conversations on this server. Nothing else is inferred or stored.', 'اختياري. تُرتَّب الطلبات المقترحة حسب أنواع الطلبات التي تستخدمها أكثر، محسوبة من محادثاتك على هذا الخادم فقط. لا يُستنتج أو يُخزَّن شيء آخر.')} checked={!!s.features.conversation_personalization} disabled={busy || off} onChange={v => save({ features: { conversation_personalization: v } })} />
+      <button className="quiet" disabled={busy || (data.counts.feedback === 0 && !s.features.conversation_personalization)} onClick={() => void run(() => api('/api/intelligence/reset-personalization', 'POST'), t('Personalization reset.', 'تمت إعادة ضبط التخصيص.'))}><RotateCcw size={15} />{t('Reset personalization', 'إعادة ضبط التخصيص')}</button>
     </Section>
 
     <Section icon={<CalendarCog size={18} />} title={t('Planning preferences', 'تفضيلات التخطيط')}>
@@ -108,7 +109,7 @@ export default function AiControlCenter() {
     <Section icon={<ShieldCheck size={18} />} title={t('Privacy and retention', 'الخصوصية والاحتفاظ')}>
       <div className="ai-row"><label htmlFor="ai-retention"><strong>{t('Keep suggestion history for', 'الاحتفاظ بسجل الاقتراحات لمدة')}</strong></label>
         <select id="ai-retention" value={s.retention_days} disabled={busy} onChange={e => save({ retention_days: Number(e.target.value) })}>{data.options.retention_days.map(d => <option key={d} value={d}>{t(`${d} days`, `${d} يوماً`)}</option>)}</select></div>
-      <p className="muted small">{t('LifeOS stores no profile about you: insights are recomputed from your data each time. Stored: suggestions (with your ratings) and Copilot proposals.', 'لا يخزّن LifeOS ملفاً شخصياً عنك: تُعاد حساب الرؤى من بياناتك في كل مرة. المخزّن: الاقتراحات (مع تقييماتك) واقتراحات المساعد.')}</p>
+      <p className="muted small">{t(`LifeOS stores no profile about you: insights are recomputed from your data each time. Stored: suggestions (with your ratings), Copilot proposals and Copilot conversations (${data.counts.conversations ?? 0}). The same retention period applies to conversations.`, `لا يخزّن LifeOS ملفاً شخصياً عنك: تُعاد حساب الرؤى من بياناتك في كل مرة. المخزّن: الاقتراحات (مع تقييماتك) واقتراحات المساعد ومحادثات المساعد (${data.counts.conversations ?? 0}). تنطبق مدة الاحتفاظ نفسها على المحادثات.`)} <Link to="/assistant">{t('Manage conversations', 'إدارة المحادثات')}</Link></p>
       <button className="danger" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />{t('Delete AI data…', 'حذف بيانات الذكاء الاصطناعي…')}</button>
     </Section>
 
@@ -124,7 +125,7 @@ export default function AiControlCenter() {
     </Section>
 
     {confirmDelete && <Dialog title={t('Delete AI data?', 'حذف بيانات الذكاء الاصطناعي؟')} onClose={() => setConfirmDelete(false)}>
-      <p>{t(`This permanently deletes ${data.counts.recommendations} suggestion(s) with your ratings and ${data.counts.proposals} Copilot proposal(s). Applied proposals can no longer be undone afterwards.`, `سيحذف هذا نهائياً ${data.counts.recommendations} اقتراحاً مع تقييماتك و${data.counts.proposals} اقتراحاً من المساعد. لن يمكن التراجع عن الاقتراحات المطبقة بعدها.`)}</p>
+      <p>{t(`This permanently deletes ${data.counts.recommendations} suggestion(s) with your ratings, ${data.counts.proposals} Copilot proposal(s) and ${data.counts.conversations ?? 0} conversation(s). Applied proposals can no longer be undone afterwards.`, `سيحذف هذا نهائياً ${data.counts.recommendations} اقتراحاً مع تقييماتك و${data.counts.proposals} اقتراحاً من المساعد و${data.counts.conversations ?? 0} محادثة. لن يمكن التراجع عن الاقتراحات المطبقة بعدها.`)}</p>
       <p className="muted small">{t('Your tasks, events, goals and habits are not touched. The security log of applied changes is kept.', 'لا تتأثر مهامك ومواعيدك وأهدافك وعاداتك. يُحتفظ بسجل الأمان للتغييرات المطبقة.')}</p>
       <div className="toolbar"><button className="quiet" onClick={() => setConfirmDelete(false)}>{t('Cancel', 'إلغاء')}</button>
         <button className="danger" disabled={busy} onClick={() => { setConfirmDelete(false); void run(() => api('/api/intelligence/data', 'DELETE'), t('AI data deleted.', 'حُذفت بيانات الذكاء الاصطناعي.')) }}>{t('Delete permanently', 'حذف نهائي')}</button></div>

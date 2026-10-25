@@ -13,7 +13,7 @@ use App\Models\UserSetting;
  */
 class IntelligenceSettings
 {
-    public const FEATURES = ['briefing', 'recommendations', 'weekly', 'planner', 'ai_narrative'];
+    public const FEATURES = ['briefing', 'recommendations', 'weekly', 'planner', 'ai_narrative', 'conversation_personalization'];
 
     public const SOURCES = ['calendar', 'connected', 'goals', 'habits', 'focus', 'checkins'];
 
@@ -23,15 +23,19 @@ class IntelligenceSettings
 
     public const STRATEGIES = ['balanced', 'deep', 'light', 'deadlines'];
 
-    /** Personalization is opt-in, AI-written narratives need a separate switch, everything else is on by default. */
+    /**
+     * Personalization (of suggestions and of Copilot prompts) is opt-in, AI-written narratives need a separate switch,
+     * everything else is on by default. `conversation_reset_at` marks where conversation personalization starts learning.
+     */
     public const DEFAULTS = [
         'enabled' => true,
-        'features' => ['briefing' => true, 'recommendations' => true, 'weekly' => true, 'planner' => true, 'ai_narrative' => false],
+        'features' => ['briefing' => true, 'recommendations' => true, 'weekly' => true, 'planner' => true, 'ai_narrative' => false, 'conversation_personalization' => false],
         'sources' => ['calendar' => true, 'connected' => true, 'goals' => true, 'habits' => true, 'focus' => true, 'checkins' => true],
         'frequency' => 'quiet',
         'personalization' => false,
         'retention_days' => 90,
         'planning_strategy' => null,
+        'conversation_reset_at' => null,
     ];
 
     /**

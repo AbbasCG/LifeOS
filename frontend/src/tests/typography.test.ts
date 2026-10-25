@@ -24,13 +24,13 @@ describe('Thmanyah typography', () => {
 
   it('uses Thmanyah first in RTL and keeps Inter for Latin in LTR', () => {
     expect(css).toMatch(/--font-arabic:\s*"Thmanyah Sans"/)
-    expect(css).toMatch(/--font-latin:\s*"Inter", "Thmanyah Sans Arabic"/)
+    expect(css).toMatch(/--font-latin:\s*"Inter",\s*"Thmanyah Sans Arabic"/)
     expect(css).toMatch(/\[dir="rtl"\]\s*{\s*--font-ui:\s*var\(--font-arabic\)/)
     expect(css).toMatch(/\[dir="rtl"\] h1,[\s\S]*font-family: var\(--font-display-arabic\)/)
   })
 
   it('scopes the LTR fallback to Arabic code points and never letter-spaces Arabic', () => {
-    for (const face of faces.filter((f: string) => f.includes('"Thmanyah Sans Arabic"'))) expect(face).toContain('unicode-range: U+0600-06FF')
+    for (const face of faces.filter((f: string) => f.includes('"Thmanyah Sans Arabic"'))) expect(face).toMatch(/unicode-range:\s*U\+0600-06FF/)
     expect(css).toMatch(/\[dir="rtl"\] \*[^{]*{\s*letter-spacing: normal !important/)
   })
 

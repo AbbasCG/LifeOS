@@ -95,6 +95,27 @@ class PlanningService
      */
     public function generate(User $user, string $date, int $days, array $onlyTaskIds = [], array $priorityTaskIds = []): ScheduleProposal
     {
+        $plan = $this->compute($user, $date, $days, $onlyTaskIds, $priorityTaskIds);
+
+        return ScheduleProposal::create([
+            'user_id' => $user->id,
+            'starts_on' => $plan['starts_on'],
+            'days' => $days,
+            'items' => $plan['items'],
+            'warnings' => $plan['warnings'],
+            'summary' => $plan['summary'],
+        ])->fresh();
+    }
+
+    /**
+     * The same plan as generate(), without saving anything (used by Copilot, which turns it into an approvable proposal).
+     *
+     * @param  list<int>  $onlyTaskIds
+     * @param  list<int>  $priorityTaskIds
+     * @return array{starts_on: string, items: list<array<string, mixed>>, warnings: list<array<string, mixed>>, summary: array<string, mixed>}
+     */
+    public function compute(User $user, string $date, int $days, array $onlyTaskIds = [], array $priorityTaskIds = []): array
+    {
         $c = $this->config($user);
         $first = CarbonImmutable::parse($date, $c['tz'])->startOfDay();
         $now = CarbonImmutable::now();
@@ -173,14 +194,7 @@ class PlanningService
         }
         usort($items, fn (array $a, array $b) => strcmp($a['starts_at'], $b['starts_at']));
 
-        return ScheduleProposal::create([
-            'user_id' => $user->id,
-            'starts_on' => $first->toDateString(),
-            'days' => $days,
-            'items' => $items,
-            'warnings' => $warnings,
-            'summary' => $this->summary($user, $first, $days, $items, $warnings, $c),
-        ])->fresh();
+        return ['starts_on' => $first->toDateString(), 'items' => $items, 'warnings' => $warnings, 'summary' => $this->summary($user, $first, $days, $items, $warnings, $c)];
     }
 
     /**

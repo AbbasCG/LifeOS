@@ -1090,7 +1090,7 @@ Every element of the approved design:
 
 # V9 — Proactive Personal AI
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` after PR #7 (V8) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` after PR #7 (V8) was merged. Merged into `main` as PR #8.
 
 This release implements Proactive Personal AI as specified in the V9 prompt.
 - **Deterministic by design.** Every insight is computed on the server from the user's own data, with stated confidence and sources.
@@ -1263,3 +1263,184 @@ This release implements Proactive Personal AI as specified in the V9 prompt.
 - An "explain this plan" view comparing strategies side by side.
 - Optional AI rewording of individual suggestions with the same consent model and fallback.
 - Live verification of the AI summary with a real provider account.
+
+# V10 — AI Copilot 4.0 and intelligent conversations
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b1c9efe) after PR #8 (V9) was merged. **Not committed, not pushed** — waiting for approval.
+
+- **Copilot is now conversational:** multi-turn conversations with stored history, clarifying questions, deterministic follow-ups and multi-step planning (a week, priorities, focus blocks, a day after an interruption).
+- **Every change is still a proposal.** Plans become the existing pending proposals (preview, partial approval, re-validation at apply time, 24-hour undo). Saying "yes" in chat never applies anything, and nothing is written to Google or Outlook.
+- **External AI is optional.** Without a configured provider, or with `assistant_external` off, the local rule-based assistant handles all of the above. With a provider, the model only interprets the request; the server computes every plan, validates every field and every ID, and falls back to the local assistant on any failure.
+
+## Phase 0 — Audit (findings that shaped V10)
+
+| Area | Finding before V10 | V10 response |
+|---|---|---|
+| Copilot | Single-turn; turns lived only in browser state; no clarification | Stored conversations (`conversations`, `conversation_messages`), clarifications, follow-ups |
+| External context | Always sent tasks, the 7-day agenda, goals, projects, habits and stats, whatever the question; V9 source switches were ignored | `CopilotContext`: minimal sections by relevance, V9 source permissions applied, connected titles masked without `ai_connected_data` |
+| Untrusted text | Titles were sent verbatim (control characters, bidi overrides, newlines) | `CopilotContext::clean()` strips them and caps length at 120 characters; the prompt states that all input is data |
+| Returned IDs | Provider-supplied task/goal/project IDs relied on downstream scoping | `AssistantService::authorizedIds()` drops any ID not in the context that was shared |
+| Retries | A retried request could run twice | `client_id` idempotency per user (unique index); a replay returns the stored answer |
+| Planning | `PlanningService::generate()` stored a schedule proposal as a side effect; no week, focus-block, priority or interruption plans for Copilot | `PlanningService::compute()` (no side effect) and `CopilotPlanner` |
+| Streaming | None | SSE with real processing stages; the answer arrives only after server-side validation |
+
+Reused rather than duplicated: `PlanningService` (week planning, windows, free intervals), `DayPlanner` (interruptions and variants), `CalendarService::occurrences` (all commitments, connected included), `BriefingService::rank`, `IntelligenceService` (workload), `AssistantActions` (store, apply, partial apply, revalidate, undo, dismiss), `IntelligenceSettings` (permissions, retention, personalization) and `AuditLogger`.
+
+## Module status
+
+| Phase | Module | Status |
+|---|---|---|
+| 1 | Conversation engine (`ConversationService`, `CopilotController`) | Done: history, deletion, rename, clarification, follow-ups, alternatives, idempotency, approval guard, SSE |
+| 1 | Provider abstraction | Reused `AiProvider` (Anthropic/OpenAI, timeout `AI_TIMEOUT`); schema extended with planning slots and `clarify`; any failure → local fallback with a notice |
+| 2 | Context-aware intelligence (`CopilotContext`) | Done: tasks always (25, ranked); calendar, goals, projects, habits, focus and workload only when relevant and allowed |
+| 3 | Multi-step planning (`CopilotPlanner`) | Done: `plan_week`, `prioritize`, `focus_blocks`, `reorganize_day`, each with explanation, conflicts, alternatives and expected impact |
+| 4 | Approval-gated execution | Done by reuse: `AssistantActions::proposeBlocks()` → pending proposal (preview, partial approval, re-validation, undo); proposals link to their conversation |
+| 5 | Conversational workspace (`AssistantPage`, `PlanCard`, `lib/copilot.ts`) | Done: sidebar/drawer history, streaming stage indicator, plan/clarification/proposal cards, data-source chips, AI vs rule-based labels, RTL/LTR, responsive |
+| 6 | Personalization | Done: opt-in `conversation_personalization` (suggested prompts ranked by the user's own request kinds since the last reset); retention, inspection and deletion |
+| 7 | Security | Done: see the security section below |
+| 8 | Testing | Done: see the matrix below |
+| 9 | Documentation | This section |
+
+## Architecture
+
+```
+AssistantPage (React)
+  └─ lib/copilot.ts  sendCopilot(): POST /api/copilot/messages  (Accept: text/event-stream → SSE, else JSON)
+        │
+CopilotController::message ── throttle:assistant (AI_REQUESTS_PER_MINUTE, default 10/min/user)
+  └─ ConversationService::send(user, conversation?, text, language, client_id?, choice?, progress)
+        ├─ replay(client_id)            → stored answer (idempotent)
+        ├─ choice (option | alternative) → validated against what that message offered → CopilotPlanner::run
+        ├─ approval words ("yes, apply") → approvalGuard (never applies; points to the Apply button)
+        ├─ followUp(previous state)      → deterministic slot changes → CopilotPlanner::run
+        └─ AssistantService::respond(user, text, language, history, progress)
+              ├─ external(): CopilotContext::build → AiProvider::json(schema) → Validator → authorizedIds
+              │     ├─ planning intents → CopilotPlanner::run (server computes the plan)
+              │     └─ existing intents (schedule, query, explain, triage, find_time, plan_day, …)
+              └─ local(): intentOf() keyword router (EN/AR) → same handlers
+CopilotPlanner
+  ├─ planWeek / prioritize → PlanningService::compute (no persistence)
+  ├─ focusBlocks           → free intervals around every occurrence (+ break buffers), one per day first
+  └─ reorganizeDay         → DayPlanner::plan(replan, interruption) and its variants
+  └─ AssistantActions::proposeBlocks → AssistantProposal (pending, create_event actions a1..aN)
+```
+
+- **Message storage:** `conversation_messages.payload` keeps the structured answer (`plan`, `clarify`, `state`, `proposal`, `context`, `items`, `tasks`, `subtasks`, `notice`). When a conversation is opened, proposals are re-read so each card shows its current status (pending, applied, undone, dismissed, expired).
+- **Conversation state:** each planning answer stores `state = {intent, slots, awaiting?}`.
+  - A clarification fills the awaited slot.
+  - A follow-up changes slots ("make them 90 minutes", "next week instead", "essentials only", "tomorrow").
+  - An alternative re-runs the plan with another variant.
+  - A replaced plan's pending proposal is dismissed, so only the current version can be applied.
+- **Streaming:** the stages are real server steps (`received`, `context`, `provider`, `validating`, `planning`, `fallback`, `saving`). Model tokens are deliberately not streamed: output must pass validation before the user sees it.
+
+## Conversation and tool data flow
+
+1. The user sends text, or picks an option or alternative. The browser adds a random `client_id`.
+2. The server stores the user message first; a duplicate `client_id` returns the earlier answer.
+3. Deterministic paths (choice, approval guard, follow-up) never call the provider.
+4. Otherwise the external provider, if allowed, gets:
+   - the system rules;
+   - the request;
+   - the last 6 turns — the user's own words, and earlier answers only by kind, e.g. `(answered: focus_blocks)`;
+   - the minimal context.
+5. It returns JSON constrained by a closed schema.
+6. The server validates it: intent enum, dates within 14 days, `count` 1–6, `minutes` 30–180, priorities from a fixed list, ≤4 clarification options of ≤80 characters.
+7. It drops unauthorized IDs and computes all times itself from the real calendar.
+8. Planning results are stored as **pending** proposals. Nothing touches tasks, events or connected calendars until the user presses Apply on chosen items, which re-validates them (`AssistantActions::apply`); undo works for 24 hours.
+
+## AI privacy and consent model
+
+| Data | Local assistant | External provider (only if `assistant_external` is on and a provider is configured) |
+|---|---|---|
+| Request text | Used on the server | Sent |
+| Earlier turns | Used for follow-ups | User turns (cleaned, ≤500 characters) and the kinds of earlier answers; never earlier answer text |
+| Tasks | Used | Top 25 open tasks: title (cleaned), priority, status, estimate, due date. Tasks imported from other apps live in `external_tasks` and are not sent |
+| Calendar (7 days, ≤40) | Used | Only if the question needs it **and** the `calendar` source is on; connected events only if `connected` is on, shown as "Busy" without `ai_connected_data` |
+| Goals / habits / focus totals | Used when relevant | Only if relevant **and** that source is allowed |
+| Projects / workload | Used when relevant | Only if relevant |
+
+- **Visibility:** every answer shows its data sources: "Shared with Claude: …" or "Used on this server: …", including how many connected events were masked.
+- **Labels:** each answer is labelled "AI · Claude/OpenAI" or "Rule-based · Local assistant".
+- **Retention:** conversations follow the V9 retention period (30/90/180 days, pruned hourly by `lifeos:recommendations`).
+  - Conversations can be deleted one by one or all at once.
+  - "Delete AI data" in the AI Control Center also deletes them.
+  - The demo reset removes them.
+- **No hidden profiling:** conversation personalization is off by default.
+  - When on, it only counts the user's own request kinds since `conversation_reset_at` to order suggested prompts.
+  - "Reset personalization" restarts it.
+  - Nothing else is inferred or stored.
+
+## API (authenticated, scoped to the signed-in user)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/copilot/conversations?language=en\|ar` | `{conversations, suggestions, personalization, retention_days}` |
+| `GET /api/copilot/conversations/{uuid}` | `{conversation, messages}`; proposals refreshed to their current state |
+| `PATCH /api/copilot/conversations/{uuid}` | `{title}` (≤120) |
+| `DELETE /api/copilot/conversations/{uuid}` | Delete one (audited as `conversation_deleted`) |
+| `DELETE /api/copilot/conversations` | Delete all (audited) |
+| `POST /api/copilot/messages` | `{conversation_id?, message?, language, client_id?, choice?: {type: option\|alternative, message_id, value}}` → `{conversation, user_message, message, replayed}`. With `Accept: text/event-stream`: `stage` events, then `done` (same payload) or `error` `{status, message}`. `throttle:assistant` |
+| `POST /api/assistant` | Unchanged single-turn endpoint (kept for compatibility); now also uses the minimal context and the new intents |
+
+- **Schema:** migration `2026_10_25_100954_add_copilot_conversations` is additive and reversible (rollback verified on PostgreSQL 16).
+  - New tables `conversations` (uuid) and `conversation_messages`, with a unique `(user_id, client_id)`.
+  - A nullable `assistant_proposals.conversation_id`.
+- **Configuration:** new `AI_REQUESTS_PER_MINUTE` (default 10). The browser-test server sets 200; nothing else changes.
+
+## Security review (Phase 7)
+
+| Risk | Mitigation | Test |
+|---|---|---|
+| Prompt injection from imported/connected titles | Titles cleaned (control/bidi characters, newlines, length); prompt marks all input as untrusted data; the model can only choose an intent and slots — the server computes and validates everything | `test_external_context_is_minimal_permission_aware_and_treated_as_untrusted` |
+| Excessive context disclosure | Relevance-based sections, V9 source permissions, masking, earlier answers never resent | same test (no habits/goals, calendar off ⇒ no events, masked count) |
+| Cross-user exposure | Every query scoped by `user_id`; conversations 404 for other users; choices must reference a message in the caller's own conversation | `test_conversations_are_private_to_their_owner` |
+| Unauthorized tool execution | No tool runs from chat; approval words are intercepted; plans are pending proposals applied only via the existing apply endpoint with re-validation | `test_agreeing_in_chat_never_applies_a_proposal`, partial apply/undo test |
+| Hallucinated or planted IDs | Dropped unless they were in the shared context | Existing V5/V7 tests (999999, foreign project) and the V10 test (foreign task id) |
+| Duplicate/replayed actions | `client_id` idempotency; replaced plans' proposals dismissed; proposals apply once (existing) | `test_retried_messages_are_answered_once`, follow-up test |
+| Provider failure / malformed output | Closed schema + server validation; any exception → local assistant with a notice | `test_malformed_or_failing_provider_output_falls_back_to_local` |
+| Abuse | `throttle:assistant` on messages; input ≤4000 characters; titles ≤120; `client_id` pattern | validation tests |
+
+## Testing and verification matrix
+
+| Area | Coverage |
+|---|---|
+| Conversations, history, rename, deletion, retention, Delete AI data | `ConversationTest` (16 tests) |
+| Clarification and options; follow-ups; alternatives | prioritize/reorganize clarifications, "make them 90 minutes", alternative `short`, invalid option/alternative → 422 |
+| Planning | week plan never overlaps a fixed meeting and writes nothing; focus blocks spread across days, avoid a lecture, partial apply + undo |
+| Consent, minimal context, prompt injection, isolation, idempotency, approval guard, fallback | see the security table |
+| Streaming | SSE stage order, `done` payload, streamed 404 |
+| Arabic | Arabic planning requests (backend); Arabic workspace (Vitest); RTL journey with mobile drawer (Playwright) |
+| Frontend units | `v10.test.tsx` (9): SSE parser and client, plan card, AI/rule labels and shared-data chips, history, alternatives, clarification choice, delete confirmation, Arabic |
+| Browser journeys | `conversation.spec.ts` (3 journeys × desktop + mobile): plan → follow-up → refused chat approval → partial apply → undo → history after reload → delete; clarification + alternative; Arabic RTL with mobile history drawer |
+
+- **Results:**
+  - **Backend:** 238/238 on SQLite and PostgreSQL 16.
+  - **Frontend:** 101/101 Vitest.
+  - **Playwright:** 24/24 (12 tests × desktop + mobile).
+  - Also clean: `tsc -b`, ESLint (0 errors; 1 pre-existing warning), production build, `npm audit --omit=dev` (0) and `composer audit` (none).
+- **Manual visual check** with demo data (EN desktop 1440 light, AR Pixel 7 dark): no horizontal overflow, no console errors besides the expected 401 on the login page. Fixed during QA: a long Arabic conversation title overflowed the chat panel on mobile (grid `min-width`).
+- **Known flaky test (unrelated to V10):** the Vitest "notification center › shows the unread badge and marks everything read" test failed once under full-suite load, then passed on every rerun (alone and in the full suite). It is timing-sensitive and was not changed in V10.
+- **Browser-test fix:** the V8 `copilot.spec.ts` check failed once on a pre-commit run (13 events after undo instead of 12) and passed 3/3 alone.
+  - **Cause:** the test counted events in a window from "now" to "now + 3 days", recomputed on every count, and demo events are seeded relative to the run's start time, so one could slide into the window mid-test.
+  - **Fix:** both Copilot specs now use one fixed window per run. Product code is unaffected.
+- **Simulated versus live:** all external-provider behavior was tested against a **simulated** Anthropic API (`Http::fake`); browser tests run with `AI_PROVIDER=disabled` and block every non-local request.
+  - Live model behavior is **NOT VERIFIED**: intent and slot quality, Arabic wording, clarification quality and latency.
+
+## Known limitations (V10)
+- **Local router:** the rule-based assistant recognises planning requests by keywords (EN/AR). Unusual phrasings fall back to general help, or to the provider when allowed.
+- **Follow-ups** are deterministic for planning answers only (length, count, week, day, priorities, version). Other follow-ups rely on the provider, which sees earlier answers only by kind.
+- **Plans only add blocks.** Moving existing flexible events stays with the existing rebalance proposal, and fixed appointments never move.
+- **Focus blocks** use working hours (and focus hours when set), not study or personal windows.
+- **Proposal size:** week plans show at most 30 blocks per proposal.
+- **No token streaming:** streaming shows stages, not partial model text.
+- **No editing:** conversations cannot be branched or edited after sending.
+- **Retention granularity:** retention is per conversation, by last activity.
+- **Rate limit:** the default (10 messages per minute per user) can be reached by fast clicking through alternatives; configurable with `AI_REQUESTS_PER_MINUTE`.
+
+## V11 roadmap (proposal)
+- Live verification with real Anthropic/OpenAI accounts: intent accuracy, Arabic quality, latency budget.
+- Plans that also propose moving flexible events (with the V7 move preview) inside the same conversation.
+- Study/personal-window focus blocks and per-area capacity limits.
+- Conversation search and export; pinning a plan as a template for future weeks.
+- Proactive suggestions (V9) that open a pre-filled Copilot conversation.
+- Opt-in, explainable learning of preferred plan variants (same reset and deletion controls).
