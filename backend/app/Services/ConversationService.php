@@ -310,7 +310,7 @@ class ConversationService
                 str_starts_with($choice['value'], 'week:') => array_merge($state['slots'] ?? [], ['next_week' => $choice['value'] === 'week:next']),
                 default => array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]),
             };
-            $this->learn($user, $intent, $choice['value']);
+            $this->learn($user, $intent, $choice['value'], (array) ($state['learning_context'] ?? []));
             $this->dismissPrevious($user, $answering);
         }
         $progress('planning');
@@ -413,10 +413,10 @@ class ConversationService
         $progress('planning');
         $this->dismissPrevious($user, $previous);
         if (isset($changes['alternative'])) {
-            $this->learn($user, $intent, $changes['alternative']);
+            $this->learn($user, $intent, $changes['alternative'], (array) ($state['learning_context'] ?? []));
         }
         if (isset($changes['moves'])) {
-            $this->learn($user, $intent, $changes['moves'] ? 'moves:on' : 'moves:off');
+            $this->learn($user, $intent, $changes['moves'] ? 'moves:on' : 'moves:off', (array) ($state['learning_context'] ?? []));
         }
 
         return $this->planned($user, $intent, array_merge($slots, $changes, ['ask_interruption' => false]), $ar, $previous->provider === 'local' ? 'local' : $previous->provider);
@@ -438,15 +438,18 @@ class ConversationService
     }
 
     /**
-     * Count a plan choice the user made (opt-in plan learning; a no-op when learning is off).
+     * Count a plan choice the user made, in the situation the plan was made in (opt-in plan learning; a no-op when
+     * learning is off).
+     *
+     * @param  array{day?: string, load?: string}  $context
      */
-    private function learn(User $user, string $intent, string $choice): void
+    private function learn(User $user, string $intent, string $choice, array $context = []): void
     {
         match (true) {
-            in_array($choice, self::MOVE_CHOICES, true) => PlanLearning::record($user, 'moves', $choice === 'moves:on' ? 'on' : 'off'),
-            in_array($intent, ['plan_week', 'prioritize'], true) => PlanLearning::record($user, 'week_version', $choice),
-            $intent === 'focus_blocks' => PlanLearning::record($user, 'focus_length', $choice),
-            $intent === 'reorganize_day' => PlanLearning::record($user, 'day_strategy', $choice),
+            in_array($choice, self::MOVE_CHOICES, true) => PlanLearning::record($user, 'moves', $choice === 'moves:on' ? 'on' : 'off', $context),
+            in_array($intent, ['plan_week', 'prioritize'], true) => PlanLearning::record($user, 'week_version', $choice, $context),
+            $intent === 'focus_blocks' => PlanLearning::record($user, 'focus_length', $choice, $context),
+            $intent === 'reorganize_day' => PlanLearning::record($user, 'day_strategy', $choice, $context),
             default => null,
         };
     }

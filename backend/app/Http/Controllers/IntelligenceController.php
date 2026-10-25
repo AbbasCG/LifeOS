@@ -91,7 +91,7 @@ class IntelligenceController extends Controller
             'counts' => ['recommendations' => Recommendation::where('user_id', $user->id)->count(), 'feedback' => Recommendation::where('user_id', $user->id)->whereNotNull('feedback')->count(),
                 'proposals' => AssistantProposal::where('user_id', $user->id)->count(), 'conversations' => Conversation::where('user_id', $user->id)->count(),
                 'conversation_messages' => ConversationMessage::where('user_id', $user->id)->count()],
-            'learning' => ['thresholds' => ['count' => PlanLearning::MIN_COUNT, 'share' => PlanLearning::MIN_SHARE], 'dimensions' => PlanLearning::summary($user)],
+            'learning' => ['thresholds' => ['count' => PlanLearning::MIN_COUNT, 'share' => PlanLearning::MIN_SHARE, 'half_life_days' => PlanLearning::HALF_LIFE_DAYS, 'max_age_days' => PlanLearning::MAX_AGE_DAYS], 'dimensions' => PlanLearning::summary($user)],
         ]);
     }
 
@@ -165,12 +165,13 @@ class IntelligenceController extends Controller
     }
 
     /**
-     * Forget learned plan preferences only (the plan-learning switch stays as it is).
+     * Forget learned plan preferences only, all of them or one choice (the plan-learning switch stays as it is).
      */
     public function forgetLearning(Request $request): JsonResponse
     {
-        $cleared = PlanLearning::reset($request->user());
-        $this->audit->log($request->user(), 'plan_learning_reset', $request, ['deleted' => $cleared]);
+        $dimension = $request->validate(['dimension' => ['nullable', 'string', Rule::in(array_keys(PlanLearning::DIMENSIONS))]])['dimension'] ?? null;
+        $cleared = PlanLearning::reset($request->user(), $dimension);
+        $this->audit->log($request->user(), 'plan_learning_reset', $request, array_filter(['deleted' => $cleared, 'dimension' => $dimension], fn ($v) => $v !== null));
 
         return response()->json(['cleared' => $cleared]);
     }
