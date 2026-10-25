@@ -104,7 +104,7 @@ class AssistantService
             .'"plan_day" when they want a plan or better schedule for a single day (fill target.date YYYY-MM-DD, today or tomorrow); '
             .'"plan_week" when they want their week planned around meetings (fill plan.next_week, plan.priorities); '
             .'"prioritize" when they want certain areas planned first (fill plan.priorities from study, work, personal, projects, deadlines); '
-            .'"focus_blocks" when they want focus blocks found (fill plan.count 1-6, plan.minutes 30-180, plan.within today|tomorrow|week); '
+            .'"focus_blocks" when they want focus blocks found (fill plan.count 1-6, plan.minutes 30-180, plan.within today|tomorrow|week, and plan.area work|study|personal when they name one); '
             .'"reorganize_day" when their day was interrupted and needs reorganizing (fill target.date, plan.busy_until HH:MM and/or plan.lost_minutes when stated); '
             .'For plan_week, prioritize and reorganize_day set plan.moves to false only when the user asks not to move any existing events (the app may otherwise propose moving flexible blocks; it never moves fixed or connected events). '
             .'"deadline_conflicts" when they ask which deadlines clash with meetings; '
@@ -159,6 +159,7 @@ class AssistantService
             'plan.busy_until' => 'nullable|date_format:H:i',
             'plan.lost_minutes' => 'nullable|integer|min:0|max:480',
             'plan.moves' => 'nullable|boolean',
+            'plan.area' => 'nullable|in:'.implode(',', CopilotPlanner::AREAS),
             'clarification_options' => 'sometimes|array|max:4',
             'clarification_options.*' => 'string|max:80',
         ])->validate();
@@ -252,8 +253,8 @@ class AssistantService
         $query = ['type' => 'object', 'properties' => ['entity' => ['type' => 'string', 'enum' => CopilotService::ENTITIES], 'due' => $enum(CopilotService::DUE_FILTERS), 'priority' => $enum(['low', 'medium', 'high', 'urgent']), 'status' => $enum(CopilotService::STATUS_FILTERS), 'project_id' => $int, 'goal_id' => $int], 'required' => ['entity', 'due', 'priority', 'status', 'project_id', 'goal_id'], 'additionalProperties' => false];
         $target = ['type' => 'object', 'properties' => ['task_id' => $int, 'goal_id' => $int, 'area' => $enum(['work', 'study', 'personal']), 'date' => ['anyOf' => [['type' => 'string'], ['type' => 'null']]]], 'required' => ['task_id', 'goal_id', 'area', 'date'], 'additionalProperties' => false];
         $plan = ['type' => 'object', 'properties' => ['priorities' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => CopilotPlanner::PRIORITIES]], 'next_week' => ['anyOf' => [['type' => 'boolean'], ['type' => 'null']]], 'count' => $int, 'minutes' => $int,
-            'within' => $enum(['today', 'tomorrow', 'week']), 'busy_until' => ['anyOf' => [['type' => 'string'], ['type' => 'null']]], 'lost_minutes' => $int, 'moves' => ['anyOf' => [['type' => 'boolean'], ['type' => 'null']]]],
-            'required' => ['priorities', 'next_week', 'count', 'minutes', 'within', 'busy_until', 'lost_minutes', 'moves'], 'additionalProperties' => false];
+            'within' => $enum(['today', 'tomorrow', 'week']), 'busy_until' => ['anyOf' => [['type' => 'string'], ['type' => 'null']]], 'lost_minutes' => $int, 'moves' => ['anyOf' => [['type' => 'boolean'], ['type' => 'null']]], 'area' => $enum(CopilotPlanner::AREAS)],
+            'required' => ['priorities', 'next_week', 'count', 'minutes', 'within', 'busy_until', 'lost_minutes', 'moves', 'area'], 'additionalProperties' => false];
         $schedule = ['type' => 'object', 'properties' => ['date' => ['type' => 'string', 'format' => 'date'], 'available_minutes' => ['type' => 'integer'], 'start_after' => ['anyOf' => [['type' => 'string'], ['type' => 'null']]], 'items' => ['type' => 'array', 'items' => $item]], 'required' => ['date', 'available_minutes', 'start_after', 'items'], 'additionalProperties' => false];
 
         return ['type' => 'object', 'properties' => [
@@ -324,7 +325,7 @@ class AssistantService
         $overdueWords = ['overdue', 'late', 'behind', 'missed', 'متأخر', 'فات'];
         $intent = match (true) {
             $has(['reorganize', 'reorganise', 'reshuffle', 'interrupt', 'derailed', 'lost time', 'lost an hour', 'lost two hours', 'أعد تنظيم', 'اعد تنظيم', 'إعادة تنظيم', 'مقاطعة', 'انقطاع', 'ضاع وقت', 'ضاعت']) => 'reorganize_day',
-            $has(['focus block', 'focus session', 'focus slot', 'deep work block', 'deep-work block', 'فترات تركيز', 'فترة تركيز', 'فترتي تركيز', 'فترات للتركيز', 'جلسات تركيز']) => 'focus_blocks',
+            $has(['focus block', 'focus session', 'focus slot', 'deep work block', 'deep-work block', 'study block', 'study session', 'personal block', 'فترات تركيز', 'فترة تركيز', 'فترتي تركيز', 'فترات للتركيز', 'جلسات تركيز', 'فترات دراسة', 'فترتي دراسة', 'جلسات دراسة']) => 'focus_blocks',
             $has(['prioritize', 'prioritise', 'give priority', 'put first', 'أعط الأولوية', 'أعطِ الأولوية', 'اعط الأولوية', 'الأولوية ل', 'قدّم', 'رتب أولوياتي', 'رتّب أولوياتي']) && (CopilotPlanner::prioritiesIn($message) !== [] || $has(['week', 'أسبوع', 'اسبوع', 'my priorities', 'أولوياتي'])) => 'prioritize',
             $has(['plan my week', 'plan my next week', 'plan next week', 'plan the week', 'plan the next week', 'plan this week', 'week plan', 'weekly plan', 'خطط أسبوعي', 'خطط اسبوعي', 'خطط لأسبوعي', 'خطط لاسبوعي', 'خطة الأسبوع', 'خطة أسبوع', 'خطط الأسبوع', 'خطط للأسبوع']) => 'plan_week',
             $has(['plan my day', 'plan today', 'plan tomorrow', 'better schedule', 'around my calendar', 'around my google', 'around my outlook', 'around my meetings', 'خطط يومي', 'خطط ليومي', 'خطط للغد', 'جدول أفضل', 'حول تقويمي', 'حول اجتماعاتي']) => 'plan_day',

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\CalendarEvent;
+use App\Models\Category;
 use App\Models\FocusSession;
 use App\Models\ScheduleProposal;
 use App\Models\Task;
@@ -41,7 +42,7 @@ class PlanningService
     /**
      * Planning preferences with defaults.
      *
-     * @return array{tz: string, work_start: string, work_end: string, work_days: list<int>, break: int, block: int, focus_start: ?string, focus_end: ?string, daily_limit: ?int}
+     * @return array{tz: string, work_start: string, work_end: string, work_days: list<int>, break: int, block: int, focus_start: ?string, focus_end: ?string, daily_limit: ?int, study_limit: ?int, personal_limit: ?int}
      */
     public function config(User $user): array
     {
@@ -57,6 +58,9 @@ class PlanningService
             'focus_start' => $prefs['focus_start'] ?? null,
             'focus_end' => $prefs['focus_end'] ?? null,
             'daily_limit' => isset($prefs['daily_focus_limit']) ? (int) $prefs['daily_focus_limit'] : null,
+            // Optional daily limits for the study and personal windows (minutes of planned blocks per day).
+            'study_limit' => isset($prefs['study_daily_limit']) ? (int) $prefs['study_daily_limit'] : null,
+            'personal_limit' => isset($prefs['personal_daily_limit']) ? (int) $prefs['personal_daily_limit'] : null,
             'buffer' => (int) ($prefs['buffer_minutes'] ?? 10),
             'study_start' => $prefs['study_start'] ?? null,
             'study_end' => $prefs['study_end'] ?? null,
@@ -129,6 +133,7 @@ class PlanningService
         $futureMinutes = $this->futureScheduledMinutes($user, $open->pluck('id'));
         $missed = $this->missedBlocks($user)->pluck('task_id')->unique()->flip();
         $goalPressure = app(GoalIntelligence::class)->pressure($user);
+        $areas = Category::where('user_id', $user->id)->pluck('area', 'id');
         $ranked = $open->map(function (Task $task) use ($now, $priorityTaskIds, $goalPressure) {
             $score = BriefingService::score($task, $now->setTimezone('UTC'), $goalPressure);
             if (in_array($task->id, $priorityTaskIds, true)) {
@@ -148,7 +153,9 @@ class PlanningService
                 'start' => $local->setTimeFromTimeString($c['work_start'])->utc(),
                 'end' => $local->setTimeFromTimeString($c['work_end'])->utc(),
                 'focus' => $c['focus_start'] && $c['focus_end'] ? [$local->setTimeFromTimeString($c['focus_start'])->utc(), $local->setTimeFromTimeString($c['focus_end'])->utc()] : null,
+                'windows' => collect($this->windows($c, $local))->map(fn (array $w) => [$w[0]->utc(), $w[1]->utc()])->all(),
                 'planned' => 0,
+                'planned_area' => [],
                 'per_task' => [],
             ];
         }
@@ -163,16 +170,17 @@ class PlanningService
                 continue;
             }
             $blocks = $this->splitIntoBlocks($remaining, $c['block']);
+            $area = $task->category_id ? ($areas[$task->category_id] ?? 'work') : 'work';
             $trialBusy = $busy;
             $trialDays = $dayStates;
             $taskItems = [];
             foreach ($blocks as $index => $minutes) {
-                $slot = $this->findSlot($task, $minutes, $trialDays, $trialBusy, $earliest, $c, in_array($task->priority, ['urgent', 'high'], true));
+                $slot = $this->findSlot($task, $area, $minutes, $trialDays, $trialBusy, $earliest, $c, in_array($task->priority, ['urgent', 'high'], true));
                 if (! $slot) {
                     $taskItems = null;
                     break;
                 }
-                [$d, $start, $end, $inFocus] = $slot;
+                [$d, $start, $end, $inFocus, $usedArea] = $slot;
                 $reasons = $row['reasons'];
                 if ($inFocus) {
                     $reasons[] = 'focus_window';
@@ -180,9 +188,10 @@ class PlanningService
                 if ($missed->has($task->id)) {
                     $reasons[] = 'rescheduled';
                 }
-                $taskItems[] = $this->item($task, $start, $end, $index + 1, count($blocks), $reasons);
+                $taskItems[] = $this->item($task, $start, $end, $index + 1, count($blocks), $reasons) + ['area' => $usedArea];
                 $trialBusy[] = [$start, $end->addMinutes($c['break'])];
                 $trialDays[$d]['planned'] += $minutes;
+                $trialDays[$d]['planned_area'][$usedArea] = ($trialDays[$d]['planned_area'][$usedArea] ?? 0) + $minutes;
                 $trialDays[$d]['per_task'][$task->id] = ($trialDays[$d]['per_task'][$task->id] ?? 0) + 1;
             }
             if ($taskItems === null) {
@@ -220,34 +229,37 @@ class PlanningService
     }
 
     /**
-     * First free slot that respects work hours, deadline, daily limit and per-day spreading.
+     * First free slot that respects the task's area window (study and personal tasks go into their own windows when the
+     * user has set them, everything else into working hours), the deadline, that area's daily limit and per-day spreading.
      *
      * @param  array<int, array<string, mixed>>  $days
      * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $busy
      * @param  array<string, mixed>  $c
-     * @return array{0: int, 1: CarbonImmutable, 2: CarbonImmutable, 3: bool}|null
+     * @return array{0: int, 1: CarbonImmutable, 2: CarbonImmutable, 3: bool, 4: string}|null
      */
-    private function findSlot(Task $task, int $minutes, array $days, array $busy, CarbonImmutable $earliest, array $c, bool $preferFocus): ?array
+    private function findSlot(Task $task, string $area, int $minutes, array $days, array $busy, CarbonImmutable $earliest, array $c, bool $preferFocus): ?array
     {
         foreach ($days as $d => $day) {
-            if (! $day['work_day'] || ($day['per_task'][$task->id] ?? 0) >= self::MAX_BLOCKS_PER_TASK_PER_DAY) {
+            $used = isset($day['windows'][$area]) && $area !== 'work' ? $area : 'work';
+            $window = $day['windows'][$used] ?? null;
+            if (! $window || ($used === 'work' && ! $day['work_day']) || ($day['per_task'][$task->id] ?? 0) >= self::MAX_BLOCKS_PER_TASK_PER_DAY) {
                 continue;
             }
-            $limit = $c['daily_limit'] ?? (int) floor($day['start']->diffInMinutes($day['end']) * 0.85);
-            if ($limit < $day['planned'] + $minutes) {
+            if ($this->areaLimit($c, $used, $window) < ($day['planned_area'][$used] ?? 0) + $minutes) {
                 continue;
             }
-            $windowStart = max($day['start'], $earliest);
+            $windowStart = max($window[0], $earliest);
             if ($task->due_at && $windowStart->addMinutes($minutes) > $task->due_at) {
                 return null;
             }
-            $free = $this->freeIntervals($windowStart, $day['end'], $busy, $c['break']);
+            $free = $this->freeIntervals($windowStart, $window[1], $busy, $c['break']);
             $candidates = $free;
-            if ($preferFocus && $day['focus']) {
+            $focusWindow = $used === 'work' ? $day['focus'] : null;
+            if ($preferFocus && $focusWindow) {
                 $inFocus = [];
                 foreach ($free as [$s, $e]) {
-                    $fs = max($s, $day['focus'][0]);
-                    $fe = min($e, $day['focus'][1]);
+                    $fs = max($s, $focusWindow[0]);
+                    $fe = min($e, $focusWindow[1]);
                     if ($fe > $fs) {
                         $inFocus[] = [$fs, $fe];
                     }
@@ -259,13 +271,31 @@ class PlanningService
                 if ($end > $e || ($task->due_at && $end > $task->due_at)) {
                     continue;
                 }
-                $focus = $day['focus'] && $s >= $day['focus'][0] && $end <= $day['focus'][1];
+                $focus = $focusWindow && $s >= $focusWindow[0] && $end <= $focusWindow[1];
 
-                return [$d, $s, $end, $focus];
+                return [$d, $s, $end, $focus, $used];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Minutes of planned blocks allowed per day in an area: the user's limit, otherwise 85% of working hours (so the
+     * work day keeps room to breathe) and the whole window for study and personal time.
+     *
+     * @param  array<string, mixed>  $c
+     * @param  array{0: CarbonImmutable, 1: CarbonImmutable}  $window
+     */
+    public function areaLimit(array $c, string $area, array $window): int
+    {
+        $length = (int) $window[0]->diffInMinutes($window[1]);
+
+        return match ($area) {
+            'study' => $c['study_limit'] ?? $length,
+            'personal' => $c['personal_limit'] ?? $length,
+            default => $c['daily_limit'] ?? (int) floor($length * 0.85),
+        };
     }
 
     /**
@@ -417,7 +447,8 @@ class PlanningService
             $capacity = $workDay ? (int) $ws->diffInMinutes($we) : 0;
             $fixed = (int) $events->where('kind', 'fixed')->sum(fn (array $e) => $overlap($e['starts_at'], $e['ends_at'], $ws, $we));
             $flexible = (int) $events->where('kind', '!=', 'fixed')->sum(fn (array $e) => $overlap($e['starts_at'], $e['ends_at'], $ws, $we));
-            $planned = (int) collect($items)->sum(fn (array $i) => $overlap(CarbonImmutable::parse($i['starts_at']), CarbonImmutable::parse($i['ends_at']), $local, $local->addDay()));
+            // Day load is measured against working hours; blocks in study or personal windows don't count towards it.
+            $planned = (int) collect($items)->where('area', '!=', 'study')->where('area', '!=', 'personal')->sum(fn (array $i) => $overlap(CarbonImmutable::parse($i['starts_at']), CarbonImmutable::parse($i['ends_at']), $local, $local->addDay()));
             $load = $capacity ? (int) round(($fixed + $flexible + $planned) / $capacity * 100) : ($planned ? 100 : 0);
             $result[] = [
                 'date' => $local->toDateString(),
