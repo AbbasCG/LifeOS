@@ -48,6 +48,70 @@ class ConversationService
         return Conversation::where('user_id', $user->id)->orderByDesc('last_message_at')->limit($limit)->get();
     }
 
+    /**
+     * The user's conversations whose title or messages contain the query (case-insensitive), newest first, each with
+     * a short snippet of the first matching message.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function search(User $user, string $query, int $limit = 50): array
+    {
+        $needle = mb_strtolower(trim($query));
+        $like = '%'.addcslashes($needle, '\\%_').'%';
+        $conversations = Conversation::where('user_id', $user->id)
+            ->where(fn ($q) => $q->whereRaw('lower(title) like ?', [$like])
+                ->orWhereExists(fn ($m) => $m->selectRaw('1')->from('conversation_messages')->whereColumn('conversation_messages.conversation_id', 'conversations.id')->whereRaw('lower(content) like ?', [$like])))
+            ->orderByDesc('last_message_at')->limit($limit)->get();
+        $hits = ConversationMessage::whereIn('conversation_id', $conversations->pluck('id'))->whereRaw('lower(content) like ?', [$like])->orderBy('id')->get(['conversation_id', 'content'])->groupBy('conversation_id');
+
+        return $conversations->map(function (Conversation $c) use ($hits, $needle) {
+            $content = $hits->get($c->id)?->first()?->content;
+            $snippet = null;
+            if ($content !== null) {
+                $at = max(0, (int) mb_strpos(mb_strtolower($content), $needle) - 40);
+                $snippet = ($at > 0 ? '…' : '').trim(mb_substr(preg_replace('/\s+/u', ' ', $content) ?? '', $at, 140)).(mb_strlen($content) > $at + 140 ? '…' : '');
+            }
+
+            return $c->present() + ['match' => $snippet];
+        })->all();
+    }
+
+    /**
+     * One conversation as a Markdown document: every message, with plans (explanation, conflicts) and proposals (each
+     * change and its current status). Only the user's own data; nothing is sent anywhere.
+     */
+    public function markdown(Conversation $conversation): string
+    {
+        $lines = ['# '.$conversation->title, '', '_'.$conversation->created_at?->toIso8601String().' · '.($conversation->language === 'ar' ? 'Arabic' : 'English').'_', ''];
+        foreach ($this->messages($conversation) as $m) {
+            $who = $m['role'] === 'user' ? 'You' : 'Copilot ('.(($m['provider'] ?? 'local') === 'local' ? 'rule-based' : 'AI · '.$m['provider']).')';
+            $lines[] = "## {$who} — ".substr((string) $m['created_at'], 0, 16);
+            $lines[] = '';
+            $lines[] = (string) $m['content'];
+            $lines[] = '';
+            if (! empty($m['plan'])) {
+                $lines[] = '**'.$m['plan']['title'].'**';
+                foreach ($m['plan']['explanation'] ?? [] as $e) {
+                    $lines[] = "- {$e}";
+                }
+                foreach ($m['plan']['conflicts'] ?? [] as $c) {
+                    $lines[] = "- ⚠ {$c['title']}: {$c['detail']}";
+                }
+                $lines[] = '';
+            }
+            if (! empty($m['proposal'])) {
+                $lines[] = '**Proposal** ('.$m['proposal']['status'].')';
+                foreach ($m['proposal']['actions'] as $a) {
+                    $when = isset($a['starts_at']) ? ' '.substr($a['starts_at'], 0, 16).(isset($a['from_starts_at']) ? ' (from '.substr($a['from_starts_at'], 0, 16).')' : '') : '';
+                    $lines[] = "- {$a['type']}: {$a['title']}{$when}";
+                }
+                $lines[] = '';
+            }
+        }
+
+        return implode("\n", $lines)."\n";
+    }
+
     public function find(User $user, string $id): Conversation
     {
         return Conversation::where('user_id', $user->id)->whereKey($id)->firstOrFail();
@@ -213,6 +277,7 @@ class ConversationService
             match ($state['awaiting'] ?? null) {
                 'priorities' => $slots['priorities'] = [$choice['value']],
                 'interruption' => $slots['interruption'] = str_starts_with($choice['value'], 'lost:') ? ['lost_minutes' => (int) substr($choice['value'], 5)] : [],
+                'template' => $slots['template_id'] = (int) $choice['value'],
                 default => null,
             };
             $slots['ask_interruption'] = false;
@@ -220,6 +285,7 @@ class ConversationService
             $slots = match (true) {
                 in_array($choice['value'], self::MOVE_CHOICES, true) => array_merge($state['slots'] ?? [], ['moves' => $choice['value'] === 'moves:on', 'ask_interruption' => false]),
                 str_starts_with($choice['value'], 'area:') => array_merge($state['slots'] ?? [], ['area' => substr($choice['value'], 5)]),
+                str_starts_with($choice['value'], 'week:') => array_merge($state['slots'] ?? [], ['next_week' => $choice['value'] === 'week:next']),
                 default => array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]),
             };
             $this->dismissPrevious($user, $answering);
@@ -300,7 +366,7 @@ class ConversationService
                 $changes['within'] = 'today';
             }
         }
-        if (in_array($intent, ['plan_week', 'prioritize'], true)) {
+        if (in_array($intent, ['plan_week', 'prioritize', 'use_template'], true)) {
             if (preg_match('/next week|الأسبوع القادم|الاسبوع القادم|الأسبوع المقبل/u', $lower)) {
                 $changes['next_week'] = true;
             } elseif (preg_match('/this week|هذا الأسبوع|هذا الاسبوع/u', $lower)) {

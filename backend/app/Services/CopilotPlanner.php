@@ -2,10 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\AssistantProposal;
 use App\Models\Category;
+use App\Models\PlanTemplate;
 use App\Models\Task;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Multi-step planning for Copilot conversations. It reuses the existing planners (PlanningService for weeks, DayPlanner
@@ -27,7 +30,7 @@ class CopilotPlanner
 
     public function __construct(private PlanningService $planning, private DayPlanner $day, private CalendarService $calendar, private AssistantActions $actions) {}
 
-    public const INTENTS = ['plan_week', 'prioritize', 'focus_blocks', 'reorganize_day'];
+    public const INTENTS = ['plan_week', 'prioritize', 'focus_blocks', 'reorganize_day', 'use_template'];
 
     private const COUNTS = ['one' => 1, 'two' => 2, 'three' => 3, 'four' => 4, 'five' => 5, 'six' => 6, 'a couple of' => 2, 'couple of' => 2,
         'واحدة' => 1, 'فترتين' => 2, 'فترتي' => 2, 'اثنتين' => 2, 'ثلاث' => 3, 'أربع' => 4, 'اربع' => 4, 'خمس' => 5, 'ست' => 6];
@@ -52,6 +55,7 @@ class CopilotPlanner
             'focus_blocks' => $this->focusBlocks($user, $ar, $provider, (int) ($slots['count'] ?? 3), isset($slots['minutes']) ? (int) $slots['minutes'] : null,
                 in_array($slots['within'] ?? null, ['today', 'tomorrow', 'week'], true) ? $slots['within'] : 'week', in_array($alternative, ['short', 'default', 'long'], true) ? $alternative : 'default',
                 is_string($slots['area'] ?? null) ? $slots['area'] : null),
+            'use_template' => $this->fromTemplate($user, $ar, $provider, (string) ($slots['message'] ?? ''), isset($slots['template_id']) ? (int) $slots['template_id'] : null, (bool) ($slots['next_week'] ?? true)),
             'reorganize_day' => $this->reorganizeDay($user, $ar, $provider, $this->date($slots['date'] ?? null, $tz),
                 array_filter(['busy_until' => $slots['interruption']['busy_until'] ?? null, 'lost_minutes' => $slots['interruption']['lost_minutes'] ?? null]),
                 (bool) ($slots['ask_interruption'] ?? false), in_array($alternative, DayPlanner::VARIANTS, true) ? $alternative : null, $moves),
@@ -77,6 +81,7 @@ class CopilotPlanner
                 'within' => $tomorrow ? 'tomorrow' : (preg_match('/\btoday\b|اليوم/u', $text) ? 'today' : 'week'),
                 'area' => self::areaIn($text),
             ], fn ($v) => $v !== null),
+            'use_template' => ['message' => $message, 'next_week' => ! preg_match('/this week|هذا الأسبوع|هذا الاسبوع/u', $text)],
             'reorganize_day' => [
                 'date' => ($tomorrow ? $now->addDay() : $now)->toDateString(),
                 'interruption' => array_filter(['busy_until' => self::untilIn($text), 'lost_minutes' => preg_match('/lost|lose|wasted|ضاع|خسرت|فقدت/u', $text) ? self::minutesIn($text) : null]),
@@ -412,6 +417,91 @@ class CopilotPlanner
                 'impact' => ['blocks' => count($blocks), 'planned_minutes' => (int) $items->sum('minutes'), 'capacity_minutes' => $plan['budget']['capacity_minutes'], 'must_do_left' => count($chosen['warnings'] ?? []), 'moved_events' => count($moves)],
                 'moves' => $this->movesMeta($moves, $displaced, $allowMoves)],
             'state' => ['intent' => 'reorganize_day', 'slots' => ['date' => $date, 'interruption' => $interruption, 'variant' => $key, 'moves' => $allowMoves]],
+        ];
+    }
+
+    /**
+     * Save the new blocks of a proposal as a reusable week template: weekday, local start time, length, title and the
+     * task link (kept only while that task is still open when the template is used). Moves are not part of templates.
+     *
+     * @param  list<string>  $actionIds  optional subset of the proposal's actions
+     */
+    public function saveTemplate(User $user, AssistantProposal $proposal, string $name, array $actionIds = []): PlanTemplate
+    {
+        $tz = $user->timezone();
+        $blocks = collect($proposal->actions ?? [])->where('type', 'create_event')
+            ->when($actionIds !== [], fn ($c) => $c->whereIn('id', $actionIds))
+            ->map(function (array $a) use ($tz) {
+                $start = CarbonImmutable::parse($a['starts_at'])->setTimezone($tz);
+
+                return ['weekday' => $start->dayOfWeekIso, 'start' => $start->format('H:i'), 'minutes' => (int) max(15, min(AssistantActions::MAX_BLOCK_MINUTES, $a['minutes'] ?? 60)),
+                    'title' => mb_substr((string) $a['title'], 0, 200), 'task_id' => $a['task_id'] ?? null];
+            })->sortBy(fn ($b) => [$b['weekday'], $b['start']])->values()->take(PlanTemplate::MAX_BLOCKS)->all();
+        if ($blocks === []) {
+            throw ValidationException::withMessages(['proposal_id' => ['This proposal has no new blocks to save as a template.']]);
+        }
+
+        return PlanTemplate::create(['user_id' => $user->id, 'name' => trim($name), 'blocks' => $blocks]);
+    }
+
+    /**
+     * Plan a week from a saved template as a pending proposal. Blocks that would be in the past or would clash with
+     * anything already in the calendar are left out and listed; nothing existing moves.
+     *
+     * @return array<string, mixed>
+     */
+    public function fromTemplate(User $user, bool $ar, string $provider, string $message, ?int $templateId = null, bool $nextWeek = true): array
+    {
+        $templates = PlanTemplate::where('user_id', $user->id)->latest('updated_at')->limit(50)->get();
+        if ($templates->isEmpty()) {
+            return ['message' => $ar ? 'لا توجد قوالب محفوظة بعد. احفظ خطة كقالب من زر «حفظ كقالب» في أي اقتراح.' : 'You have no saved templates yet. Save a plan as a template with “Save as template” on any proposal.'];
+        }
+        $text = mb_strtolower($message);
+        $template = $templateId ? $templates->firstWhere('id', $templateId)
+            : $templates->sortByDesc(fn ($t) => mb_strlen($t->name))->first(fn ($t) => mb_strlen($t->name) >= 2 && str_contains($text, mb_strtolower($t->name)));
+        if (! $template && $templates->count() > 1) {
+            return $this->clarify($ar, 'use_template', 'template', $ar ? 'أي قالب تريد استخدامه؟' : 'Which template should I use?',
+                $templates->take(6)->map(fn ($t) => ['value' => (string) $t->id, 'label' => ['en' => $t->name, 'ar' => $t->name]])->values()->all(), ['next_week' => $nextWeek]);
+        }
+        $template ??= $templates->first();
+
+        $c = $this->planning->config($user);
+        $now = CarbonImmutable::now($c['tz']);
+        $monday = $now->startOfWeek(CarbonImmutable::MONDAY)->startOfDay()->addWeeks($nextWeek ? 1 : 0);
+        $occurrences = $this->calendar->occurrences($user, $monday->utc(), $monday->addDays(7)->utc());
+        $open = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->pluck('id')->flip();
+        $blocks = [];
+        $skipped = [];
+        foreach ($template->blocks as $b) {
+            $start = $monday->addDays($b['weekday'] - 1)->setTimeFromTimeString($b['start']);
+            $end = $start->addMinutes((int) $b['minutes']);
+            $clash = $occurrences->first(fn (array $o) => $o['starts_at'] < $end->utc() && $o['ends_at'] > $start->utc())
+                ?? collect($blocks)->first(fn ($x) => $x['starts_at'] < $end && $x['ends_at'] > $start);
+            $label = $start->locale($ar ? 'ar' : 'en')->translatedFormat('D H:i');
+            if ($start <= $now->addMinutes(5)) {
+                $skipped[] = ['type' => 'past', 'title' => $b['title'], 'detail' => $ar ? "{$label} قد مضى." : "{$label} has already passed.", 'minutes' => (int) $b['minutes']];
+            } elseif ($clash) {
+                $skipped[] = ['type' => 'clash', 'title' => $b['title'], 'detail' => $ar ? "{$label} يتعارض مع «".CopilotContext::clean($clash['title']).'».' : "{$label} clashes with “".CopilotContext::clean($clash['title']).'”.', 'minutes' => (int) $b['minutes']];
+            } else {
+                $blocks[] = ['title' => $b['title'], 'task_id' => $b['task_id'] && $open->has($b['task_id']) ? $b['task_id'] : null, 'starts_at' => $start, 'ends_at' => $end];
+            }
+        }
+        $range = $this->range($monday, $monday->addDays(6), $ar);
+        $explanation = [
+            $ar ? "من قالب «{$template->name}»: نفس الأيام والأوقات لأسبوع {$range}." : "From your template “{$template->name}”: the same days and times for {$range}.",
+            $ar ? 'لا يُنقل أي موعد قائم؛ تُترك الفترات التي تتعارض مع تقويمك أو التي مضى وقتها.' : 'Nothing already in your calendar moves; blocks that would clash or are already past are left out.',
+        ];
+        $summary = $blocks === []
+            ? ($ar ? "لا يمكن استخدام أي فترة من القالب لأسبوع {$range}." : "None of the template’s blocks fit {$range}.")
+            : ($ar ? 'اقتراح '.count($blocks)." فترة من قالب «{$template->name}» لأسبوع {$range}." : 'Suggested '.count($blocks)." block(s) from “{$template->name}” for {$range}.");
+        $proposal = $blocks ? $this->actions->proposeBlocks($user, 'template', $provider, $summary, $explanation, $blocks) : null;
+
+        return [
+            'message' => $summary, 'proposal' => $proposal?->present(),
+            'plan' => ['kind' => 'template', 'title' => $ar ? "قالب «{$template->name}»" : "Template “{$template->name}”", 'explanation' => $explanation, 'conflicts' => $skipped,
+                'alternatives' => [['key' => 'week:this', 'label' => $ar ? 'هذا الأسبوع' : 'This week', 'current' => ! $nextWeek], ['key' => 'week:next', 'label' => $ar ? 'الأسبوع القادم' : 'Next week', 'current' => $nextWeek]],
+                'impact' => ['blocks' => count($blocks), 'planned_minutes' => (int) collect($blocks)->sum(fn ($b) => $b['starts_at']->diffInMinutes($b['ends_at'])), 'skipped' => count($skipped), 'moved_events' => 0]],
+            'state' => ['intent' => 'use_template', 'slots' => ['template_id' => $template->id, 'next_week' => $nextWeek]],
         ];
     }
 

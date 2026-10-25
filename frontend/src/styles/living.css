@@ -532,3 +532,18 @@ i.focus { background: var(--color-success); }
 .conflict-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
 .conflict-check.ok { color: var(--color-success); }
 .conflict-check.warn { color: var(--color-warning); }
+
+/* V13 — conversation search, export and week templates */
+.copilot-sidebar .conversation-search { max-width: none; flex: none; }
+.copilot-sidebar .conversation-search input { min-height: 38px; font-size: 13px; }
+.search-match { display: block; font-size: 11px; color: var(--color-text-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; }
+.template-list { display: grid; gap: 6px; border-top: 1px solid var(--color-border); padding-top: 10px; }
+.template-list h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
+.template-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.template-list li { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 10px; background: var(--color-surface-muted); }
+.template-name { flex: 1; min-width: 0; display: grid; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.template-name small { font-size: 11px; }
+.export-links { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-muted); flex-shrink: 0; }
+.template-save { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.template-save input { flex: 1 1 200px; min-width: 0; }
+.save-template { justify-self: start; }
