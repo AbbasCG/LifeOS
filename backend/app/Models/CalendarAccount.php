@@ -15,7 +15,7 @@ class CalendarAccount extends Model
 
     protected function casts(): array
     {
-        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime', 'collections' => 'array', 'sync_state' => 'array', 'last_attempt_at' => 'immutable_datetime', 'retry_after' => 'immutable_datetime', 'scopes_ok' => 'boolean'];
+        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime', 'collections' => 'array', 'sync_state' => 'array', 'last_attempt_at' => 'immutable_datetime', 'retry_after' => 'immutable_datetime', 'scopes_ok' => 'boolean', 'write_granted_at' => 'immutable_datetime'];
     }
 
     /** @return BelongsTo<User, $this> */

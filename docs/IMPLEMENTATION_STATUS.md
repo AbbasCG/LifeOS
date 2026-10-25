@@ -1000,3 +1000,89 @@ Provider push notifications (Google `events.watch`, Graph subscriptions) were no
 - Provider push notifications once the app has a public HTTPS URL.
 - Fuller RRULE support (BYSETPOS / ordinal BYDAY) in the shared recurrence engine, which would benefit LifeOS events too.
 - Localised server validation messages.
+
+
+# V8 — Browser tests in CI and opt-in calendar write-back
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` after PR #6 (V7) was merged. **Not committed, not pushed** — waiting for approval.
+
+**This release contains Browser CI and Calendar Write-back only. Proactive Personal AI has NOT been implemented.** Both items were approved on 2026-10-25.
+
+| Module | Status | Notes |
+|---|---|---|
+| V8-A Playwright browser tests in CI | **Done** | `@playwright/test` 1.63.0 (dev only), 6 specs × 2 projects, new `Browser (Playwright)` CI job. Isolated data; never real accounts. |
+| V8-B Opt-in calendar write-back (Google, Outlook) | **Done, verified with provider mocks only** | Built exactly to the approved design. **No real calendar was modified.** Off unless `LIFEOS_CALENDAR_WRITE=true`. |
+
+## V8-A — Browser tests (`frontend/e2e`, `frontend/playwright.config.ts`)
+- **Servers:** the production build (`vite preview`) and the real Laravel app (`php -S` from `backend/public`) on a **throwaway SQLite database** (`backend/storage/e2e.sqlite`, git-ignored).
+  - Recreated with `migrate:fresh` and the demo seeder on every run, using a random password.
+  - Provider credentials and AI keys are forced empty; `LIFEOS_CALENDAR_WRITE=false`.
+- **Fixtures (`e2e/fixtures.ts`) fail any test** that:
+  - makes a request outside 127.0.0.1/localhost (such requests are also blocked);
+  - throws a page error;
+  - logs an unexpected console error.
+- **Specs:**
+  - `auth` — wrong password refused, then sign-in;
+  - `smoke` — 15 screens render with demo data without horizontal overflow;
+  - `timeline` — day/week, filters, move preview clash with Move disabled and nothing saved;
+  - `copilot` — nothing changes before approval, apply, then undo restores;
+  - `hub` — unconfigured providers never look connected; a private-network feed is refused;
+  - `i18n` — Arabic is RTL on the main screens without overflow.
+- **Projects:** Desktop Chrome 1440 px, and Pixel 7 in dark mode with reduced motion. One worker, because the demo account's language is a server-side preference.
+- **Commands:** `npm run test:e2e` locally (after `npm run build`). CI installs Chromium with `npx playwright install --with-deps chromium` and uploads the report only on failure.
+- **Tooling:** `tsconfig.e2e.json` adds type-checking for the specs; Vitest excludes `e2e/`; ESLint turns off the React-hooks rule for Playwright's `use()`.
+
+## V8-B — Opt-in write-back
+Every element of the approved design:
+
+| Requirement | Implementation |
+|---|---|
+| Opt-in only | Server flag `LIFEOS_CALENDAR_WRITE` (default false; `config/calendar_write.php`). Per account, the user must also grant permission and pick a calendar. |
+| Separate OAuth write scopes | Read connect still asks only `calendar.readonly` / `Calendars.Read`. "Allow adding events…" starts a **second consent** (`POST /api/integrations/accounts/{id}/write/connect`) for `https://www.googleapis.com/auth/calendar.events` / `Calendars.ReadWrite`, with `login_hint`. The callback refuses another account (`error=write_account`) or a missing write scope (`error=write_scope`; `calendar.events.readonly` does not count) and then changes nothing. |
+| Explicit calendar selection | `GET …/write/calendars` lists only writable calendars (Google `minAccessRole=writer`, Graph `canEdit`). `PUT …/write {calendar_id}` validates against that list; `null` turns writing off. Nothing can be written before a calendar is picked. |
+| Change preview | `POST /api/calendar-write/preview {op: create\|update\|delete, account_id, event_id\|link_id}` returns the target account and calendar, `before` and `after`, plus an **encrypted, single-use token** valid for 10 minutes. No provider request is made. |
+| Confirmation for every operation | `POST /api/calendar-write/confirm {token}` performs exactly that one change. Re-use, forgery, expiry or another user's token → 422. **Any change since the preview** (event, copy, account, calendar) → 409. A per-account lock prevents concurrent writes. |
+| Only LifeOS's own events | Creates copies of **single, non-repeating** LifeOS events. Updates and deletes apply only to copies recorded in `calendar_write_links`. Writes use the provider's **etag (`If-Match`)**, so an event edited in Google/Outlook is never overwritten (412 → "changed there, left alone"). |
+| Audit logging | `calendar_write_granted`, `calendar_write_enabled`, `calendar_write_disabled`, `calendar_write` (op, provider, account, event, link) and `calendar_write_failed` (with a reason). Tokens and etags are never logged or returned. |
+| Safe error handling | Writes are **never retried automatically**. A lost answer → "may or may not have been made — check before trying again" with no local change. Creation is idempotent: a Google client-chosen id (`lifeos…`; a 409 retry fetches the existing copy) and a Graph `transactionId`. 403 → "did not allow this change"; 404/410 on update → the stale link is dropped; 429 → slow down; a 401 marks the account revoked. Read access is unaffected by write errors. |
+| Never automatic | Sync, the scheduler and automations only read (tested). Copies that come back through sync are hidden in favour of the LifeOS event. |
+
+- **UI:**
+  - **Hub:** an "Add events to …" section per Google/Outlook account (Off → Allow…; pick calendar → Turn on; On → Turn off), with orphaned copies (LifeOS event deleted) removable via preview. The disconnect dialog warns that added events stay in the provider.
+  - **Timeline:** a "Send to a calendar" button on single LifeOS events opens a dialog per target: Add, Update when out of date, or Remove. Each goes through the preview, then "Confirm: …".
+- **Migration `add_calendar_write_back`** (additive, reversible; rollback verified on PostgreSQL):
+  - `calendar_accounts.write_granted_at`, `write_calendar_id`, `write_calendar_name`;
+  - new table `calendar_write_links`; `calendar_event_id` is set to null on delete so copies can still be removed.
+
+## Verification (automated)
+- **Backend:** **207/207 tests on SQLite and PostgreSQL 16.**
+  - New `CalendarWriteBackTest` (7): flag off; separate consent (wrong scope, read-only variant, other account, calendar choice); preview → single confirm → audit, with re-use/forgery refused and the copy de-duplicated; etag-guarded update/delete and orphans; changed-since-preview 409, lost answer, idempotent retry, repeating events refused; Outlook UTC + `transactionId` + editable calendars only; sync and automations never write.
+  - Pint clean; `composer audit` clean.
+- **Frontend:** **84/84 Vitest** (new `v8.test.tsx`). `tsc -b` (incl. e2e) clean; ESLint 0 errors (1 pre-existing warning); build OK; `npm audit --omit=dev` 0.
+- **Browser:** **12/12 Playwright** (6 specs × desktop + mobile) locally.
+- **Manual visual check:** the write UI with a temporary fake account on the dev database (EN light 1440, AR dark 390). No request left 127.0.0.1, Confirm was never clicked, and the account was deleted afterwards.
+
+## Real-account checklist (V8 additions)
+**Every item is NOT VERIFIED.** No real calendar was modified, as instructed.
+
+| # | Check | Status |
+|---|---|---|
+| 23 | Google: "Allow adding events" consent shows calendar.events and returns to the same account | NOT VERIFIED |
+| 24 | Google: event added to the chosen calendar at the right local time; appears once in LifeOS | NOT VERIFIED |
+| 25 | Google: editing the copy in Google, then "Update" → refused as changed (etag) | NOT VERIFIED |
+| 26 | Google: client-chosen id accepted; a repeated confirm does not create a duplicate | NOT VERIFIED |
+| 27 | Outlook: Calendars.ReadWrite consent (personal and work/school, incl. admin-consent tenants) | NOT VERIFIED |
+| 28 | Outlook: `transactionId` prevents duplicates on retry; `If-Match` with `@odata.etag` enforced on PATCH/DELETE | NOT VERIFIED |
+| 29 | Removing a copy deletes only that event; revoking access in the provider is reported, not retried | NOT VERIFIED |
+| 30 | Browser suite passes in GitHub Actions (Chromium install, PHP built-in server) | NOT VERIFIED until the PR's CI runs |
+
+## Known limitations (V8)
+- Write-back covers single LifeOS events only (no series or occurrences), one target calendar per account, and Google/Outlook only.
+- "Turn off" stops new writes but cannot withdraw a granted OAuth scope; the UI explains how to remove it in the provider.
+- Outlook's behaviour on a repeated `transactionId` is not verified; LifeOS reports "check Outlook" instead of assuming.
+- Copies are not updated automatically when a LifeOS event changes; the timeline shows "Copy is out of date" and the user confirms an update.
+- The browser suite uses one demo account and runs serially (about 1.5 minutes locally).
+
+## Recommended next steps
+- Run checklist items 23–30 with test accounts once the user wants live verification.
+- Proactive Personal AI: write a spec (signals, when it may speak, consent, data limits) for approval before building.

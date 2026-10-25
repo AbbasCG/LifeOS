@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { m, AnimatePresence } from 'motion/react'
 import { RefreshCw, Unplug, Link2, CheckCircle2, AlertTriangle, ShieldCheck, ShieldAlert, Clock3, History, Hourglass, XCircle, Lock } from 'lucide-react'
 import { api } from '../../lib/api'
@@ -6,6 +6,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
+import type { WriteState } from '../../lib/calendarWrite'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
 export type SyncRunInfo = { details?: { skipped?: number }; id: number; mode: 'full' | 'incremental'; status: 'running' | 'success' | 'partial' | 'failed' | 'rate_limited' | 'revoked'; trigger: string; started_at: string; finished_at: string | null; duration_ms: number | null; upserted: number; removed: number; moved: number; error: string | null }
@@ -13,7 +14,7 @@ export type ConnectedAccount = {
   id: number; provider: string; email: string | null; display_name: string | null; status: 'active' | 'error' | 'revoked'
   last_synced_at: string | null; last_attempt_at?: string | null; retry_after?: string | null; consecutive_failures?: number; scopes_ok?: boolean | null
   granted_scopes?: string[]; sync_mode?: 'full' | 'incremental'; last_error: string | null; events_count: number; connected_at: string | null
-  collections: Collection[]; collections_managed: boolean; recent_runs?: SyncRunInfo[]
+  collections: Collection[]; collections_managed: boolean; recent_runs?: SyncRunInfo[]; write?: WriteState
 }
 
 /** Picks which calendars or task lists of one account LifeOS imports. Nothing is imported from unchecked ones. */
@@ -41,9 +42,9 @@ export function CollectionPicker({ account, tasks, onSaved }: { account: Connect
  * One connected account in the hub: identity, honest state, what LifeOS reads, when it last succeeded, what went wrong
  * and what to do about it, and the recent sync history.
  */
-export function AccountCard({ account, label, tasks, requiredScopes, busy, onSync, onReconnect, onDisconnect, onSaved }: {
+export function AccountCard({ account, label, tasks, requiredScopes, busy, onSync, onReconnect, onDisconnect, onSaved, children }: {
   account: ConnectedAccount; label: string; tasks: boolean; requiredScopes: string[]; busy: string | null
-  onSync: () => void; onReconnect: () => void; onDisconnect: () => void; onSaved: () => void
+  onSync: () => void; onReconnect: () => void; onDisconnect: () => void; onSaved: () => void; children?: ReactNode
 }) {
   const t = useText(), { language } = useLanguage()
   const [history, setHistory] = useState(false)
@@ -83,10 +84,12 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
       <span className="perm-title"><ShieldCheck size={14} />{t('Data access', 'الوصول إلى البيانات')}</span>
       {requiredScopes.map(scope => <span key={scope} className={`perm ${account.granted_scopes?.length ? (granted(scope) ? 'ok' : 'missing') : ''}`}>{account.granted_scopes?.length ? (granted(scope) ? <CheckCircle2 size={12} /> : <XCircle size={12} />) : <Lock size={12} />}<code dir="ltr">{scope}</code></span>)}
       {feed && <span className="perm ok"><CheckCircle2 size={12} />{t('Public or secret feed — no account access', 'رابط عام أو سري — دون وصول إلى الحساب')}</span>}
-      <span className="perm muted"><Lock size={12} />{t('Read-only — LifeOS never writes', 'للقراءة فقط — لا يكتب LifeOS أبداً')}</span>
+      {account.write?.enabled ? <span className="perm"><Lock size={12} />{t('Reads everything; adds only events you confirm', 'يقرأ كل شيء؛ ويضيف فقط ما تؤكده')}</span>
+        : <span className="perm muted"><Lock size={12} />{t('Read-only — LifeOS never writes', 'للقراءة فقط — لا يكتب LifeOS أبداً')}</span>}
     </div>
     {skipped > 0 && <p className="muted small account-note">{t(`${skipped} repeating event(s) use a pattern LifeOS can’t expand yet, so they were left out rather than guessed.`, `${skipped} موعد متكرر يستخدم نمطاً لا يستطيع LifeOS توسيعه بعد، لذا تُرك بدلاً من التخمين.`)}</p>}
     {account.status !== 'revoked' && !feed && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={tasks} onSaved={onSaved} />}
+    {children}
     <div className="toolbar">
       {state === 'revoked' || state === 'scope'
         ? <button className="primary" disabled={busy !== null} onClick={onReconnect}><Link2 size={15} />{feed ? t('Use a new link', 'استخدام رابط جديد') : t('Reconnect', 'إعادة الربط')}</button>

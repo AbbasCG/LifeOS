@@ -99,3 +99,52 @@ jobs:
           LIFEOS_BUILD_ID: ${{ github.sha }}
       - name: Dependency audit (production dependencies)
         run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    name: Browser (Playwright)
+    runs-on: ubuntu-latest
+    # Isolated by design: a throwaway SQLite database seeded with the demo account, no provider credentials or AI keys,
+    # and every request outside 127.0.0.1 is blocked by the test fixtures — the suite can never reach a real account.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, intl, openssl
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: Backend
+        working-directory: backend
+        run: |
+          composer install --no-interaction --no-progress --prefer-dist
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+      - name: Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+        env:
+          LIFEOS_BUILD_ID: ${{ github.sha }}
+      - name: Browser tests
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7

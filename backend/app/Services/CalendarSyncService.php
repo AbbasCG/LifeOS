@@ -346,6 +346,10 @@ class CalendarSyncService
             ->join('calendar_accounts', 'calendar_accounts.id', '=', 'external_events.calendar_account_id')
             ->where('external_events.user_id', $userId)->where('calendar_accounts.status', '!=', 'revoked')
             ->where('external_events.ends_at', '>', $from)->where('external_events.starts_at', '<', $to)
+            // Copies LifeOS added to this calendar come back through sync; the LifeOS event is already shown.
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('calendar_write_links')
+                ->whereColumn('calendar_write_links.calendar_account_id', 'external_events.calendar_account_id')
+                ->whereColumn('calendar_write_links.external_id', 'external_events.external_id'))
             ->orderBy('external_events.calendar_account_id')->orderBy('external_events.id')
             ->get(['external_events.*', 'calendar_accounts.provider', 'calendar_accounts.email as account_email']);
         $seen = [];

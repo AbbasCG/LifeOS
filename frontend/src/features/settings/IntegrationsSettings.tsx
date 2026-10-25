@@ -9,6 +9,8 @@ import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import { AccountCard, type ConnectedAccount, type SyncRunInfo } from '../connected/AccountCard'
 import { FeedSubscribe } from '../connected/FeedSubscribe'
+import { WriteAccess } from '../connected/WriteAccess'
+import type { WriteData } from '../../lib/calendarWrite'
 
 export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
 type Hub = { providers: HubProvider[]; categories: { key: string; providers: HubProvider[] }[]; ai_connected_data: boolean }
@@ -19,13 +21,16 @@ export default function IntegrationsSettings() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar'
   const [params, setParams] = useSearchParams()
   const { data, error, reload } = useApi<Hub>('/api/integrations')
+  const writes = useApi<WriteData>('/api/calendar-write')
+  const refresh = () => { reload(); writes.reload() }
   const [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [disconnecting, setDisconnecting] = useState<ConnectedAccount | null>(null), [replacingFeed, setReplacingFeed] = useState(false)
   const labelOf = (provider: string) => data?.providers.find(p => p.provider === provider)?.label ?? provider
   useEffect(() => {
-    const connected = params.get('connected'), problem = params.get('error')
-    if (!connected && !problem) return
+    const connected = params.get('connected'), problem = params.get('error'), granted = params.get('write_granted')
+    if (!connected && !problem && !granted) return
+    if (granted) toast(t('Permission granted. Pick the calendar LifeOS may add events to — nothing is added until you confirm each one.', 'تم منح الإذن. اختر التقويم الذي يضيف إليه LifeOS المواعيد — لا يُضاف شيء قبل تأكيدك لكل موعد.'))
     if (connected) toast(t(`${connected} connected. Only the primary calendar or list is included — choose more below.`, `تم الربط. يُضمَّن التقويم أو القائمة الرئيسية فقط — اختر المزيد أدناه.`))
-    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.'), 'error')
+    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.'), write_scope: t('The permission to add events was not granted, so nothing changed.', 'لم يُمنح إذن إضافة المواعيد، فلم يتغير شيء.'), write_account: t('A different account signed in. Allow adding events with the same account that is connected here.', 'سجّل حساب مختلف الدخول. اسمح بإضافة المواعيد بالحساب نفسه المرتبط هنا.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.'), 'error')
     setParams({}, { replace: true })
   }, [params, setParams, toast, t])
   async function act<T>(key: string, fn: () => Promise<T>, success?: string) {
@@ -91,13 +96,16 @@ export default function IntegrationsSettings() {
             <p className="muted small scopes">{provider.scopes}</p>
             {provider.accounts.length === 0 && <p className="muted">{t('No account connected.', 'لا يوجد حساب مرتبط.')}</p>}
             <ul className="account-list">{provider.accounts.map(account => <AccountCard key={account.id} account={account} label={provider.label} tasks={category.key === 'tasks'} requiredScopes={provider.required_scopes ?? []} busy={busy}
-              onSync={() => void syncNow(account)} onReconnect={() => provider.connect_mode === 'url' ? setReplacingFeed(true) : void connect(provider)} onDisconnect={() => setDisconnecting(account)} onSaved={reload} />)}</ul>
+              onSync={() => void syncNow(account)} onReconnect={() => provider.connect_mode === 'url' ? setReplacingFeed(true) : void connect(provider)} onDisconnect={() => setDisconnecting(account)} onSaved={refresh}>
+              {account.write && <WriteAccess accountId={account.id} label={provider.label} write={account.write} orphans={(writes.data?.links ?? []).filter(l => l.orphan && l.account_id === account.id)} onChanged={refresh} />}
+            </AccountCard>)}</ul>
             {provider.connect_mode === 'url' ? <FeedSubscribe replacing={replacingFeed} onDone={() => { setReplacingFeed(false); reload() }} /> : <button className="primary" disabled={busy !== null} aria-label={provider.accounts.length ? t(`Connect another ${provider.label} account`, `ربط حساب ${provider.label} آخر`) : undefined} onClick={() => void connect(provider)}><Link2 size={16} />{busy === provider.provider ? t('Opening…', 'جارٍ الفتح…') : provider.accounts.length ? t('Connect another account', 'ربط حساب آخر') : t(`Connect ${provider.label}`, `ربط ${provider.label}`)}</button>}
           </>}
       </section>)}</div>
     </section> })}
     {disconnecting && <Dialog title={t(`Disconnect ${labelOf(disconnecting.provider)}?`, `فصل ${labelOf(disconnecting.provider)}؟`)} onClose={() => setDisconnecting(null)}>
       <p className="muted">{t('Imported events and tasks will be removed from LifeOS; tasks you copied into LifeOS stay. Nothing changes in the connected app.', 'ستُحذف المواعيد والمهام المستوردة من LifeOS؛ وتبقى المهام التي نسختها إلى LifeOS. لن يتغير شيء في التطبيق المرتبط.')}</p>
+      {(disconnecting.write?.copies ?? 0) > 0 && <p className="banner compact">{t(`${disconnecting.write?.copies} event(s) LifeOS added stay in ${labelOf(disconnecting.provider)}. Remove them first if you don’t want them.`, `تبقى ${disconnecting.write?.copies} مواعيد أضافها LifeOS في ${labelOf(disconnecting.provider)}. أزلها أولاً إن لم تكن تريدها.`)}</p>}
       <div className="toolbar"><button className="quiet" onClick={() => setDisconnecting(null)}>{t('Cancel', 'إلغاء')}</button><button className="danger" disabled={busy !== null} onClick={() => { const a = disconnecting; setDisconnecting(null); void act(`del-${a.id}`, () => api(`/api/integrations/accounts/${a.id}`, 'DELETE'), t('Disconnected.', 'تم الفصل.')) }}>{t('Disconnect', 'فصل')}</button></div>
     </Dialog>}
   </div>
