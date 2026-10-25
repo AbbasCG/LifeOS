@@ -1735,7 +1735,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (4317fd9) after PR
 
 # V16 — Weekly plan drafts
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (eabfeca) after PR #14 (V15) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (eabfeca) after PR #14 (V15) was merged. Merged into `main` as PR #15.
 
 ## What changed
 - **Weekly plan drafts** (`WeeklyDraftService`; opt-in, off by default). The user chooses:
@@ -1790,3 +1790,49 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (eabfeca) after PR
 - **The scheduler needs `schedule:run` (cron) on the server.** It checks every 15 minutes, so a draft can arrive up to 15 minutes after the chosen time. Missed days are not caught up.
 - **The draft is computed when it is prepared.** Calendar changes made afterwards are caught at apply time (clashing blocks are refused), not by re-planning.
 - **The first answer always comes from the local planners**, as for suggestions opened in Copilot (V14).
+
+# V17 — Voice in Copilot
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ef77767) after PR #15 (V16) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Dictation in the Copilot composer.** A microphone button next to Send uses the browser's built-in speech recognition (Web Speech API, `src/lib/voice.ts`). No new dependency, and no LifeOS endpoint receives audio.
+- **Never sent by voice.**
+  - Spoken text is appended to the message box for the user to read, edit and send.
+  - While listening, the live transcript shows under the box ("Listening… “plan my week around”").
+  - Listening stops after a pause, with the button (pressed state, Esc), or when a message is being sent.
+- **Language.** English or Arabic follows the app language, using the browser's regional variant when it has one (en-GB, ar-EG…); otherwise en-US or ar-SA.
+- **Consent per device.** The first use on a device explains that some browsers (Chrome, Edge) send the audio to their own speech service, and that LifeOS never receives or stores audio. It starts only after "Allow and start". The choice is kept in this browser (`localStorage`); declining records nothing.
+- **Account switch.**
+  - "Voice input in Copilot" in the AI Control Center (`voice_input`, on by default; each device still asks first).
+  - Switching it off hides the button and forgets this device's consent. "Forget voice consent on this device" is also available.
+  - Exposed as `voice_allowed` in `/api/assistant/status` and `external_ai.voice` in the AI settings.
+- **Browser support.** The button only appears where the browser has speech recognition (Chrome, Edge, Safari; not Firefox).
+- **Errors** are explained in both languages: microphone blocked or missing, nothing heard, speech service unreachable, language not supported.
+
+## Testing
+- **Backend:** `VoiceInputTest` (2 tests): allowed by default, switch off and back via `/api/settings`, validated, per account. The `AiControlCenterTest` expectation now includes `voice`.
+- **Vitest:** `v17.test.tsx` (5 tests), with a fake recognizer driven by the test.
+  - Hidden without browser support.
+  - The consent dialog before the first start; interim text shown; final text appended without sending; Esc stops; no second consent.
+  - Declining starts nothing; Arabic recognition language and the "blocked" message.
+  - Listening stops while a message is sent.
+  - Regional language choice.
+- **Playwright:** `voice.spec.ts`, desktop and mobile. It replaces both `SpeechRecognition` and `webkitSpeechRecognition` (Chromium has both).
+  - Consent, then the composer is filled, nothing is sent, and a second dictation appends without asking.
+  - The account switch in Arabic hides and restores the button.
+- **Results:**
+  - **Backend:** 274/274 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 123/123.
+  - **Playwright:** 38/38.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** (EN desktop, AR Pixel 7 dark, fake recognizer): no overflow and no unexpected console errors.
+  - Fixed during QA: the composer's send-button rule (`.chat-form .primary`, no padding) also hit the consent dialog's button inside the form and clipped its label. It is now scoped to `.chat-form > .primary`.
+  - Fixed during QA: the idle microphone was barely visible; it now uses the quiet button style.
+- **Not verified:** real speech recognition with a microphone, in any browser. Recognition quality, Arabic dialects and how each browser's speech service handles audio are outside LifeOS and were not tested.
+
+## Known limitations (V17)
+- **Dictation only:** there is no spoken reply (text-to-speech) and no voice commands. "Apply" still requires the button.
+- **Depends on the browser.** Firefox has no Web Speech recognition, so no button. Chrome and Edge need a network connection to their speech service.
+- **Language follows the app language;** a mixed English/Arabic sentence is transcribed in one language.
+- **Consent is per browser.** Clearing site data asks again.

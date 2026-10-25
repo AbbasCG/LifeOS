@@ -86,7 +86,7 @@ class IntelligenceController extends Controller
             'settings' => IntelligenceSettings::for($user),
             'options' => ['features' => IntelligenceSettings::FEATURES, 'sources' => IntelligenceSettings::SOURCES, 'frequencies' => IntelligenceSettings::FREQUENCIES,
                 'retention_days' => IntelligenceSettings::RETENTION, 'strategies' => IntelligenceSettings::STRATEGIES],
-            'external_ai' => ['allowed' => (bool) ($prefs['assistant_external'] ?? true), 'connected_data' => (bool) ($prefs['ai_connected_data'] ?? false),
+            'external_ai' => ['allowed' => (bool) ($prefs['assistant_external'] ?? true), 'connected_data' => (bool) ($prefs['ai_connected_data'] ?? false), 'voice' => (bool) ($prefs['voice_input'] ?? true),
                 'provider' => $active ? ['label' => $active->label(), 'model' => $active->model()] : null, 'in_use' => $provider !== null],
             'counts' => ['recommendations' => Recommendation::where('user_id', $user->id)->count(), 'feedback' => Recommendation::where('user_id', $user->id)->whereNotNull('feedback')->count(),
                 'proposals' => AssistantProposal::where('user_id', $user->id)->count(), 'conversations' => Conversation::where('user_id', $user->id)->count(),

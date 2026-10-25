@@ -37,7 +37,7 @@ class AiControlCenterTest extends TestCase
     {
         $s = $this->getJson('/api/intelligence/settings')->assertOk();
         $this->assertSame([true, false, 'quiet', 90, false], [$s->json('settings.enabled'), $s->json('settings.personalization'), $s->json('settings.frequency'), $s->json('settings.retention_days'), $s->json('settings.features.ai_narrative')]);
-        $this->assertSame(['allowed' => true, 'connected_data' => false, 'provider' => null, 'in_use' => false], $s->json('external_ai'));
+        $this->assertSame(['allowed' => true, 'connected_data' => false, 'voice' => true, 'provider' => null, 'in_use' => false], $s->json('external_ai'));
 
         $this->putJson('/api/intelligence/settings', ['frequency' => 'hourly'])->assertUnprocessable();
         $this->putJson('/api/intelligence/settings', ['sources' => ['email' => true]])->assertUnprocessable();

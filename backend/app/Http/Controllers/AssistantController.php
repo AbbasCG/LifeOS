@@ -38,6 +38,8 @@ class AssistantController extends Controller
             'active' => $active ? ['provider' => $active->name(), 'label' => $active->label(), 'model' => $active->model()] : ['provider' => 'local', 'label' => 'Local assistant', 'model' => null],
             'selected' => (string) config('ai.provider'),
             'external_allowed' => (bool) ($request->user()->preferences()['assistant_external'] ?? true),
+            // Dictation runs in the browser (its own speech service); this only says whether the account allows the button.
+            'voice_allowed' => (bool) ($request->user()->preferences()['voice_input'] ?? true),
             'providers' => collect($providers->all())->map(fn ($p) => ['provider' => $p->name(), 'label' => $p->label(), 'configured' => $p->isConfigured(), 'selected' => config('ai.provider') === $p->name(), 'model' => $p->model()])->values(),
         ]);
     }

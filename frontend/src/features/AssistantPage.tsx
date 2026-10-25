@@ -11,6 +11,7 @@ import { useApi } from '../lib/useApi'
 import { ProposalCard } from './assistant/ProposalCard'
 import { ContextChips, PlanCard, SourceBadge } from './assistant/PlanCard'
 import { LivingOrb } from '../components/orb/LivingOrb'
+import { VoiceButton } from './assistant/VoiceButton'
 import { clientId, exportUrl, sendCopilot, TEMPLATES_CHANGED, type Choice, type ConversationList, type CopilotMessage, type PlanTemplate, type Stage } from '../lib/copilot'
 
 /**
@@ -219,6 +220,7 @@ export default function AssistantPage() {
         <form onSubmit={submit} className="chat-form">
           <label className="sr-only" htmlFor="assistant-input">{t('Message', 'الرسالة')}</label>
           <textarea id="assistant-input" value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(message) } }} required maxLength={4000} rows={2} placeholder={t('Ask anything about your work… (Enter to send)', 'اسأل عن عملك… (Enter للإرسال)')} />
+          {status?.voice_allowed !== false && <VoiceButton disabled={busy} onText={text => setMessage(m => `${m.trimEnd()}${m.trim() ? ' ' : ''}${text}`.slice(0, 4000))} />}
           <button className="primary" disabled={busy || !message.trim()} aria-label={t('Send', 'إرسال')}><Send size={17} className="flip-rtl" /></button>
         </form>
         <p className="muted small approval-note">{t('Changes are only applied with the Apply button on a proposal — saying “yes” in chat never applies anything.', 'تُطبّق التغييرات فقط بزر «تطبيق» في الاقتراح — قول «نعم» في الدردشة لا يطبّق شيئاً.')}</p>

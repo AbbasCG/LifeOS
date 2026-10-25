@@ -33,7 +33,7 @@ export type LearningScope = 'day_off' | 'workday' | 'light' | 'normal' | 'heavy'
 export type IntelligenceSettingsData = {
   settings: IntelligencePrefs
   options: { retention_days: number[]; strategies: string[] }
-  external_ai: { allowed: boolean; connected_data: boolean; provider: { label: string; model: string } | null; in_use: boolean }
+  external_ai: { allowed: boolean; connected_data: boolean; voice?: boolean; provider: { label: string; model: string } | null; in_use: boolean }
   counts: { recommendations: number; feedback: number; proposals: number; conversations?: number; conversation_messages?: number }
   /** Opt-in plan learning: counts and recency-weighted shares per choice, the preferred option once one clearly wins, and preferences for particular situations. */
   learning?: { thresholds: { count: number; share: number; half_life_days?: number; max_age_days?: number }; dimensions: { dimension: string; counts: Record<string, number>; total: number; shares?: Record<string, number>; preferred: string | null; contexts?: { scope: LearningScope; preferred: string }[] }[] }
