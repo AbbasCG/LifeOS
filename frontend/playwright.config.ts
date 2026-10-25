@@ -15,7 +15,7 @@ process.env.E2E_PASSWORD ??= `e2e-${randomBytes(12).toString('hex')}`
 const isolated = {
   APP_ENV: 'testing', APP_DEBUG: 'false', APP_URL: 'http://127.0.0.1:8000', FRONTEND_URL: 'http://127.0.0.1:4173',
   DB_CONNECTION: 'sqlite', DB_DATABASE: process.env.E2E_DB, SESSION_DRIVER: 'database', CACHE_STORE: 'database', QUEUE_CONNECTION: 'sync',
-  AI_PROVIDER: 'disabled', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '',
+  AI_PROVIDER: 'disabled', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', AI_REQUESTS_PER_MINUTE: '200',
   GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', MICROSOFT_CLIENT_ID: '', MICROSOFT_CLIENT_SECRET: '', TODOIST_CLIENT_ID: '', TODOIST_CLIENT_SECRET: '',
   LIFEOS_DEMO_ENABLED: 'true', LIFEOS_CALENDAR_WRITE: 'false', MAIL_MAILER: 'array',
 }

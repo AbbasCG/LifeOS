@@ -5,9 +5,12 @@ namespace App\Http\Controllers;
 use App\Integrations\Ai\AiProviders;
 use App\Models\AssistantProposal;
 use App\Models\AuditLog;
+use App\Models\Conversation;
+use App\Models\ConversationMessage;
 use App\Models\Recommendation;
 use App\Services\AssistantService;
 use App\Services\AuditLogger;
+use App\Services\ConversationService;
 use App\Services\IntelligenceSettings;
 use App\Services\MorningIntelligence;
 use App\Services\RecommendationService;
@@ -24,7 +27,7 @@ use Illuminate\Validation\Rule;
 class IntelligenceController extends Controller
 {
     /** Audit actions shown in the AI activity history. */
-    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted',
+    public const ACTIVITY = ['ai_action_executed', 'ai_action_undone', 'recommendation_acted', 'recommendation_dismissed', 'ai_settings_changed', 'ai_personalization_reset', 'ai_data_deleted', 'conversation_deleted',
         'calendar_write', 'calendar_write_failed', 'calendar_write_granted', 'calendar_write_enabled', 'calendar_write_disabled'];
 
     public function __construct(private RecommendationService $recommendations, private AuditLogger $audit) {}
@@ -75,7 +78,8 @@ class IntelligenceController extends Controller
             'external_ai' => ['allowed' => (bool) ($prefs['assistant_external'] ?? true), 'connected_data' => (bool) ($prefs['ai_connected_data'] ?? false),
                 'provider' => $active ? ['label' => $active->label(), 'model' => $active->model()] : null, 'in_use' => $provider !== null],
             'counts' => ['recommendations' => Recommendation::where('user_id', $user->id)->count(), 'feedback' => Recommendation::where('user_id', $user->id)->whereNotNull('feedback')->count(),
-                'proposals' => AssistantProposal::where('user_id', $user->id)->count()],
+                'proposals' => AssistantProposal::where('user_id', $user->id)->count(), 'conversations' => Conversation::where('user_id', $user->id)->count(),
+                'conversation_messages' => ConversationMessage::where('user_id', $user->id)->count()],
         ]);
     }
 
@@ -95,6 +99,7 @@ class IntelligenceController extends Controller
         $this->audit->log($request->user(), 'ai_settings_changed', $request, ['changed' => array_keys($data)]);
         if (array_key_exists('retention_days', $data)) {
             $this->recommendations->prune($request->user());
+            app(ConversationService::class)->prune($request->user());
         }
 
         return response()->json(['settings' => $saved]);
@@ -119,23 +124,28 @@ class IntelligenceController extends Controller
         ]);
     }
 
-    /** Forget what personalization learned from feedback (the recommendations themselves stay). */
+    /**
+     * Forget what personalization learned: recommendation feedback is cleared and conversation personalization starts
+     * over from now (the recommendations and conversations themselves stay).
+     */
     public function resetPersonalization(Request $request): JsonResponse
     {
         $cleared = Recommendation::where('user_id', $request->user()->id)->whereNotNull('feedback')->update(['feedback' => null, 'feedback_at' => null]);
+        IntelligenceSettings::save($request->user(), ['conversation_reset_at' => now()->toIso8601String()]);
         $this->audit->log($request->user(), 'ai_personalization_reset', $request, ['deleted' => $cleared]);
 
         return response()->json(['cleared' => $cleared]);
     }
 
     /**
-     * Delete stored AI data: recommendations (with feedback) and Copilot proposals. Tasks, events and other work data are
+     * Delete stored AI data: recommendations (with feedback), Copilot proposals and conversations. Tasks, events and other work data are
      * untouched; the audit trail of applied changes is kept for security.
      */
     public function deleteData(Request $request): JsonResponse
     {
         $user = $request->user();
-        $deleted = ['recommendations' => Recommendation::where('user_id', $user->id)->delete(), 'proposals' => AssistantProposal::where('user_id', $user->id)->delete()];
+        $deleted = ['recommendations' => Recommendation::where('user_id', $user->id)->delete(), 'proposals' => AssistantProposal::where('user_id', $user->id)->delete(),
+            'conversations' => Conversation::where('user_id', $user->id)->delete()];
         $this->audit->log($user, 'ai_data_deleted', $request, ['deleted' => array_sum($deleted)]);
 
         return response()->json(['deleted' => $deleted]);

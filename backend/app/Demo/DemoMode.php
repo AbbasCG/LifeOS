@@ -17,7 +17,7 @@ class DemoMode
 
     /** Tables with a user_id column, deleted children-first. */
     public const OWNED_TABLES = [
-        'automation_runs', 'automation_rules', 'recommendations', 'assistant_proposals', 'inbox_notifications', 'push_subscriptions', 'calendar_write_links',
+        'conversation_messages', 'conversations', 'automation_runs', 'automation_rules', 'recommendations', 'assistant_proposals', 'inbox_notifications', 'push_subscriptions', 'calendar_write_links',
         'external_tasks', 'external_events', 'calendar_accounts', 'calendar_events', 'focus_sessions', 'daily_checkins', 'weekly_reviews', 'schedule_proposals',
         'tasks', 'habits', 'goals', 'projects', 'categories',
     ];

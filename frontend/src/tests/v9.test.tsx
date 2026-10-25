@@ -94,7 +94,7 @@ describe('recommendation card', () => {
 })
 
 const settings: IntelligenceSettingsData = {
-  settings: { enabled: true, features: { briefing: true, recommendations: true, weekly: true, planner: true, ai_narrative: false }, sources: { calendar: true, connected: true, goals: true, habits: true, focus: true, checkins: true }, frequency: 'quiet', personalization: false, retention_days: 90, planning_strategy: null },
+  settings: { enabled: true, features: { briefing: true, recommendations: true, weekly: true, planner: true, ai_narrative: false, conversation_personalization: false }, sources: { calendar: true, connected: true, goals: true, habits: true, focus: true, checkins: true }, frequency: 'quiet', personalization: false, retention_days: 90, planning_strategy: null },
   options: { retention_days: [30, 90, 180], strategies: ['balanced', 'deep', 'light', 'deadlines'] },
   external_ai: { allowed: true, connected_data: false, provider: null, in_use: false }, counts: { recommendations: 4, feedback: 2, proposals: 3 },
 }
@@ -112,7 +112,7 @@ describe('AI Control Center', () => {
     await waitFor(() => expect(calls(f, 'PUT', /\/api\/settings$/)).toEqual([{ ai_connected_data: true }]))
     expect(await screen.findByText('Plan for Monday')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Delete AI data/ }))
-    expect(screen.getByText(/permanently deletes 4 suggestion\(s\) with your ratings and 3 Copilot proposal\(s\)/)).toBeInTheDocument()
+    expect(screen.getByText(/permanently deletes 4 suggestion\(s\) with your ratings, 3 Copilot proposal\(s\) and 0 conversation\(s\)/)).toBeInTheDocument()
     expect(calls(f, 'DELETE', /data$/)).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
     await waitFor(() => expect(calls(f, 'DELETE', /intelligence\/data$/).length).toBe(1))

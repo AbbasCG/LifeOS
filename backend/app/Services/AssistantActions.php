@@ -338,6 +338,21 @@ class AssistantActions
     }
 
     /**
+     * New LifeOS calendar blocks computed by a planner (Copilot plans) as one proposal: the same preview, partial
+     * approval, re-validation at apply time and undo as every other proposal. Never writes to connected calendars.
+     *
+     * @param  list<array{title: string, task_id: int|null, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>  $blocks
+     * @param  list<string>  $explanation
+     */
+    public function proposeBlocks(User $user, string $kind, string $provider, string $summary, array $explanation, array $blocks): AssistantProposal
+    {
+        $actions = array_values(array_map(fn (array $b, int $i) => ['id' => 'a'.($i + 1), 'type' => 'create_event', 'title' => mb_substr($b['title'], 0, 200), 'task_id' => $b['task_id'],
+            'starts_at' => $b['starts_at']->utc()->toIso8601String(), 'ends_at' => $b['ends_at']->utc()->toIso8601String(), 'minutes' => (int) $b['starts_at']->diffInMinutes($b['ends_at'])], $blocks, array_keys($blocks)));
+
+        return $this->store($user, $kind, $provider, $summary, $explanation, $actions);
+    }
+
+    /**
      * Execute the approved subset of a proposal atomically. Any invalid action aborts everything.
      *
      * @param  list<string>  $actionIds

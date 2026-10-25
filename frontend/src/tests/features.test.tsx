@@ -92,16 +92,25 @@ describe('dashboard', () => {
 
 describe('assistant', () => {
   it('sends a prompt chip and renders the local reply with actionable steps', async () => {
-    mockApi([
+    const reply = { id: 2, role: 'assistant', content: 'Here’s a suggested breakdown.', intent: 'breakdown', provider: 'local', created_at: '2027-01-04T10:00:00Z', subtasks: [{ title: 'Define the outcome', estimated_minutes: 10 }, { title: 'Do the core work', estimated_minutes: 45 }], tasks: [{ id: 9, title: 'Thesis', priority: 'high', estimated_minutes: 60, due_at: null }], context: { shared: false, sources: [{ source: 'tasks' }] } }
+    const asked = { id: 1, role: 'user', content: 'Break down my top task into steps', intent: null, provider: null, created_at: '2027-01-04T10:00:00Z' }
+    const conversation = { id: '9b2c6f5e-0000-4000-8000-000000000001', title: 'Break down my top task into steps', language: 'en', last_message_at: '2027-01-04T10:00:00Z', created_at: '2027-01-04T10:00:00Z' }
+    const fetcher = mockApi([
       { match: /\/api\/user$/, body: { id: 1, name: 'A', email: 'a@example.com' } },
-      { match: /\/api\/assistant$/, method: 'POST', body: { provider: 'local', intent: 'breakdown', message: 'Here’s a suggested breakdown.', subtasks: [{ title: 'Define the outcome', estimated_minutes: 10 }, { title: 'Do the core work', estimated_minutes: 45 }], tasks: [{ id: 9, title: 'Thesis', priority: 'high', estimated_minutes: 60, due_at: null }], suggestions: ['How was my week?'] } },
+      { match: /\/api\/copilot\/conversations\?/, body: { conversations: [], suggestions: ['Break down my top task into steps', 'How was my week?'], personalization: false, retention_days: 90 } },
+      { match: /\/api\/copilot\/conversations\/[0-9a-f-]+$/, body: { conversation, messages: [asked, reply] } },
+      { match: /\/api\/copilot\/messages$/, method: 'POST', body: { conversation, user_message: asked, message: reply, replayed: false } },
     ])
     render(wrap(<AssistantPage />))
-    fireEvent.click(screen.getByRole('button', { name: 'Break down my top task into steps' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Break down my top task into steps' }))
     expect(await screen.findByText('Here’s a suggested breakdown.')).toBeInTheDocument()
-    expect(screen.getByText('Local assistant')).toBeInTheDocument()
+    expect(screen.getByText(/Rule-based · Local assistant/)).toBeInTheDocument()
+    expect(screen.getByText('Used on this server:')).toBeInTheDocument()
     expect(screen.getByText('Do the core work')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Add as steps to this task/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'How was my week?' })).toBeInTheDocument()
+    const body = JSON.parse(fetcher.mock.calls.find(c => String(c[0]).endsWith('/api/copilot/messages'))![1]!.body as string)
+    expect(body).toMatchObject({ message: 'Break down my top task into steps', language: 'en' })
+    expect(body.client_id).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 })

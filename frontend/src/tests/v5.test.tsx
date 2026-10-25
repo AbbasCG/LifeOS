@@ -184,7 +184,9 @@ describe('copilot v3', () => {
   })
   it('shows conflict findings as linked items', async () => {
     mockApi([user, { match: /\/api\/assistant\/status$/, body: { active: { provider: 'local', label: 'Local assistant', model: null }, selected: 'disabled', external_allowed: true, providers: [] } }, { match: /\/api\/assistant\/proposals$/, body: [] },
-      { match: /\/api\/assistant$/, method: 'POST', body: { provider: 'local', intent: 'conflicts', message: 'In the next 7 days I found 1 calendar overlap(s).', subtasks: [], tasks: [], proposal: null, suggestions: [], items: [{ type: 'overlap', title: 'Client call ↔ Team sync', detail: 'Mon 10:30 · overlap 30 min', link: '/calendar' }] } }])
+      { match: /\/api\/copilot\/messages$/, method: 'POST', body: { conversation: { id: 'c0ffee00-0000-4000-8000-000000000001', title: 'Do I have any conflicts?', language: 'en', last_message_at: '2027-01-04T10:00:00Z', created_at: '2027-01-04T10:00:00Z' }, replayed: false,
+        user_message: { id: 1, role: 'user', content: 'Do I have any conflicts?', intent: null, provider: null, created_at: '2027-01-04T10:00:00Z' },
+        message: { id: 2, role: 'assistant', provider: 'local', intent: 'conflicts', content: 'In the next 7 days I found 1 calendar overlap(s).', created_at: '2027-01-04T10:00:00Z', subtasks: [], tasks: [], proposal: null, items: [{ type: 'overlap', title: 'Client call ↔ Team sync', detail: 'Mon 10:30 · overlap 30 min', link: '/calendar' }] } } }])
     render(wrap(<AssistantPage />))
     fireEvent.click(screen.getByRole('button', { name: 'Do I have any conflicts?' }))
     expect(await screen.findByRole('link', { name: 'Client call ↔ Team sync' })).toHaveAttribute('href', '/calendar')
