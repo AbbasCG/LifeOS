@@ -119,7 +119,7 @@ class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvide
                     'ical_uid' => isset($item['iCalUId']) ? mb_substr((string) $item['iCalUId'], 0, 1024) : null,
                     'series_id' => $item['seriesMasterId'] ?? null,
                     'original_start' => isset($item['originalStart']) ? CarbonImmutable::parse($item['originalStart'])->utc() : null,
-                    'timezone' => $item['originalStartTimeZone'] ?? null,
+                    'timezone' => WindowsZones::toIana($item['originalStartTimeZone'] ?? null),
                 ];
             }
             $url = $page['@odata.nextLink'] ?? null;

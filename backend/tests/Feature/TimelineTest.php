@@ -138,4 +138,32 @@ class TimelineTest extends TestCase
         $this->assertContains('Client call', $flagged);
         $this->assertNotContains('Retro', $flagged, 'informational changes are not flagged as conflicts');
     }
+
+    public function test_moving_a_lifeos_event_previews_conflicts_before_saving(): void
+    {
+        $block = CalendarEvent::create(['user_id' => $this->user->id, 'title' => 'Write report', 'kind' => 'flexible', 'starts_at' => $this->at('2027-03-23 10:30'), 'ends_at' => $this->at('2027-03-23 11:30')]);
+        $standup = CalendarEvent::create(['user_id' => $this->user->id, 'title' => 'Stand-up', 'kind' => 'flexible', 'timezone' => 'Europe/Amsterdam', 'recurrence' => ['freq' => 'daily'], 'starts_at' => $this->at('2027-03-22 09:00'), 'ends_at' => $this->at('2027-03-22 09:15')]);
+        $this->external($this->google, 'g1', 'Client call', '2027-03-23 13:00', '2027-03-23 14:00');
+        $items = collect($this->actingAs($this->user)->getJson('/api/timeline?from=2027-03-23')->assertOk()->json('items'));
+        $this->assertSame($block->id, $items->firstWhere('title', 'Write report')['meta']['event_id']);
+        $occurrence = $items->firstWhere('title', 'Stand-up')['meta'];
+        $this->assertSame([$standup->id, $this->at('2027-03-23 09:00')->toIso8601String()], [$occurrence['event_id'], $occurrence['occurrence_start']]);
+        $this->assertArrayNotHasKey('event_id', $items->firstWhere('title', 'Client call')['meta'], 'connected events cannot be moved');
+
+        $preview = fn (array $q) => $this->getJson('/api/timeline/preview?'.http_build_query($q))->assertOk();
+        $clash = $preview(['event_id' => $block->id, 'starts_at' => $this->at('2027-03-23 13:30')->toIso8601String(), 'ends_at' => $this->at('2027-03-23 14:30')->toIso8601String()]);
+        $this->assertSame([['Client call', 'google', true, 30]], collect($clash->json('conflicts'))->map(fn ($c) => [$c['title'], $c['source'], $c['read_only'], $c['minutes']])->all());
+        $this->assertSame([], $preview(['event_id' => $block->id, 'starts_at' => $this->at('2027-03-23 10:45')->toIso8601String(), 'ends_at' => $this->at('2027-03-23 11:45')->toIso8601String()])->json('conflicts'), 'its own old slot is not a conflict');
+        $this->assertSame([], $preview(['event_id' => $standup->id, 'occurrence_start' => $occurrence['occurrence_start'], 'starts_at' => $this->at('2027-03-23 09:05')->toIso8601String(), 'ends_at' => $this->at('2027-03-23 09:20')->toIso8601String()])->json('conflicts'));
+        $this->assertSame(['Stand-up'], collect($preview(['event_id' => $block->id, 'starts_at' => $this->at('2027-03-24 09:00')->toIso8601String(), 'ends_at' => $this->at('2027-03-24 10:00')->toIso8601String()])->json('conflicts'))->pluck('title')->all());
+
+        // Saving uses the calendar endpoint, which enforces the same rule.
+        $this->patchJson("/api/events/{$block->id}", ['starts_at' => $this->at('2027-03-23 13:30')->toIso8601String(), 'ends_at' => $this->at('2027-03-23 14:30')->toIso8601String()])->assertUnprocessable();
+        $this->patchJson("/api/events/{$block->id}", ['starts_at' => $this->at('2027-03-23 15:00')->toIso8601String(), 'ends_at' => $this->at('2027-03-23 16:00')->toIso8601String()])->assertOk();
+        $this->assertSame('15:00', $block->fresh()->starts_at->setTimezone('Europe/Amsterdam')->format('H:i'));
+
+        $other = CalendarEvent::create(['user_id' => User::factory()->create()->id, 'title' => 'Not mine', 'starts_at' => $this->at('2027-03-23 08:00'), 'ends_at' => $this->at('2027-03-23 09:00')]);
+        $this->getJson('/api/timeline/preview?'.http_build_query(['event_id' => $other->id, 'starts_at' => '2027-03-23T10:00:00Z', 'ends_at' => '2027-03-23T11:00:00Z']))->assertNotFound();
+        $this->getJson('/api/timeline/preview?'.http_build_query(['event_id' => $block->id, 'starts_at' => '2027-03-23T10:00:00Z', 'ends_at' => '2027-03-23T09:00:00Z']))->assertUnprocessable();
+    }
 }

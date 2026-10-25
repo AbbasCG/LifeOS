@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Integrations\Calendar\CalendarProviders;
 use App\Models\CalendarAccount;
+use App\Models\CalendarEvent;
 use App\Models\Category;
 use App\Models\ExternalTask;
 use App\Models\FocusSession;
@@ -37,6 +38,24 @@ class TimelineService
      * @param  array{sources?: list<string>, accounts?: list<int>, areas?: list<string>, kinds?: list<string>}  $filters
      * @return array<string, mixed>
      */
+    /**
+     * What moving one LifeOS event (or one occurrence) to [start, end) would collide with, before anything is saved.
+     *
+     * @return array{conflicts: list<array<string, mixed>>, fixed: bool, recurring: bool}
+     */
+    public function preview(User $user, CalendarEvent $event, ?CarbonImmutable $occurrence, CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $labels = collect($this->providers->all())->map(fn ($p) => $p->label());
+        $conflicts = $this->calendar->conflicts($user, $start, $end, $event->id, $event->isRecurring() ? $occurrence : null)
+            // A series move only changes this occurrence, so other occurrences of the same series still count.
+            ->map(fn (array $o) => ['title' => $o['title'], 'source' => $o['source'] ?? 'lifeos', 'source_label' => ($o['source'] ?? 'lifeos') === 'lifeos' ? 'LifeOS' : ($labels[$o['source']] ?? $o['source']),
+                'starts_at' => $o['starts_at']->toIso8601String(), 'ends_at' => $o['ends_at']->toIso8601String(), 'read_only' => ! ($o['editable'] ?? false),
+                'minutes' => (int) max($start, $o['starts_at'])->diffInMinutes(min($end, $o['ends_at']))])
+            ->values()->all();
+
+        return ['conflicts' => $conflicts, 'fixed' => $event->kind === 'fixed', 'recurring' => $event->isRecurring()];
+    }
+
     public function build(User $user, CarbonImmutable $fromDay, CarbonImmutable $toDay, array $filters = []): array
     {
         $tz = $user->timezone();
@@ -59,7 +78,8 @@ class TimelineService
                 'title' => $o['title'], 'starts_at' => $o['starts_at']->toIso8601String(), 'ends_at' => $o['ends_at']->toIso8601String(), 'all_day' => (bool) ($o['all_day'] ?? false),
                 'area' => isset($o['task_id']) && $o['task_id'] ? $taskAreas($eventTasks[$o['task_id']]->category_id ?? null) : null,
                 'read_only' => ! ($o['editable'] ?? false), 'status' => $o['kind'] ?? 'fixed', 'recurring' => (bool) ($o['recurring'] ?? false),
-                'moved_from' => $o['moved_from'] ?? null, 'link' => '/calendar', 'meta' => array_filter(['task_id' => $o['task_id'] ?? null, 'timezone' => $source !== 'lifeos' ? ($o['timezone'] ?? null) : null]),
+                'moved_from' => $o['moved_from'] ?? null, 'link' => '/calendar', 'meta' => array_filter(['task_id' => $o['task_id'] ?? null, 'timezone' => $source !== 'lifeos' ? ($o['timezone'] ?? null) : null,
+                    'event_id' => $source === 'lifeos' ? ($o['event_id'] ?? null) : null, 'occurrence_start' => isset($o['occurrence_start']) ? $o['occurrence_start']->toIso8601String() : null]),
             ]);
         }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CalendarEvent;
 use App\Services\TimelineService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -37,5 +38,27 @@ class TimelineController extends Controller
         return response()->json($timeline->build($user, $from, $to, [
             'sources' => $data['_sources'], 'accounts' => array_map('intval', $data['_accounts']), 'areas' => $data['_areas'], 'kinds' => $data['_kinds'],
         ]));
+    }
+
+    /**
+     * Conflict preview for moving a LifeOS event (or one occurrence of a series). Read-only: saving goes through the
+     * calendar endpoint, which re-checks conflicts and fixed commitments.
+     */
+    public function preview(Request $request, TimelineService $timeline): JsonResponse
+    {
+        $data = $request->validate([
+            'event_id' => 'required|integer',
+            'occurrence_start' => 'nullable|date',
+            'starts_at' => 'required|date',
+            'ends_at' => 'required|date|after:starts_at',
+        ]);
+        $event = CalendarEvent::where('user_id', $request->user()->id)->findOrFail($data['event_id']);
+        $start = CarbonImmutable::parse($data['starts_at'])->utc();
+        $end = CarbonImmutable::parse($data['ends_at'])->utc();
+        if ($start->diffInHours($end) > 24) {
+            throw ValidationException::withMessages(['ends_at' => ['Choose a slot of at most 24 hours.']]);
+        }
+
+        return response()->json($timeline->preview($request->user(), $event, isset($data['occurrence_start']) ? CarbonImmutable::parse($data['occurrence_start'])->utc() : null, $start, $end));
     }
 }

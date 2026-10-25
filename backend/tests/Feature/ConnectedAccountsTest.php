@@ -168,15 +168,26 @@ class ConnectedAccountsTest extends TestCase
 
     public function test_todoist_uses_its_own_oauth_and_parses_dates_and_priorities(): void
     {
+        $syncs = [];
         Http::fake([
             'todoist.com/oauth/access_token' => Http::response(['access_token' => 'td-token', 'token_type' => 'Bearer']),
             'api.todoist.com/api/v1/user' => Http::response(['id' => '42', 'email' => 'me@todoist.test', 'full_name' => 'Me']),
             'api.todoist.com/api/v1/projects*' => Http::response(['results' => [['id' => 'inbox', 'name' => 'Inbox', 'inbox_project' => true], ['id' => 'p2', 'name' => 'Side project']], 'next_cursor' => null]),
-            'api.todoist.com/api/v1/tasks*' => Http::response(['results' => [
-                ['id' => '1', 'content' => 'Call bank', 'priority' => 4, 'due' => ['date' => '2027-01-06']],
-                ['id' => '2', 'content' => 'Stand-up notes', 'priority' => 1, 'due' => ['date' => '2027-01-04T15:30:00', 'timezone' => null]],
-                ['id' => '3', 'content' => 'Ticked', 'checked' => true],
-            ], 'next_cursor' => null]),
+            'api.todoist.com/api/v1/sync' => function (HttpRequest $r) use (&$syncs) {
+                $syncs[] = $r->data();
+
+                return $r['sync_token'] === '*'
+                    ? Http::response(['full_sync' => true, 'sync_token' => 'st-1', 'items' => [
+                        ['id' => '1', 'project_id' => 'inbox', 'content' => 'Call bank', 'priority' => 4, 'due' => ['date' => '2027-01-06'], 'checked' => false, 'is_deleted' => false],
+                        ['id' => '2', 'project_id' => 'inbox', 'content' => 'Stand-up notes', 'priority' => 1, 'due' => ['date' => '2027-01-04T15:30:00', 'timezone' => null], 'checked' => false, 'is_deleted' => false],
+                        ['id' => '3', 'project_id' => 'inbox', 'content' => 'Ticked', 'checked' => true],
+                        ['id' => '4', 'project_id' => 'p2', 'content' => 'Side project task', 'checked' => false],
+                    ]])
+                    : Http::response(['full_sync' => false, 'sync_token' => 'st-2', 'items' => [
+                        ['id' => '1', 'project_id' => 'inbox', 'content' => 'Call bank', 'priority' => 4, 'due' => ['date' => '2027-01-06'], 'checked' => true, 'completed_at' => '2027-01-04T10:00:00.000000Z', 'is_deleted' => false],
+                        ['id' => '2', 'project_id' => 'inbox', 'content' => 'Stand-up notes', 'is_deleted' => true],
+                    ]]);
+            },
         ]);
         $url = $this->postJson('/api/integrations/todoist/connect')->assertOk()->json('authorization_url');
         $this->assertStringStartsWith('https://todoist.com/oauth/authorize?', $url);
@@ -189,11 +200,14 @@ class ConnectedAccountsTest extends TestCase
         $this->assertSame(['urgent', null], $tasks->pluck('priority')->all());
         $this->assertSame('2027-01-04 15:30', $tasks[1]->due_at->setTimezone('Europe/Amsterdam')->format('Y-m-d H:i'));
         $this->assertFalse($tasks[1]->due_is_date);
-        Http::assertSent(fn (HttpRequest $r) => str_contains($r->url(), 'api/v1/tasks') && str_contains($r->url(), 'project_id=inbox'));
-        Http::assertNotSent(fn (HttpRequest $r) => str_contains($r->url(), 'project_id=p2'));
+        $this->assertSame([['sync_token' => '*', 'resource_types' => '["items"]']], $syncs, 'one read-only Sync API call, items only');
 
-        // Non-expiring tokens keep syncing without a refresh token.
-        $this->postJson("/api/integrations/accounts/{$account->id}/sync")->assertOk()->assertJsonPath('account.status', 'active');
+        // Non-expiring tokens keep syncing without a refresh token; later reads are incremental and report completion and deletion.
+        $this->travelTo(CarbonImmutable::parse('2027-01-04 18:00', 'UTC'));
+        $this->postJson("/api/integrations/accounts/{$account->id}/sync")->assertOk()->assertJsonPath('account.status', 'active')->assertJsonPath('run.mode', 'incremental');
+        $this->assertSame('st-1', $syncs[1]['sync_token']);
+        $this->assertSame([['1', 'completed', '2027-01-04 10:00']], ExternalTask::get()->map(fn ($t) => [$t->external_id, $t->status, $t->completed_at->format('Y-m-d H:i')])->all());
+        $this->assertSame('st-2', $account->fresh()->sync_state['inbox']['token']);
     }
 
     public function test_connected_titles_reach_an_external_ai_only_with_consent(): void

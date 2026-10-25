@@ -242,7 +242,7 @@ class CopilotService
         $first = CarbonImmutable::now($tz)->startOfDay();
         $fmt = fn (string $iso) => CarbonImmutable::parse($iso)->setTimezone($tz)->locale($ar ? 'ar' : 'en')->translatedFormat($ar ? 'l H:i' : 'D H:i');
         $found = collect(app(ConflictService::class)->detect($user, CarbonImmutable::now()->utc(), $first->addDays($days)->utc()));
-        $source = fn (string $s) => ['google' => 'Google', 'outlook' => 'Outlook'][$s] ?? null;
+        $source = fn (string $s) => ['google' => 'Google', 'outlook' => 'Outlook', 'ics' => 'subscribed'][$s] ?? null;
         $items = [];
         if (! $deadlinesOnly) {
             foreach ($found->whereIn('type', ['overlap', 'busy_task']) as $x) {

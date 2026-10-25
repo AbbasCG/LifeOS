@@ -854,8 +854,8 @@ None of these were run: no provider credentials or consent were available in thi
 
 ## Known limitations (V6)
 - **Live provider behaviour is unverified** (see the checklist).
-- Todoist has no incremental sync here (full read, active tasks only), so completed Todoist tasks simply disappear.
-- Outlook reports Windows timezone names. The timezone-mismatch conflict only fires for IANA zones (Google, and Outlook events with IANA names).
+- ~~Todoist has no incremental sync here~~ — fixed in V7 (Sync API with completion and deletion).
+- ~~Outlook reports Windows timezone names~~ — fixed in V7 (mapped to IANA through ICU/CLDR).
 - Google sync tokens can expire after long inactivity. This is handled by the 410 fallback and the daily full read.
 - Microsoft and Todoist offer no token revocation; users remove LifeOS in the provider's settings.
 - "Plan my day" through Copilot is a suggestion with a deep link; the plan itself is accepted on the Day Plan page.
@@ -870,3 +870,133 @@ None of these were run: no provider credentials or consent were available in thi
 - Todoist incremental sync via the Sync API, including completed items.
 - Commit the Playwright tour as a CI end-to-end suite (EN/AR, light/dark, mobile).
 - Timeline: drag LifeOS blocks to reschedule (with conflict preview), and an ICS subscription source.
+
+
+# V7 — Wider sources, safer changes
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` after PR #5 (V6) was merged. **Not committed, not pushed** — waiting for approval.
+
+**Scope:** the V7 items from the V6 "Recommended V7 scope" that need neither new credentials, a public deployment nor a new dependency. Two items are **held for explicit approval** and were not built:
+- **writing to Google/Outlook calendars**, which the standing rule "never modify external provider data without explicit authorization" forbids;
+- **the Playwright end-to-end suite in CI**, which would add `@playwright/test` as a dev dependency.
+
+Provider push notifications (Google `events.watch`, Graph subscriptions) were not built: they need a public HTTPS endpoint (and domain verification for Google), so they cannot be exercised here.
+
+## Module status
+
+| Module | Status | Notes |
+|---|---|---|
+| V7-A Outlook timezones | **Done** | Windows names → IANA through ICU/CLDR (`WindowsZones`); legacy aliases normalised; unknown/custom zones stay null. Timezone-mismatch conflicts now work for Outlook events. |
+| V7-B Todoist incremental sync | **Done, verified with provider mocks** | Todoist API v1 `/sync` (`resource_types=["items"]`, `sync_token`), one read per run shared by all chosen projects. Completed tasks show "Completed in Todoist" (kept 7 days); deleted or moved-away tasks are removed. |
+| V7-C Calendar subscriptions (ICS / webcal) | **Done** | Read-only, no sign-in. SSRF-safe fetching; RRULE expansion through LifeOS' own recurrence engine; conditional requests. |
+| V7-D Move from the timeline | **Done** | Move a LifeOS event or one occurrence of a series with a live conflict preview, including connected calendars. Saving re-checks on the server. |
+| V7-E Copilot undo | **Done** | Applied proposals can be undone for 24 h. Only changes still exactly as Copilot left them are reversed; anything else is kept and explained. Audited. |
+| Calendar write-back | **Not built — needs explicit approval** | Would need write scopes and per-action confirmation. |
+| Playwright E2E in CI | **Not built — needs dependency approval** | QA was run with the preinstalled Playwright (not committed). |
+| Provider push notifications | **Deferred** | Needs a public HTTPS endpoint; 15-minute polling with incremental tokens remains. |
+
+## Calendar subscriptions (ICS)
+- **Connect:** `POST /api/integrations/ics` `{url}` with `throttle:auth`.
+  - `webcal://` becomes `https://`.
+  - The feed is read once to validate it, then imported right away.
+  - The account shows the calendar name (`X-WR-CALNAME`) and host.
+  - Limit: 20 subscriptions per user. Duplicates are refused.
+- **The address is a credential:**
+  - stored encrypted in `access_token`;
+  - never returned by any endpoint, never written to audit metadata (only the host).
+- **Fetching is SSRF-safe (`IcsFeedFetcher`):**
+  - HTTPS on port 443 only; no user-info in the address.
+  - Every resolved address must be public: no private, loopback, link-local/metadata, CGNAT or IPv6 ULA/link-local ranges.
+  - The connection is **pinned** to the checked address (`CURLOPT_RESOLVE`), so DNS rebinding cannot redirect it.
+  - Redirects are followed manually (at most 3) and re-checked.
+  - 5 MB cap, 15 s timeout.
+  - 401/403/404/410 mean the link was reset or unshared: the account is marked revoked with "paste the current link", and imported events are kept until the user decides.
+  - 429/503 honour `Retry-After`.
+- **Parsing (`IcsParser`):**
+  - Handles folded lines, escaped text and `VALUE=DATE` all-day events (midnight to midnight in the user's zone).
+  - `TZID` can be IANA, Windows or vendor-prefixed; floating times use `X-WR-TIMEZONE`, then the user's zone.
+  - Supports `DTEND` / `DURATION`, `STATUS:CANCELLED`, `TRANSP:TRANSPARENT`, `EXDATE` and `RECURRENCE-ID` overrides.
+  - `RRULE` with FREQ / INTERVAL / COUNT / UNTIL / weekly BYDAY (plus BYMONTHDAY/BYMONTH that restate DTSTART) is expanded by `CalendarService::occurrenceStarts`, so it is DST-correct.
+  - Other rules (BYSETPOS, ordinal BYDAY such as "2TU", RDATE…) are **skipped, not guessed**. The count is stored in the run (`details.skipped`) and shown on the account.
+  - Stable IDs: `sha256(UID):original start`; `ical_uid` takes part in cross-source de-duplication.
+- **Sync token:** ETag / Last-Modified plus a body hash. An unchanged feed costs one conditional request and applies nothing; a changed feed is a full replacement of the window.
+
+## Move with conflict preview
+- `GET /api/timeline/preview?event_id&occurrence_start?&starts_at&ends_at` (read-only, ≤ 24 h) returns the overlapping commitments (title, source, read-only, minutes), plus `fixed` and `recurring`.
+- Timeline event items now carry `meta.event_id` and `meta.occurrence_start` for LifeOS events only. Connected events have no move action.
+- The dialog converts wall-clock times in the account timezone (DST-aware `zonedToUtc`) and previews as you type.
+- **Move** stays disabled while anything clashes or for an unconfirmed fixed commitment.
+- Saving uses the existing `PATCH /api/events/{id}` (with `scope=occurrence` for a series), which re-checks conflicts and fixed commitments.
+
+## Copilot undo
+- Each applied action now records its `before` / `after` state in `results`. There was no schema change: status `undone` fits the existing column.
+- **`POST /api/assistant/proposals/{id}/undo`**, available for `AssistantProposal::UNDO_HOURS` (24 h), reverses newest first:
+  - **created blocks:** deleted if unchanged;
+  - **moved events:** restored if unchanged **and** the original time is still free;
+  - **created tasks:** deleted only if untouched (same title and due date, still to-do, no time logged, no linked blocks or focus sessions);
+  - **rescheduled deadlines:** restored if unchanged.
+- Everything else is **kept**, with a reason ("changed since", "in use since", "original time is taken"). It is audited as `ai_action_undone` with reversed and kept counts.
+- Proposals applied before V7 have no recorded state and are not undoable (`undo_until: null`).
+
+## Verification (automated)
+- **Backend:** **200/200 tests, 1559 assertions on SQLite and PostgreSQL 16.**
+  - New `CalendarFeedsTest` (5):
+    - recurring feed with EXDATE, override, all-day, cancelled, transparent, folded line, Windows TZID, floating time, across DST; unsupported rule counted; address never exposed and stored encrypted;
+    - conditional 304 and changed feed;
+    - 12 unsafe addresses refused with nothing sent, and a redirect into the private network refused;
+    - non-calendar, oversized and reset links;
+    - Windows → IANA and the Outlook timezone conflict.
+  - New `CopilotUndoTest` (5). `TimelineTest` gained the move preview; `ConnectedAccountsTest` covers the Todoist Sync API.
+  - Pint clean; `composer audit`: no advisories. **No migration in V7.**
+- **Frontend:** **80/80 Vitest.** New `v7.test.tsx`: DST-aware zone conversion, subscription form and server error, feed account card, move dialog clash → free → occurrence-only PATCH, Copilot undo with kept items. `tsc -b` clean; ESLint 0 errors (1 pre-existing warning); build OK; `npm audit --omit=dev`: 0 vulnerabilities.
+- **Browser (Playwright, production build, demo account on PostgreSQL), EN light 1440 and AR dark 390 with reduced motion:**
+  - hub subscription card;
+  - private-address refusal shown inline;
+  - move dialog free → clash (Team stand-up, 15 min) with Move disabled;
+  - Copilot schedule → apply → undo ("All changes undone.").
+  - No overflow and no unexpected console errors (the 422 is the deliberate refusal).
+  - Fixed during QA: the subscription card had no provider colour.
+
+## Real-account checklist (V7 additions)
+**Every item is NOT VERIFIED** (no provider credentials or live feeds in this environment).
+
+| # | Check | Status |
+|---|---|---|
+| 15 | Todoist: incremental sync reports a task completed in Todoist as "Completed in Todoist" | NOT VERIFIED |
+| 16 | Todoist: task moved to an unselected project disappears; deleted task disappears | NOT VERIFIED |
+| 17 | ICS: Google Calendar "secret address in iCal format" subscribes and shows recurring events correctly | NOT VERIFIED |
+| 18 | ICS: Outlook.com published calendar (Windows TZIDs) shows correct local times | NOT VERIFIED |
+| 19 | ICS: Apple iCloud public calendar (webcal://) subscribes | NOT VERIFIED |
+| 20 | ICS: resetting the secret link marks the subscription "no longer works" | NOT VERIFIED |
+| 21 | ICS: conditional requests (ETag/Last-Modified) return 304 from real servers | NOT VERIFIED |
+| 22 | Outlook: organiser in another timezone shows the timezone notice on Timeline | NOT VERIFIED |
+
+## Known limitations (V7)
+- **ICS:**
+  - Complex recurrence rules are left out (and counted), not approximated.
+  - `VTIMEZONE` definitions are not parsed; zones resolve by name (IANA/Windows/vendor prefix).
+  - `RDATE` is ignored.
+  - Feeds over 5 MB are refused.
+  - http-only feeds are refused by design.
+- Server validation messages from the subscription endpoint are in English, like other server validation errors.
+- Moving is for LifeOS timed events; tasks, all-day events and connected events are not moved from the timeline.
+- Undo is per proposal and only within 24 hours. It never touches connected providers (Copilot never writes to them).
+- Todoist's Sync API full read lists active tasks only; tasks completed while LifeOS was not syncing incrementally are removed rather than shown as completed.
+
+## Decisions recorded (2026-10-25)
+- **Calendar write-back — design approved, not implemented.** Allowed only as an opt-in feature with:
+  - separate OAuth write scopes;
+  - explicit calendar selection;
+  - a change preview and confirmation for every operation;
+  - audit logging and safe error handling.
+
+  Never automatic. This approval does not permit modifying any real calendar now.
+- **`@playwright/test` as a dev dependency with browser tests in CI — approved, not implemented yet.** The tests must use isolated test data and never real accounts.
+- **Proactive Personal AI is not started and not complete.** V7 is integration and workflow stabilisation only.
+
+## Recommended next steps
+- Implement the approved Playwright CI suite (isolated seeded data), then opt-in calendar write-back per the design above.
+- Run the real-account checklist (items 1–22) with test accounts and record results.
+- Provider push notifications once the app has a public HTTPS URL.
+- Fuller RRULE support (BYSETPOS / ordinal BYDAY) in the shared recurrence engine, which would benefit LifeOS events too.
+- Localised server validation messages.

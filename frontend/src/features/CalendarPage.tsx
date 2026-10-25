@@ -12,6 +12,7 @@ import { minutesLabel } from '../lib/dates'
 import { useStatusLabel } from './ResourcePage'
 import { Empty, ErrorMessage } from '../components/ui/Shared'
 import { atMinutes, findConflict, layoutLanes, minutesInto, movePreview, overlappingIds, resizePreview, snap } from '../lib/calendar'
+import { sourceName } from '../lib/sources'
 
 const HOUR = 52
 type Drag = { item: CalendarOccurrence; mode: 'move' | 'resize'; locked: boolean; pointerId: number; startX: number; startY: number; origStart: Date; origEnd: Date; origDay: Date; moved: boolean }
@@ -186,7 +187,7 @@ export default function CalendarPage() {
         if (view === 'agenda' && !events.length) return null
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === localDate(now) ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
           <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
-          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)} – {time(item.ends_at!)}</small><strong>{item.title}</strong><small>{item.source !== 'lifeos' ? <><Globe size={10} /> {item.source === 'google' ? 'Google' : 'Outlook'}</> : item.kind === 'fixed' ? <><Lock size={10} /> {t('Fixed', 'ثابت')}</> : t('Flexible', 'مرن')}{item.recurring && <> · <Repeat size={10} /></>}</small></button>{item.kind !== 'fixed' && item.editable && <button className="quiet" disabled={busy} onClick={() => void commit(item, new Date(item.starts_at!), new Date(new Date(item.ends_at!).getTime() + 15 * 60000))}>{t('+15 min', '+١٥ دقيقة')}</button>}</article>)}
+          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)} – {time(item.ends_at!)}</small><strong>{item.title}</strong><small>{item.source !== 'lifeos' ? <><Globe size={10} /> {sourceName(item.source ?? '', t)}</> : item.kind === 'fixed' ? <><Lock size={10} /> {t('Fixed', 'ثابت')}</> : t('Flexible', 'مرن')}{item.recurring && <> · <Repeat size={10} /></>}</small></button>{item.kind !== 'fixed' && item.editable && <button className="quiet" disabled={busy} onClick={() => void commit(item, new Date(item.starts_at!), new Date(new Date(item.ends_at!).getTime() + 15 * 60000))}>{t('+15 min', '+١٥ دقيقة')}</button>}</article>)}
           {events.length === 0 && <p className="free-slot">{t('Open time', 'وقت متاح')}</p>}
         </section>
       })}{view === 'agenda' && data.items.length === 0 && <Empty>{t('Nothing scheduled in this period.', 'لا شيء مجدول في هذه الفترة.')}</Empty>}</div>}

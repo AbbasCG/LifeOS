@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AssistantProposal;
 use App\Models\CalendarEvent;
 use App\Models\Category;
+use App\Models\FocusSession;
 use App\Models\Goal;
 use App\Models\Task;
 use App\Models\User;
@@ -321,7 +322,7 @@ class AssistantActions
                 $unplaced[] = $task->title;
             }
         }
-        $sources = $connected->map(fn ($n, $s) => $n.' '.(['google' => 'Google', 'outlook' => 'Outlook'][$s] ?? $s))->implode($ar ? '، ' : ', ');
+        $sources = $connected->map(fn ($n, $s) => $n.' '.(['google' => 'Google', 'outlook' => 'Outlook', 'ics' => 'subscribed'][$s] ?? $s))->implode($ar ? '، ' : ', ');
         $explanation[] = $ar
             ? 'تجنّبت '.$occurrences->count().' التزاماً خلال الأسبوع'.($sources ? " (منها {$sources} من التقويمات المرتبطة)" : '').'.'
             : 'Worked around '.$occurrences->count().' commitment(s) this week'.($sources ? " (including {$sources} from connected calendars)" : '').'.';
@@ -366,6 +367,97 @@ class AssistantActions
         return $proposal->fresh();
     }
 
+    /**
+     * Reverse an applied proposal within UNDO_HOURS. Each change is reversed only if it is still exactly as the
+     * assistant left it; anything the user has touched since is kept and reported, never overwritten.
+     */
+    public function undo(User $user, AssistantProposal $proposal, ?Request $request = null): AssistantProposal
+    {
+        if (! $proposal->canUndo()) {
+            throw ValidationException::withMessages(['proposal' => [$proposal->status === 'undone' ? 'These changes were already undone.' : 'These changes can no longer be undone.']]);
+        }
+        $results = DB::transaction(function () use ($user, $proposal) {
+            $locked = AssistantProposal::whereKey($proposal->id)->lockForUpdate()->first();
+            if (! $locked->canUndo()) {
+                throw ValidationException::withMessages(['proposal' => ['These changes were already undone.']]);
+            }
+            // Newest change first, so a block created for a new task is removed before the task itself.
+            $results = array_reverse(array_map(fn (array $result) => $result + ['undo' => $this->reverse($user, $result)], array_reverse($locked->results ?? [])));
+            $locked->update(['status' => 'undone', 'results' => $results]);
+
+            return $results;
+        });
+        $reversed = collect($results)->where('undo.done', true)->count();
+        $this->audit->log($user, 'ai_action_undone', $request, ['proposal' => $proposal->id, 'kind' => $proposal->kind, 'reversed' => $reversed, 'kept' => count($results) - $reversed]);
+
+        return $proposal->fresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @return array{done: bool, reason?: string}
+     */
+    private function reverse(User $user, array $result): array
+    {
+        $kept = fn (string $reason) => ['done' => false, 'reason' => $reason];
+        switch ($result['type'] ?? null) {
+            case 'create_event':
+            case 'move_event':
+                $event = CalendarEvent::where('user_id', $user->id)->whereKey($result['event_id'] ?? 0)->lockForUpdate()->first();
+                if (! $event) {
+                    return $kept('already deleted');
+                }
+                if (! isset($result['after']) || $this->eventState($event) !== $result['after']) {
+                    return $kept('changed since');
+                }
+                if ($result['type'] === 'create_event') {
+                    $event->delete();
+
+                    return ['done' => true];
+                }
+                $from = CarbonImmutable::parse($result['before']['starts_at']);
+                $to = CarbonImmutable::parse($result['before']['ends_at']);
+                if ($this->calendar->conflicts($user, $from, $to, $event->id)->isNotEmpty()) {
+                    return $kept('original time is taken');
+                }
+                $event->update(['starts_at' => $from, 'ends_at' => $to]);
+
+                return ['done' => true];
+            case 'create_task':
+                $task = Task::where('user_id', $user->id)->whereKey($result['task_id'] ?? 0)->lockForUpdate()->first();
+                if (! $task) {
+                    return $kept('already deleted');
+                }
+                $untouched = isset($result['after']) && $task->title === $result['after']['title'] && $task->due_at?->toIso8601String() === $result['after']['due_at']
+                    && $task->status === 'todo' && (int) $task->actual_minutes === 0 && ! CalendarEvent::where('task_id', $task->id)->exists() && ! FocusSession::where('task_id', $task->id)->exists();
+
+                if (! $untouched) {
+                    return $kept('in use since');
+                }
+                $task->delete();
+
+                return ['done' => true];
+            case 'reschedule_task':
+                $task = Task::where('user_id', $user->id)->whereKey($result['task_id'] ?? 0)->lockForUpdate()->first();
+                if (! $task || ! isset($result['before']) || $task->due_at?->toIso8601String() !== $result['after']['due_at']) {
+                    return $kept('changed since');
+                }
+                $task->update(['due_at' => CarbonImmutable::parse($result['before']['due_at'])]);
+
+                return ['done' => true];
+        }
+
+        return $kept('not reversible');
+    }
+
+    /**
+     * @return array{title: string, starts_at: string, ends_at: string}
+     */
+    private function eventState(CalendarEvent $event): array
+    {
+        return ['title' => $event->title, 'starts_at' => $event->starts_at->utc()->toIso8601String(), 'ends_at' => $event->ends_at->utc()->toIso8601String()];
+    }
+
     public function dismiss(AssistantProposal $proposal): AssistantProposal
     {
         if ($proposal->status === 'pending') {
@@ -401,7 +493,7 @@ class AssistantActions
             $this->assertFree($user, $start, $end, null, $fail);
             $event = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $action['task_id'] ?: null, 'title' => mb_substr($action['title'], 0, 200), 'starts_at' => $start, 'ends_at' => $end, 'kind' => 'flexible']);
 
-            return ['action_id' => $action['id'], 'type' => 'create_event', 'event_id' => $event->id];
+            return ['action_id' => $action['id'], 'type' => 'create_event', 'event_id' => $event->id, 'after' => $this->eventState($event)];
         }
 
         $event = CalendarEvent::where('user_id', $user->id)->whereKey($action['event_id'])->whereNull('recurrence')->lockForUpdate()->first();
@@ -412,9 +504,10 @@ class AssistantActions
             $fail('This event changed since the suggestion was made.');
         }
         $this->assertFree($user, $start, $end, $event->id, $fail);
+        $before = $this->eventState($event);
         $event->update(['starts_at' => $start, 'ends_at' => $end]);
 
-        return ['action_id' => $action['id'], 'type' => 'move_event', 'event_id' => $event->id];
+        return ['action_id' => $action['id'], 'type' => 'move_event', 'event_id' => $event->id, 'before' => $before, 'after' => $this->eventState($event)];
     }
 
     /**
@@ -445,7 +538,7 @@ class AssistantActions
             }
             $task = Task::create(['user_id' => $user->id, 'goal_id' => $goalId, 'title' => $title, 'priority' => $action['priority'], 'estimated_minutes' => $minutes, 'due_at' => $due, 'status' => 'todo']);
 
-            return ['action_id' => $action['id'], 'type' => 'create_task', 'task_id' => $task->id];
+            return ['action_id' => $action['id'], 'type' => 'create_task', 'task_id' => $task->id, 'after' => ['title' => $task->title, 'due_at' => $task->due_at?->toIso8601String()]];
         }
 
         $task = Task::where('user_id', $user->id)->whereKey($action['task_id'] ?? 0)->lockForUpdate()->first();
@@ -456,9 +549,10 @@ class AssistantActions
         if (! $due || ! $from || ! $task->due_at?->equalTo($from)) {
             $fail('This task changed since the suggestion was made.');
         }
+        $before = ['due_at' => $task->due_at->toIso8601String()];
         $task->update(['due_at' => $due]);
 
-        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id];
+        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String()]];
     }
 
     private function assertFree(User $user, CarbonImmutable $start, CarbonImmutable $end, ?int $ignore, callable $fail): void

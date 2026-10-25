@@ -312,6 +312,7 @@ p { text-wrap: pretty; }
 .proposal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .proposal-pending { background: color-mix(in srgb, var(--color-warning, #d97706) 16%, transparent); }
 .proposal-applied { background: color-mix(in srgb, var(--color-success) 16%, transparent); }
+.proposal-undone { background: color-mix(in srgb, var(--color-text-muted) 14%, transparent); }
 .proposal-actions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .proposal-actions li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 10px 12px; border-radius: 10px; background: var(--color-surface); font-size: 13px; }
 .proposal-actions label { display: flex; flex-direction: row; margin: 0; font-weight: 500; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
@@ -634,6 +635,7 @@ progress::-moz-progress-bar { background: var(--bar, var(--color-primary)); bord
 .provider-mark.google_tasks { background: linear-gradient(135deg, #1a73e8, #fbbc04); }
 .provider-mark.microsoft_todo { background: linear-gradient(135deg, #2564cf, #6aa6ff); }
 .provider-mark.todoist { background: linear-gradient(135deg, #e44332, #f07b5f); }
+.provider-mark.ics { background: linear-gradient(135deg, #0d9488, #22c55e); }
 .provider-mark.notion { background: linear-gradient(135deg, #2f2f2f, #6b6b6b); }
 .provider-mark.gmail { background: linear-gradient(135deg, #ea4335, #fbbc04); }
 .provider-mark.outlook_mail { background: linear-gradient(135deg, #0a64d6, #28a8ea); }

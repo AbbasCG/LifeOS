@@ -17,5 +17,7 @@ final class ChangeSet
         public readonly array $removed,
         public readonly ?string $nextToken,
         public readonly bool $full,
+        /** Items the provider could not represent faithfully and left out (e.g. unsupported recurrence rules). */
+        public readonly int $skipped = 0,
     ) {}
 }

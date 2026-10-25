@@ -7,6 +7,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { minutesLabel } from '../../lib/dates'
 import { Skeleton } from '../../components/ui/Shared'
 import { arcPath, dayAngle, isValidZone, polar } from '../../lib/dial'
+import { sourceName } from '../../lib/sources'
 
 const SIZE = 220, C = SIZE / 2
 
@@ -56,7 +57,7 @@ export function DayDial({ data }: { data: TodayData | null }) {
           <i style={{ background: i.kind === 'slot' ? 'var(--color-success)' : i.source !== 'lifeos' ? '#8b5cf6' : i.kind === 'fixed' ? 'var(--color-primary)' : '#14b8c4' }} aria-hidden="true" />
           <time>{time(i.starts_at)}–{time(i.ends_at)}</time>
           <span>{i.title}{i.kind === 'slot' && <small className="muted"> · {minutesLabel(Math.round((new Date(i.ends_at).getTime() - new Date(i.starts_at).getTime()) / 60000), ar)}</small>}</span>
-          {i.source !== 'lifeos' && <small className="source-badge"><Globe size={10} /> {i.source === 'google' ? 'Google' : i.source === 'outlook' ? 'Outlook' : i.source}</small>}
+          {i.source !== 'lifeos' && <small className="source-badge"><Globe size={10} /> {sourceName(i.source, t)}</small>}
         </button>
       </li>)}</ul>}
     </div>
