@@ -38,9 +38,10 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
   }
 
   if (proposal.actions.length === 0) return null
-  const verb = proposal.kind === 'rebalance' ? t('Move', 'انقل') : t('Add', 'أضف')
+  const chosen = proposal.actions.filter(a => selected.includes(a.id)), mixed = chosen.some(a => a.type === 'move_event') && chosen.some(a => a.type === 'create_event')
+  const verb = proposal.kind === 'rebalance' || (chosen.length > 0 && chosen.every(a => a.type === 'move_event')) ? t('Move', 'انقل') : t('Add', 'أضف')
   const heading = { rebalance: t('Suggested changes', 'تغييرات مقترحة'), goal_plan: t('Proposed tasks', 'مهام مقترحة'), triage: t('New deadlines', 'مواعيد جديدة'), find_time: t('Time found for your tasks', 'وقت مقترح لمهامك'), plan_week: t('Proposed week plan', 'خطة الأسبوع المقترحة'), prioritize: t('Your priorities, planned first', 'أولوياتك مخططة أولاً'), focus_blocks: t('Proposed focus blocks', 'فترات تركيز مقترحة'), reorganize_day: t('Reorganized day', 'يوم مُعاد تنظيمه') }[proposal.kind] ?? t('Proposed schedule', 'جدول مقترح')
-  const applyLabel = proposal.kind === 'goal_plan' ? t(`Create ${selected.length} task(s)`, `أنشئ ${selected.length} مهمة`) : proposal.kind === 'triage' ? t(`Reschedule ${selected.length} task(s)`, `أعد جدولة ${selected.length} مهمة`) : `${verb} ${selected.length} ${t('to calendar', 'إلى التقويم')}`
+  const applyLabel = proposal.kind === 'goal_plan' ? t(`Create ${selected.length} task(s)`, `أنشئ ${selected.length} مهمة`) : proposal.kind === 'triage' ? t(`Reschedule ${selected.length} task(s)`, `أعد جدولة ${selected.length} مهمة`) : mixed ? t(`Apply ${selected.length} change(s)`, `طبّق ${selected.length} تغيير`) : `${verb} ${selected.length} ${t('to calendar', 'إلى التقويم')}`
   return <div className={`proposal-card state-${proposal.status}`}>
     <div className="proposal-head">
       <strong>{heading}</strong>
@@ -55,7 +56,14 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
             {open ? <input type="checkbox" checked={selected.includes(action.id)} onChange={() => toggle(action.id)} /> : done ? <CheckCircle2 size={16} className="ok" /> : <span className="dot" />}
             <span className="proposal-title">{action.title}</span>
             {keptReason && <small className="chip">{keptReason}</small>}
+            {action.type === 'move_event' && proposal.kind !== 'rebalance' && <small className="chip move-chip">{t('Moves an existing block', 'ينقل فترة قائمة')}</small>}
           </label>
+          {action.type === 'move_event' && (action.reason || action.conflicts) && <span className="move-detail">
+            {action.reason && <small className="muted">{action.reason}</small>}
+            {action.conflicts && (action.conflicts.length === 0
+              ? <small className="conflict-check ok"><CheckCircle2 size={12} />{t('No conflicts at the new time', 'لا تعارض في الوقت الجديد')}</small>
+              : <small className="conflict-check warn">{t('Overlaps', 'يتداخل مع')}: {action.conflicts.map(c => `${c.title} (${c.source_label})`).join(', ')}</small>)}
+          </span>}
           <span className="proposal-time">
             {action.type === 'create_task' && <><ListPlus size={13} />{action.estimated_minutes} {t('min', 'د')}{action.due_at && <> · {t('due', 'الموعد')} {dueLabel(action.due_at)}</>}</>}
             {action.type === 'reschedule_task' && action.due_at && <>{action.from_due_at && <><s>{dueLabel(action.from_due_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}<CalendarClock size={13} />{dueLabel(action.due_at)}</>}

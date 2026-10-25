@@ -28,6 +28,11 @@ class ConversationService
 {
     public const HISTORY_TURNS = 6;
 
+    /** Plan choices that switch moving flexible blocks on or off. */
+    public const MOVE_CHOICES = ['moves:on', 'moves:off'];
+
+    private const ALLOW_MOVES = '/(you can|it.?s ok to|go ahead and|allow|feel free to) mov|move (things|them|blocks) if needed|يمكنك (النقل|نقل)|انقل (ما يلزم|عند الحاجة)/u';
+
     public const PAYLOAD_KEYS = ['subtasks', 'tasks', 'items', 'proposal', 'plan', 'clarify', 'state', 'context', 'notice'];
 
     private const APPROVAL = '/^(?:(?:yes|yeah|yep|yup|ok|okay|sure|please|apply|applied|do it|go ahead|go|confirm|confirmed|approve|approved|accept|accepted|book|add|execute|run|them|it|all|that|this|the plan|the proposal|now|everything|'
@@ -212,7 +217,9 @@ class ConversationService
             };
             $slots['ask_interruption'] = false;
         } else {
-            $slots = array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]);
+            $slots = in_array($choice['value'], self::MOVE_CHOICES, true)
+                ? array_merge($state['slots'] ?? [], ['moves' => $choice['value'] === 'moves:on', 'ask_interruption' => false])
+                : array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]);
             $this->dismissPrevious($user, $answering);
         }
         $progress('planning');
@@ -229,7 +236,9 @@ class ConversationService
     {
         $offered = $choice['type'] === 'option'
             ? collect($answering->payload['clarify']['options'] ?? [])->pluck('value')
-            : (in_array($answering->payload['state']['intent'] ?? null, CopilotPlanner::INTENTS, true) ? collect($answering->payload['plan']['alternatives'] ?? [])->pluck('key') : collect());
+            : (in_array($answering->payload['state']['intent'] ?? null, CopilotPlanner::INTENTS, true)
+                ? collect($answering->payload['plan']['alternatives'] ?? [])->pluck('key')->merge(isset($answering->payload['plan']['moves']) ? self::MOVE_CHOICES : [])
+                : collect());
         if (! $offered->contains($choice['value'])) {
             abort(422, $choice['type'] === 'option' ? 'That option was not offered.' : 'That alternative was not offered.');
         }
@@ -296,6 +305,11 @@ class ConversationService
                 $changes['priorities'] = $priorities;
             }
         }
+        if ($intent !== 'focus_blocks' && CopilotPlanner::keepsInPlace($lower)) {
+            $changes['moves'] = false;
+        } elseif ($intent !== 'focus_blocks' && preg_match(self::ALLOW_MOVES, $lower)) {
+            $changes['moves'] = true;
+        }
         if ($intent === 'reorganize_day' && preg_match('/tomorrow|غدا|غداً|الغد/u', $lower)) {
             $changes['date'] = CarbonImmutable::now($user->timezone())->addDay()->toDateString();
         }
@@ -358,6 +372,9 @@ class ConversationService
     {
         if (! $answering || ! $choice) {
             abort(422, 'Write a message.');
+        }
+        if (in_array($choice['value'], self::MOVE_CHOICES, true)) {
+            return $choice['value'] === 'moves:off' ? ($ar ? 'أبقِ كل شيء في مكانه' : 'Keep everything in place') : ($ar ? 'انقل الفترات المرنة عند الحاجة' : 'Move flexible blocks if needed');
         }
         $list = $choice['type'] === 'option' ? ($answering->payload['clarify']['options'] ?? []) : ($answering->payload['plan']['alternatives'] ?? []);
         $match = collect($list)->first(fn ($o) => ($o['value'] ?? $o['key'] ?? null) === $choice['value']);

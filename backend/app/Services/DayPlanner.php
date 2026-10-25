@@ -35,8 +35,9 @@ class DayPlanner
     /**
      * @param  array{busy_until?: string|null, lost_minutes?: int|null}  $interruption  what changed since the day started:
      *                                                                                  busy until a time, and/or time lost
+     * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $reserved  extra busy time (e.g. where proposed moves would go)
      */
-    public function plan(User $user, string $date, bool $replan = false, array $interruption = []): array
+    public function plan(User $user, string $date, bool $replan = false, array $interruption = [], array $reserved = []): array
     {
         $c = $this->planning->config($user);
         $day = CarbonImmutable::parse($date, $c['tz'])->startOfDay();
@@ -55,7 +56,7 @@ class DayPlanner
             $isTaskBlock = ($o['source'] ?? 'lifeos') === 'lifeos' && ! empty($o['task_id']);
 
             return [$isTaskBlock ? $o['starts_at'] : $o['starts_at']->subMinutes($c['buffer']), $isTaskBlock ? $o['ends_at'] : $o['ends_at']->addMinutes($c['buffer'])];
-        })->all();
+        })->merge($reserved)->all();
         $free = collect($windows)->map(fn (array $w) => $this->planning->freeIntervals($w[0]->utc(), $w[1]->utc(), $busy))->all();
         $freeMinutes = (int) collect($free)->flatten(1)->sum(fn (array $f) => $f[0]->diffInMinutes($f[1]));
         $windowMinutes = (int) collect($windows)->sum(fn (array $w) => $w[0]->diffInMinutes($w[1]));

@@ -5,7 +5,9 @@ export type ContextSource = { source: string; count?: number; masked?: number }
 export type CopilotContext = { shared: boolean; sources: ContextSource[] }
 export type PlanConflict = { type: 'unscheduled' | 'overloaded' | 'not_enough_time' | string; title: string; detail: string; minutes: number | null }
 export type PlanAlternative = { key: string; label: string; current: boolean; planned_minutes?: number }
-export type CopilotPlan = { kind: string; title: string; explanation: string[]; conflicts: PlanConflict[]; alternatives: PlanAlternative[]; impact: Record<string, number | null | { date: string; load_percent: number }> }
+export type CopilotPlan = { kind: string; title: string; explanation: string[]; conflicts: PlanConflict[]; alternatives: PlanAlternative[]; impact: Record<string, number | null | { date: string; load_percent: number }>; moves?: PlanMoves }
+/** Whether a plan may move flexible blocks: `available` is how many it would move when allowed. */
+export type PlanMoves = { allowed: boolean; count: number; available: number }
 export type ClarifyOption = { value: string; label: { en: string; ar: string } }
 export type CopilotMessage = Partial<Omit<AssistantReply, 'message' | 'suggestions' | 'intent' | 'provider' | 'proposal' | 'notice'>> & {
   id: number; role: 'user' | 'assistant'; content: string; intent: string | null; provider: string | null; created_at: string

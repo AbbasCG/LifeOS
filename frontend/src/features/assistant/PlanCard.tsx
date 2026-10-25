@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarRange, Database, EyeOff, Gauge, GitBranch, Lightbulb } from 'lucide-react'
+import { AlertTriangle, ArrowRightLeft, CalendarRange, Database, EyeOff, Gauge, GitBranch, Lightbulb, Lock } from 'lucide-react'
 import { useText } from '../../lib/i18n'
 import type { ContextSource, CopilotContext, CopilotPlan } from '../../lib/copilot'
 
@@ -23,6 +23,14 @@ export function PlanCard({ plan, disabled, onAlternative }: { plan: CopilotPlan;
     <dl className="plan-impact" aria-label={t('Expected impact', 'الأثر المتوقع')}>{metrics.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     {plan.explanation.length > 0 && <details className="plan-why"><summary><Lightbulb size={14} />{t('How this plan was made', 'كيف وُضعت هذه الخطة')}</summary><ul>{plan.explanation.map((line, i) => <li key={i}>{line}</li>)}</ul></details>}
     {plan.conflicts.length > 0 && <div className="plan-conflicts" role="note"><p><AlertTriangle size={14} />{t('Needs your attention', 'يحتاج انتباهك')}</p><ul>{plan.conflicts.map((c, i) => <li key={i}><strong>{c.title}</strong> <span className="muted">{c.detail}</span></li>)}</ul></div>}
+    {plan.moves && (plan.moves.available > 0 || !plan.moves.allowed) && <div className="plan-moves" role="note">
+      {plan.moves.allowed
+        ? <p><ArrowRightLeft size={14} />{t(`${plan.moves.count} flexible block(s) move. Fixed, recurring and connected events never move; each move is checked for conflicts again when you apply it.`, `تنتقل ${plan.moves.count} فترة مرنة. لا تُنقل المواعيد الثابتة أو المتكررة أو المرتبطة أبداً، ويُعاد فحص التعارض لكل نقل عند التطبيق.`)}</p>
+        : <p><Lock size={14} />{t('Nothing moves: every existing event stays where it is.', 'لا يُنقل شيء: تبقى كل المواعيد الحالية في أماكنها.')}</p>}
+      {onAlternative && (plan.moves.allowed
+        ? <button type="button" className="chip-button small" disabled={disabled} onClick={() => onAlternative('moves:off')}>{t('Keep everything in place', 'أبقِ كل شيء في مكانه')}</button>
+        : plan.moves.available > 0 && <button type="button" className="chip-button small" disabled={disabled} onClick={() => onAlternative('moves:on')}>{t('Move flexible blocks if needed', 'انقل الفترات المرنة عند الحاجة')}</button>)}
+    </div>}
     {plan.alternatives.length > 1 && onAlternative && <div className="plan-alternatives"><span className="muted"><GitBranch size={13} />{t('Alternatives', 'بدائل')}</span>
       {plan.alternatives.map(a => <button key={a.key} type="button" className={`chip-button small ${a.current ? 'active' : ''}`} aria-pressed={a.current} disabled={disabled || a.current} onClick={() => onAlternative(a.key)}>{a.label}</button>)}
     </div>}
