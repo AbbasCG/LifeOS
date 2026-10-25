@@ -1,7 +1,7 @@
-export const WIDGETS = ['today', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'] as const
+export const WIDGETS = ['today', 'intelligence', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'] as const
 export type WidgetId = typeof WIDGETS[number]
 export type DashboardLayout = { order: WidgetId[]; hidden: WidgetId[] }
-export const FULL_WIDTH: WidgetId[] = ['today', 'suggestions', 'stats']
+export const FULL_WIDTH: WidgetId[] = ['today', 'intelligence', 'suggestions', 'stats']
 
 /** Merge a saved layout with the known widgets: unknown ids are dropped, new widgets are appended. */
 export function normalizeLayout(saved?: Partial<DashboardLayout> | null): DashboardLayout {

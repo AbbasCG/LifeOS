@@ -1,6 +1,6 @@
 import { test, expect, noHorizontalOverflow } from './fixtures'
 
-const pages = ['/', '/tasks', '/calendar', '/timeline', '/planning', '/review', '/focus', '/projects', '/goals', '/habits', '/categories', '/analytics', '/assistant', '/settings', '/settings/integrations']
+const pages = ['/', '/tasks', '/calendar', '/timeline', '/planning', '/review', '/focus', '/projects', '/goals', '/habits', '/categories', '/analytics', '/assistant', '/settings', '/settings/integrations', '/settings/ai']
 
 test('every main screen renders with demo data and fits the viewport', async ({ page, setLanguage }) => {
   await setLanguage('en')

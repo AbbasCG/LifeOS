@@ -19,7 +19,7 @@ class DayPlanController extends Controller
     {
         $date = $this->date($request);
 
-        return response()->json($this->planner->plan($request->user(), $date, $request->boolean('replan')));
+        return response()->json($this->planner->plan($request->user(), $date, $request->boolean('replan'), $this->interruption($request)));
     }
 
     /**
@@ -29,7 +29,18 @@ class DayPlanController extends Controller
     {
         $request->validate(['variant' => ['required', Rule::in(DayPlanner::VARIANTS)]]);
 
-        return response()->json($this->planner->choose($request->user(), $this->date($request), $request->string('variant')->toString()), 201);
+        return response()->json($this->planner->choose($request->user(), $this->date($request), $request->string('variant')->toString(), $this->interruption($request)), 201);
+    }
+
+    /**
+     * @return array{busy_until?: string|null, lost_minutes?: int|null}
+     */
+    private function interruption(Request $request): array
+    {
+        return $request->validate([
+            'busy_until' => 'nullable|date_format:H:i',
+            'lost_minutes' => 'nullable|integer|min:0|max:'.DayPlanner::MAX_LOST_MINUTES,
+        ]);
     }
 
     private function date(Request $request): string

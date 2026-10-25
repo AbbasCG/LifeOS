@@ -31,7 +31,7 @@ use Illuminate\Validation\ValidationException;
 
 class WorkspaceController extends Controller
 {
-    public const DASHBOARD_WIDGETS = ['today', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'];
+    public const DASHBOARD_WIDGETS = ['today', 'intelligence', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'];
 
     public const MODELS = ['tasks' => Task::class, 'projects' => Project::class, 'categories' => Category::class, 'events' => CalendarEvent::class, 'goals' => Goal::class, 'habits' => Habit::class];
 

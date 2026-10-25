@@ -70,7 +70,7 @@ describe('dashboard layout', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     const body = bodyOf(fetcher, '/api/settings', 'PUT')
     expect(body.dashboard.hidden).toEqual(['goals'])
-    expect(body.dashboard.order.slice(0, 3)).toEqual(['today', 'stats', 'suggestions'])
+    expect(body.dashboard.order.slice(0, 4)).toEqual(['today', 'intelligence', 'stats', 'suggestions'])
     expect(await screen.findByText('Dashboard updated.')).toBeInTheDocument()
   })
 })

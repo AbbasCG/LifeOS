@@ -20,9 +20,12 @@ export default function DayPlanPage() {
   // Copilot links here with ?date=&variant= to preselect its suggestion; applying still needs the user's two clicks.
   const [params] = useSearchParams()
   const linkedDate = /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : null
-  const linkedVariant = (['balanced', 'deep', 'light'] as const).find(v => v === params.get('variant')) ?? null
+  const linkedVariant = (['balanced', 'deep', 'light', 'deadlines'] as const).find(v => v === params.get('variant')) ?? null
   const [date, setDate] = useState(linkedDate ?? localDate()), [replan, setReplan] = useState(0)
-  const { data, error, reload } = useApi<DayPlan>(`/api/day-plan?date=${date}&replan=${replan > 0 ? 1 : 0}&r=${replan}`)
+  // "Something came up": re-plan from a later time and/or with less time; the same values are sent when choosing.
+  const [interruption, setInterruption] = useState<{ busy_until: string; lost_minutes: number }>({ busy_until: '', lost_minutes: 0 }), [interrupting, setInterrupting] = useState(false)
+  const extra = new URLSearchParams(Object.entries({ busy_until: interruption.busy_until, lost_minutes: interruption.lost_minutes ? String(interruption.lost_minutes) : '' }).filter(([, v]) => v)).toString()
+  const { data, error, reload } = useApi<DayPlan>(`/api/day-plan?date=${date}&replan=${replan > 0 ? 1 : 0}&r=${replan}${extra ? `&${extra}` : ''}`)
   const [selected, setSelected] = useState<DayPlanAlternative['key'] | null>(linkedVariant), [proposal, setProposal] = useState<Plan | null>(null)
   const [busy, setBusy] = useState(false), [failure, setFailure] = useState(''), [editing, setEditing] = useState(false)
   const active = selected ?? data?.recommended ?? 'balanced'
@@ -32,7 +35,7 @@ export default function DayPlanPage() {
 
   async function choose() {
     setBusy(true); setFailure('')
-    try { setProposal(await api<Plan>('/api/day-plan', 'POST', { date, variant: active })) } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
+    try { setProposal(await api<Plan>('/api/day-plan', 'POST', { date, variant: active, ...(interruption.busy_until ? { busy_until: interruption.busy_until } : {}), ...(interruption.lost_minutes ? { lost_minutes: interruption.lost_minutes } : {}) })) } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
   }
   async function accept() {
     if (!proposal) return
@@ -46,9 +49,18 @@ export default function DayPlanPage() {
         <label className="sr-only" htmlFor="plan-date">{t('Day', 'اليوم')}</label>
         <input id="plan-date" type="date" value={date} min={localDate()} onChange={e => { setDate(e.target.value); setSelected(null); setProposal(null) }} />
         <button className="quiet" onClick={() => { setReplan(r => r + 1); setSelected(null); setProposal(null) }}><RefreshCw size={16} />{t('Replan from now', 'أعد التخطيط من الآن')}</button>
+        <button className={`quiet ${extra ? 'has-filters' : ''}`} aria-expanded={interrupting} onClick={() => setInterrupting(v => !v)}><Zap size={16} />{t('Something came up?', 'طرأ شيء؟')}</button>
         <button className="quiet icon-button" aria-label={t('Boundaries and buffers', 'الحدود والفواصل')} aria-expanded={editing} onClick={() => setEditing(v => !v)}><Settings2 size={17} /></button>
       </div>
     </header>
+    {interrupting && <section className="panel interruption-panel reveal" aria-label={t('Re-plan after an interruption', 'إعادة التخطيط بعد مقاطعة')}>
+      <p className="muted small">{t('Tell LifeOS what changed. The plan is recalculated from your real calendar — nothing changes until you add it.', 'أخبر LifeOS بما تغيّر. تُعاد حسابات الخطة من تقويمك الحقيقي — لا يتغير شيء حتى تضيفها.')}</p>
+      <div className="move-fields">
+        <label>{t('Busy until', 'مشغول حتى')}<input type="time" value={interruption.busy_until} onChange={e => { setInterruption(i => ({ ...i, busy_until: e.target.value })); setSelected(null); setProposal(null) }} /></label>
+        <label>{t('Time lost (minutes)', 'الوقت الضائع (دقائق)')}<input type="number" min={0} max={600} step={15} value={interruption.lost_minutes || ''} onChange={e => { setInterruption(i => ({ ...i, lost_minutes: Math.max(0, Math.min(600, Number(e.target.value) || 0)) })); setSelected(null); setProposal(null) }} /></label>
+        <button className="quiet" disabled={!extra} onClick={() => { setInterruption({ busy_until: '', lost_minutes: 0 }); setSelected(null); setProposal(null) }}>{t('Clear', 'مسح')}</button>
+      </div>
+    </section>}
     {editing && <BoundaryEditor onSaved={() => { setEditing(false); reload() }} />}
     <ErrorMessage error={error || failure} />
     {!data ? <section className="panel"><Skeleton lines={5} /></section> : <>

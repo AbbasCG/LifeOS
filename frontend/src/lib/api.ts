@@ -1,3 +1,4 @@
+import type { WeeklyIntelligenceData } from './intelligence'
 export class ApiError extends Error {
   status: number
   errors: Record<string, string[]>
@@ -68,7 +69,7 @@ export type MissedBlock = { event_id: number; task_id: number; title: string; st
 export type PlannedVsActual = { from: string; days: { date: string; planned_minutes: number; actual_minutes: number }[]; tasks: { task_id: number; title: string; status: string | null; planned_minutes: number; actual_minutes: number }[]; totals: { planned_minutes: number; actual_minutes: number; ratio: number | null; planned_tasks: number; completed_planned_tasks: number; completion_rate: number | null } }
 export type ReviewDecision = 'done' | 'carry' | 'drop'
 export type WeeklyReviewData = {
-  week_start: string; week_end: string; timezone: string
+  week_start: string; week_end: string; timezone: string; intelligence?: WeeklyIntelligenceData
   metrics: { completed: number; unfinished: number; focus_minutes: number; previous_focus_minutes: number; focus_change: number | null; on_time_rate: number | null; habit_consistency: number | null; estimate_overruns: number }
   completed: { id: number; title: string; priority: string; completed_at: string | null; estimated_minutes: number; actual_minutes: number }[]
   unfinished: { id: number; title: string; priority: string; status: string; due_at: string | null; overdue: boolean; estimated_minutes: number }[]
@@ -92,9 +93,9 @@ export type CheckinInsights = { enabled: boolean; days: number; checked_in_days:
 
 export type Bi = { en: string; ar: string }
 export type DayPlanItem = PlanItem & { area?: 'work' | 'study' | 'personal'; estimate_factor?: number }
-export type DayPlanAlternative = { key: 'balanced' | 'deep' | 'light'; title: Bi; description: Bi; items: DayPlanItem[]; warnings: PlanWarning[]; breaks: (Bi & { at: string; minutes: number })[]; metrics: { planned_minutes: number; tasks: number; switches: number; load_percent: number; unscheduled_must_do: number }; explanation: Bi[] }
+export type DayPlanAlternative = { key: 'balanced' | 'deep' | 'light' | 'deadlines'; title: Bi; description: Bi; items: DayPlanItem[]; warnings: PlanWarning[]; breaks: (Bi & { at: string; minutes: number })[]; metrics: { planned_minutes: number; tasks: number; switches: number; load_percent: number; unscheduled_must_do: number }; explanation: Bi[] }
 export type DayPlan = {
-  date: string; timezone: string; replan: boolean; energy: number | null; estimate_ratio: number; recommended: DayPlanAlternative['key']
+  date: string; timezone: string; replan: boolean; interruption?: { busy_until: string | null; lost_minutes: number }; energy: number | null; estimate_ratio: number; recommended: DayPlanAlternative['key']
   budget: { window_minutes: number; committed_minutes: number; free_minutes: number; capacity_minutes: number; must_do_minutes: number; buffer_minutes: number }
   boundaries: Record<string, { start: string; end: string }>; peak: { start: string; end: string; source: 'history' | 'settings' } | null
   commitments: { title: string; kind: string; source: string; recurring: boolean; starts_at: string; ends_at: string }[]

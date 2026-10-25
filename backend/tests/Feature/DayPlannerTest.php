@@ -100,7 +100,7 @@ class DayPlannerTest extends TestCase
 
         $this->assertNotNull($plan['overload']);
         $this->assertSame(['Missed task'], array_column($plan['recovery'], 'title'));
-        $this->assertSame(['balanced', 'deep', 'light'], array_column($plan['alternatives'], 'key'));
+        $this->assertSame(['balanced', 'deep', 'light', 'deadlines'], array_column($plan['alternatives'], 'key'));
         $balanced = $plan['alternatives'][0];
         $this->assertContains('rescheduled', collect($balanced['items'])->firstWhere('title', 'Missed task')['reasons']);
         $this->assertNotEmpty($balanced['warnings'], 'must-do work that does not fit is reported');
