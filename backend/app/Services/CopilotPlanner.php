@@ -85,8 +85,10 @@ class CopilotPlanner
                 'focus_length' => [['short' => '45-minute blocks', 'default' => 'your usual length', 'long' => '90-minute blocks'], ['short' => 'فترات ٤٥ دقيقة', 'default' => 'المدة المعتادة', 'long' => 'فترات ٩٠ دقيقة']],
                 'day_strategy' => [['balanced' => 'a balanced day', 'deep' => 'deep focus first', 'light' => 'a light day', 'deadlines' => 'deadlines first'], ['balanced' => 'يوم متوازن', 'deep' => 'التركيز العميق أولاً', 'light' => 'يوم خفيف', 'deadlines' => 'المواعيد النهائية أولاً']],
                 'moves' => [['on' => 'moving flexible blocks when needed', 'off' => 'keeping everything in place'], ['on' => 'نقل الفترات المرنة عند الحاجة', 'off' => 'إبقاء كل شيء في مكانه']]];
-            $where = [['day_off' => 'on days off', 'workday' => 'on workdays', 'light' => 'in light weeks', 'normal' => 'in normal weeks', 'heavy' => 'in busy weeks'],
-                ['day_off' => 'في أيام العطلة', 'workday' => 'في أيام العمل', 'light' => 'في الأسابيع الخفيفة', 'normal' => 'في الأسابيع العادية', 'heavy' => 'في الأسابيع المزدحمة']];
+            $where = [['day_off' => 'on days off', 'workday' => 'on workdays', 'light' => 'in light weeks', 'normal' => 'in normal weeks', 'heavy' => 'in busy weeks',
+                'low_energy' => 'when your energy is low', 'normal_energy' => 'when your energy is normal', 'high_energy' => 'when your energy is high'],
+                ['day_off' => 'في أيام العطلة', 'workday' => 'في أيام العمل', 'light' => 'في الأسابيع الخفيفة', 'normal' => 'في الأسابيع العادية', 'heavy' => 'في الأسابيع المزدحمة',
+                    'low_energy' => 'عندما تكون طاقتك منخفضة', 'normal_energy' => 'عندما تكون طاقتك عادية', 'high_energy' => 'عندما تكون طاقتك مرتفعة']];
             if (isset($context['day'])) {
                 $where[0] = array_merge($where[0], ['light' => 'on light days', 'normal' => 'on normal days', 'heavy' => 'on busy days']);
                 $where[1] = array_merge($where[1], ['light' => 'في الأيام الخفيفة', 'normal' => 'في الأيام العادية', 'heavy' => 'في الأيام المزدحمة']);

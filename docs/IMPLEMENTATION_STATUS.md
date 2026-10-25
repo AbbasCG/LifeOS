@@ -1839,7 +1839,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ef77767) after PR
 
 # V18 — Goal progress reviews
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (db2cf35) after PR #16 (V17) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (db2cf35) after PR #16 (V17) was merged. Merged into `main` as PR #17.
 
 ## What changed
 - **Reviewing a goal** (`GoalReviewService`) states what happened in a month:
@@ -1896,3 +1896,51 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (db2cf35) after PR
 - **The monthly time is fixed:** the 1st at 09:00 local, with the hourly scheduler (cron) required. A missed day is not caught up.
 - **At most 8 goals in the monthly overview.** Completed goals are left out.
 - **Next steps cover this week only** (find-time) or the goal's milestones (goal plan). There is no multi-week schedule for the month ahead.
+
+# V19 — Energy-aware plan learning
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73396e1) after PR #17 (V18) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Energy as a third situation.** Plan learning (V14/V15) now also tells low-, normal- and high-energy days apart.
+  - The level comes from today's energy check-in (V5, scale 1–5): 1–2 low, 3 normal, 4–5 high.
+  - It is used only when the plan starts today (today's day plan, today's or this week's focus blocks, this week's plan), when check-ins are switched on, and when the AI may read check-ins (AI Control Center → data sources).
+  - No check-in today means no energy situation.
+  - Nothing new is stored beyond the existing per-choice observation, which now may carry `energy: low|normal|high`. Nothing is sent to an AI provider.
+- **Order:** the situation is tried energy first, then kind of day, then booked share, then all observations.
+  - Example: "light day" on low-energy mornings and "deep focus first" on high-energy mornings become two defaults, even when both are workdays and overall there is no preference.
+  - The plan says so ("a light day (when your energy is low)" / «يوم خفيف (عندما تكون طاقتك منخفضة)»).
+  - Explicit requests and other versions still win.
+- **AI Control Center:** situation chips "Low energy: Light day" / «طاقة منخفضة: يوم خفيف». The learning hint mentions today's check-in. Forget, reset and delete work as before.
+- **Code:** `PlanLearning::SCOPES` is now a name → [facet, value] map (energy, day, load), used for lookup, summaries and recording. Unknown situation values are not stored.
+
+## Testing
+- **Backend:** `EnergyLearningTest` (3 tests).
+  - The energy situation:
+    - no check-in gives none; low, normal and high are mapped from 2, 3 and 5;
+    - only for plans starting today (not next week, not tomorrow);
+    - none when the check-ins data source is off, or check-ins are switched off.
+  - Learning per energy through real chat choices:
+    - three light-day choices at low energy and three deep-focus choices at high energy (both on workdays);
+    - the next low-energy day plan starts light and says why, a high-energy one starts deep, a normal-energy one uses no learned strategy;
+    - the summary lists both energy defaults.
+  - The Arabic explanation names the energy; unknown situation values are not stored.
+  - All V14/V15 learning tests pass unchanged.
+- **Vitest:** `v19.test.tsx` (2 tests): energy chips and hint in English, chips in Arabic.
+- **Playwright:** `energy-learning.spec.ts`, desktop and mobile.
+  - It sets today's check-in to energy 1 and picks "Essentials only" three times, then sets energy 5 and asks for "plan everything" three times.
+  - Back at energy 2, the week plan starts with essentials and says "(when your energy is low)". The Control Center shows "Low energy: Essentials" and "High energy: Everything".
+  - It then forgets learning, turns it off, restores today's check-in and deletes its conversations.
+- **Results:**
+  - **Backend:** 281/281 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 127/127.
+  - **Playwright:** 42/42.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** of the AI Control Center with seeded energy observations (EN desktop, AR Pixel 7 dark): no overflow and no unexpected console errors. The demo learning was reset afterwards.
+- **Live AI:** energy defaults also apply to plans requested through an external provider, but that path was tested only against a simulated API. Live behaviour is **NOT VERIFIED**.
+
+## Known limitations (V19)
+- **Only today's check-in counts.** Plans for tomorrow or next week have no energy situation. A check-in made after the plan was requested does not change that plan.
+- **Energy only.** Mood, stress and sleep from the check-in are not used.
+- **Situations are still tried one at a time** (energy, then day, then load), not combined.
+- **Fixed energy bands** (1–2 / 3 / 4–5).
