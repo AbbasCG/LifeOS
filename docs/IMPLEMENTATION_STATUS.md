@@ -1683,7 +1683,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d99f467) after PR
 
 # V15 — Smarter plan learning
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (4317fd9) after PR #13 (V14) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (4317fd9) after PR #13 (V14) was merged. Merged into `main` as PR #14.
 
 ## What changed
 - **Observations instead of counts.** `PlanLearning` now stores one small observation per choice: the choice, the option, the date and the situation. Situations:
@@ -1732,3 +1732,61 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (4317fd9) after PR
 - **Booked share counts calendar events in working hours only.** Study and personal windows and outstanding tasks do not make a period "busy".
 - **Week plans never learn per day:** only their load is used.
 - **Fixed thresholds.** The 30-day half-life and the 35% / 70% load bands cannot be changed in the app.
+
+# V16 — Weekly plan drafts
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (eabfeca) after PR #14 (V15) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Weekly plan drafts** (`WeeklyDraftService`; opt-in, off by default). The user chooses:
+  - a weekday;
+  - a time (quarter-hour steps; the settings list offers half hours);
+  - a source: a saved template, or the week planner with their preferences.
+- **When it runs.** `lifeos:weekly-drafts` runs every 15 minutes. On the chosen day, at or after the chosen time, it prepares a draft of the coming Monday–Sunday week, once per week. Drafts also need the AI master switch on.
+- **What a draft is.** A new Copilot conversation ("Draft next week’s plan (2 Nov – 8 Nov)") holding a **pending proposal**:
+  - from the template (V13): blocks that clash or are past are left out;
+  - or from the week planner (V11/V12): it may move flexible blocks;
+  - learned defaults apply (V14/V15).
+
+  The reply carries a notice: "Draft prepared on your schedule, … Nothing changes until you approve it." If the chosen template was deleted, the week planner is used and the notice says so.
+- **Expiry.** Draft proposals stay open until the end of the planned Monday instead of 24 hours. Apply-time re-validation (V10) still checks every block against the calendar.
+- **Notification.** One "planning" notification per week, "Next week’s plan draft is ready", linking to the conversation. It follows the category's in-app and push choices and quiet hours.
+- **Nothing is written** to tasks, events or connected calendars.
+- **Endpoints:**
+  - `GET` / `PUT /api/copilot/weekly-draft`: settings. A template must be the user's own; the time must be `HH:00`, `HH:15`, `HH:30` or `HH:45`.
+  - `POST /api/copilot/weekly-draft {language}`: "Prepare a draft now" (`throttle:assistant`). It opens the draft in Copilot, sends no notification and does not count as the scheduled draft.
+- **Audit:** `weekly_draft_prepared` (week, scheduled or not, source, whether there is a proposal) and `weekly_draft_settings_changed`. Both are listed in the AI activity log.
+- **AI Control Center:** under Planning preferences there is a switch, day, time and source selectors, "Prepare a draft now", and the week of the last scheduled draft.
+- **Relation to the existing automation:** "Offer next week’s plan after the weekly review" (automation templates) is unchanged. It runs only when a review is completed and creates a Smart planning proposal. Weekly drafts run on a schedule, live in Copilot and use templates and learned preferences.
+
+## Testing
+- **Backend:** `WeeklyDraftTest` (5 tests).
+  - Off by default: the schedule prepares nothing.
+  - The schedule:
+    - nothing before the chosen time; exactly one draft after it, even when run twice;
+    - a pending proposal for next week only, open until Monday 23:59, with nothing written;
+    - one planning notification linking to the conversation, and the audit details;
+    - the next week is prepared on the next Sunday.
+  - A template draft keeps the template's days and times; "prepare now" sends no notification and does not replace the scheduled draft; a deleted template falls back to the planner (Arabic conversation).
+  - Learned week versions are used.
+  - The AI switch stops drafts. Another user's template, an invalid weekday or time, and an unsupported language are rejected; changes are audited and listed in the activity log; signed-out requests are refused.
+- **Vitest:** `v16.test.tsx` (3 tests): saving the switch, day, time and template; "Prepare a draft now" in Arabic opens the conversation; disabled while AI features are off.
+- **Playwright:** `weekly-draft.spec.ts`, desktop and mobile.
+  - It turns drafts on, sets Friday 16:30, prepares a draft, and checks it opens in Copilot with the notice and a pending proposal.
+  - It then deletes the conversation and restores the settings.
+- **Results:**
+  - **Backend:** 272/272 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 118/118.
+  - **Playwright:** 34/34.
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** with demo data (EN desktop, AR Pixel 7 dark): no overflow and no unexpected console errors. The scheduled command on the demo account produced one draft and one Arabic notification; a second run produced nothing.
+  - Fixed during QA: on mobile the "Plan from" selector was cut off at half width; it now takes a full row.
+  - The demo drafts, the notification and the settings were removed afterwards.
+- **Not verified:** Web Push delivery of the draft notification to a real device. It uses the existing V3 push pipeline, which is opt-in per device and off by default for the planning category.
+
+## Known limitations (V16)
+- **Drafts always plan the coming week.** A draft prepared on a Monday plans the following week, not the current one.
+- **One schedule per user.** There are no separate drafts for work and study, and no choice of how many weeks ahead.
+- **The scheduler needs `schedule:run` (cron) on the server.** It checks every 15 minutes, so a draft can arrive up to 15 minutes after the chosen time. Missed days are not caught up.
+- **The draft is computed when it is prepared.** Calendar changes made afterwards are caught at apply time (clashing blocks are refused), not by re-planning.
+- **The first answer always comes from the local planners**, as for suggestions opened in Copilot (V14).

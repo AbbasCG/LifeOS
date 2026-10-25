@@ -9,10 +9,12 @@ use App\Services\AuditLogger;
 use App\Services\ConversationService;
 use App\Services\CopilotPlanner;
 use App\Services\IntelligenceSettings;
+use App\Services\WeeklyDraftService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -68,6 +70,41 @@ class CopilotController extends Controller
             : $this->conversations->markdown($conversation);
 
         return response($body, 200, ['Content-Type' => ($format === 'json' ? 'application/json' : 'text/markdown').'; charset=utf-8', 'Content-Disposition' => 'attachment; filename="'.$name.'"', 'X-Content-Type-Options' => 'nosniff']);
+    }
+
+    /**
+     * Weekly plan draft settings, with the Monday the next draft would plan.
+     */
+    public function weeklyDraft(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        return response()->json(['settings' => WeeklyDraftService::settings($user), 'next_week' => WeeklyDraftService::targetWeek($user)->toDateString()]);
+    }
+
+    public function saveWeeklyDraft(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'enabled' => 'sometimes|boolean',
+            'weekday' => 'sometimes|integer|between:0,6',
+            'time' => ['sometimes', 'date_format:H:i', 'regex:/^\d{2}:(00|15|30|45)$/'],
+            'template_id' => ['sometimes', 'nullable', 'integer', Rule::exists('plan_templates', 'id')->where('user_id', $user->id)],
+        ]);
+        $saved = WeeklyDraftService::save($user, $data);
+        $this->audit->log($user, 'weekly_draft_settings_changed', $request, array_intersect_key($saved, $data));
+
+        return response()->json(['settings' => $saved, 'next_week' => WeeklyDraftService::targetWeek($user)->toDateString()]);
+    }
+
+    /**
+     * Prepare next week's draft now (a new conversation with a pending proposal; nothing is applied).
+     */
+    public function prepareWeeklyDraft(Request $request, WeeklyDraftService $drafts): JsonResponse
+    {
+        $data = $request->validate(['language' => 'required|in:en,ar']);
+
+        return response()->json($drafts->prepare($request->user(), $data['language'], false, $request), 201);
     }
 
     public function templates(Request $request): JsonResponse
