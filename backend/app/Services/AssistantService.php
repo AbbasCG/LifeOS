@@ -297,7 +297,7 @@ class AssistantService
         $plan = app(DayPlanner::class)->plan($user, $date);
         $variant = collect($plan['alternatives'])->firstWhere('key', $plan['recommended']) ?? $plan['alternatives'][0] ?? null;
         $sources = collect($plan['commitments'])->countBy('source');
-        $connected = $sources->except('lifeos')->map(fn ($n, $s) => $n.' '.(['google' => 'Google', 'outlook' => 'Outlook'][$s] ?? $s))->implode($ar ? '، ' : ', ');
+        $connected = $sources->except('lifeos')->map(fn ($n, $s) => $n.' '.(['google' => 'Google', 'outlook' => 'Outlook', 'ics' => 'subscribed'][$s] ?? $s))->implode($ar ? '، ' : ', ');
         $label = CarbonImmutable::parse($date, $user->timezone())->locale($ar ? 'ar' : 'en')->translatedFormat('l j F');
         $link = "/today/plan?date={$date}".($variant ? "&variant={$variant['key']}" : '');
         if (! $variant || $variant['items'] === []) {

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Integrations\Calendar\CalendarProviders;
 use App\Integrations\Calendar\ConnectedProvider;
+use App\Integrations\Calendar\IcsFeedFetcher;
+use App\Integrations\Calendar\IcsProvider;
 use App\Integrations\Calendar\ProviderException;
 use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\ConnectedCatalog;
@@ -49,6 +51,7 @@ class IntegrationController extends Controller
             'redirect_uri' => $provider->redirectUri(),
             'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary() + ['recent_runs' => $a->getAttribute('recent_runs')])->values(),
             'required_scopes' => $provider->requiredScopes(),
+            'connect_mode' => $provider instanceof IcsProvider ? 'url' : 'oauth',
         ];
 
         return response()->json([
@@ -129,6 +132,38 @@ class IntegrationController extends Controller
         }
 
         return $back('connected='.$provider);
+    }
+
+    /**
+     * Subscribe to a read-only calendar feed (.ics / webcal). The address is validated by reading it once, stored
+     * encrypted like a token, and never returned or logged.
+     */
+    public function subscribe(Request $request, IcsProvider $ics): JsonResponse
+    {
+        $data = $request->validate(['url' => ['required', 'string', 'max:2048']]);
+        $user = $request->user();
+        if (CalendarAccount::where('user_id', $user->id)->where('provider', 'ics')->count() >= IcsProvider::MAX_PER_USER) {
+            throw ValidationException::withMessages(['url' => ['You can subscribe to up to '.IcsProvider::MAX_PER_USER.' calendar feeds.']]);
+        }
+        try {
+            $url = app(IcsFeedFetcher::class)->normalise($data['url']);
+            $profile = $ics->account($url);
+        } catch (ProviderException $e) {
+            throw ValidationException::withMessages(['url' => [$e->getMessage()]]);
+        }
+        if (CalendarAccount::where('user_id', $user->id)->where('provider', 'ics')->where('external_account_id', $profile['id'])->exists()) {
+            throw ValidationException::withMessages(['url' => ['You are already subscribed to this calendar.']]);
+        }
+        $account = CalendarAccount::create(['user_id' => $user->id, 'provider' => 'ics', 'external_account_id' => $profile['id'], 'email' => $profile['email'], 'display_name' => $profile['name'],
+            'access_token' => $url, 'status' => 'active', 'collections' => []]);
+        $this->audit->log($user, 'integration_connected', $request, ['provider' => 'ics', 'host' => $profile['email']]);
+        try {
+            $this->sync->sync($account, 'connect');
+        } catch (ProviderException) {
+            // Shown on the account; the scheduled sync retries.
+        }
+
+        return response()->json(['account' => $account->fresh()->summary()], 201);
     }
 
     public function sync(Request $request, int $id): JsonResponse

@@ -33,6 +33,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('assistant/proposals', [AssistantController::class, 'pending']);
         Route::get('assistant/proposals/{id}', [AssistantController::class, 'proposal']);
         Route::post('assistant/proposals/{id}/apply', [AssistantController::class, 'apply']);
+        Route::post('assistant/proposals/{id}/undo', [AssistantController::class, 'undo']);
         Route::post('assistant/proposals/{id}/dismiss', [AssistantController::class, 'dismiss']);
         Route::get('user', fn (Request $r) => response()->json($r->user()));
         Route::post('logout', [AuthController::class, 'logout']);
@@ -58,9 +59,11 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('integrations', [IntegrationController::class, 'index']);
         Route::post('integrations/{provider}/connect', [IntegrationController::class, 'connect'])->whereIn('provider', IntegrationController::PROVIDERS)->middleware('throttle:auth');
         Route::get('integrations/{provider}/callback', [IntegrationController::class, 'callback'])->whereIn('provider', IntegrationController::PROVIDERS);
+        Route::post('integrations/ics', [IntegrationController::class, 'subscribe'])->middleware('throttle:auth');
         Route::patch('integrations/accounts/{id}', [IntegrationController::class, 'update'])->whereNumber('id');
         Route::get('connected/tasks', [IntegrationController::class, 'tasks']);
         Route::get('timeline', [TimelineController::class, 'index']);
+        Route::get('timeline/preview', [TimelineController::class, 'preview']);
         Route::post('connected/tasks/{id}/copy', [IntegrationController::class, 'copyTask'])->whereNumber('id');
         Route::post('integrations/accounts/{id}/sync', [IntegrationController::class, 'sync'])->whereNumber('id')->middleware('throttle:auth');
         Route::delete('integrations/accounts/{id}', [IntegrationController::class, 'destroy'])->whereNumber('id');

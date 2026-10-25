@@ -8,8 +8,9 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import { AccountCard, type ConnectedAccount, type SyncRunInfo } from '../connected/AccountCard'
+import { FeedSubscribe } from '../connected/FeedSubscribe'
 
-export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
+export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
 type Hub = { providers: HubProvider[]; categories: { key: string; providers: HubProvider[] }[]; ai_connected_data: boolean }
 
 const ICONS: Record<string, typeof CalendarDays> = { calendars: CalendarDays, tasks: ListChecks, productivity: NotebookPen, email: Mail, future: Sparkles }
@@ -18,7 +19,7 @@ export default function IntegrationsSettings() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), ar = language === 'ar'
   const [params, setParams] = useSearchParams()
   const { data, error, reload } = useApi<Hub>('/api/integrations')
-  const [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [disconnecting, setDisconnecting] = useState<ConnectedAccount | null>(null)
+  const [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [disconnecting, setDisconnecting] = useState<ConnectedAccount | null>(null), [replacingFeed, setReplacingFeed] = useState(false)
   const labelOf = (provider: string) => data?.providers.find(p => p.provider === provider)?.label ?? provider
   useEffect(() => {
     const connected = params.get('connected'), problem = params.get('error')
@@ -64,7 +65,7 @@ export default function IntegrationsSettings() {
     {data && data.providers.every(p => p.accounts.length === 0) && <section className="panel reveal hub-onboarding" aria-labelledby="hub-onboarding-title">
       <h2 id="hub-onboarding-title">{t('Bring your calendars and to-dos together', 'اجمع تقويماتك ومهامك في مكان واحد')}</h2>
       <ol className="onboarding-steps">
-        <li><span>1</span><div><strong>{t('Pick an app below', 'اختر تطبيقاً أدناه')}</strong><p className="muted small">{t('Google Calendar, Outlook, Google Tasks, Microsoft To Do or Todoist.', 'تقويم Google أو Outlook أو مهام Google أو Microsoft To Do أو Todoist.')}</p></div></li>
+        <li><span>1</span><div><strong>{t('Pick an app below', 'اختر تطبيقاً أدناه')}</strong><p className="muted small">{t('Google Calendar, Outlook, Google Tasks, Microsoft To Do, Todoist — or any .ics calendar link.', 'تقويم Google أو Outlook أو مهام Google أو Microsoft To Do أو Todoist — أو أي رابط تقويم .ics.')}</p></div></li>
         <li><span>2</span><div><strong>{t('Approve read-only access', 'وافق على الوصول للقراءة فقط')}</strong><p className="muted small">{t('You sign in on the provider’s own page. LifeOS never sees your password and can never change your data there.', 'تسجّل الدخول في صفحة المزوّد نفسه. لا يرى LifeOS كلمة مرورك ولا يمكنه تغيير بياناتك هناك.')}</p></div></li>
         <li><span>3</span><div><strong>{t('Choose what to include', 'اختر ما تريد تضمينه')}</strong><p className="muted small">{t('Only your primary calendar or list is imported at first. Add more any time, or disconnect to remove everything.', 'يُستورد تقويمك أو قائمتك الرئيسية فقط في البداية. أضف المزيد متى شئت، أو افصل لحذف كل شيء.')}</p></div></li>
       </ol>
@@ -90,8 +91,8 @@ export default function IntegrationsSettings() {
             <p className="muted small scopes">{provider.scopes}</p>
             {provider.accounts.length === 0 && <p className="muted">{t('No account connected.', 'لا يوجد حساب مرتبط.')}</p>}
             <ul className="account-list">{provider.accounts.map(account => <AccountCard key={account.id} account={account} label={provider.label} tasks={category.key === 'tasks'} requiredScopes={provider.required_scopes ?? []} busy={busy}
-              onSync={() => void syncNow(account)} onReconnect={() => void connect(provider)} onDisconnect={() => setDisconnecting(account)} onSaved={reload} />)}</ul>
-            <button className="primary" disabled={busy !== null} aria-label={provider.accounts.length ? t(`Connect another ${provider.label} account`, `ربط حساب ${provider.label} آخر`) : undefined} onClick={() => void connect(provider)}><Link2 size={16} />{busy === provider.provider ? t('Opening…', 'جارٍ الفتح…') : provider.accounts.length ? t('Connect another account', 'ربط حساب آخر') : t(`Connect ${provider.label}`, `ربط ${provider.label}`)}</button>
+              onSync={() => void syncNow(account)} onReconnect={() => provider.connect_mode === 'url' ? setReplacingFeed(true) : void connect(provider)} onDisconnect={() => setDisconnecting(account)} onSaved={reload} />)}</ul>
+            {provider.connect_mode === 'url' ? <FeedSubscribe replacing={replacingFeed} onDone={() => { setReplacingFeed(false); reload() }} /> : <button className="primary" disabled={busy !== null} aria-label={provider.accounts.length ? t(`Connect another ${provider.label} account`, `ربط حساب ${provider.label} آخر`) : undefined} onClick={() => void connect(provider)}><Link2 size={16} />{busy === provider.provider ? t('Opening…', 'جارٍ الفتح…') : provider.accounts.length ? t('Connect another account', 'ربط حساب آخر') : t(`Connect ${provider.label}`, `ربط ${provider.label}`)}</button>}
           </>}
       </section>)}</div>
     </section> })}

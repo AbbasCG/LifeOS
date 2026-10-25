@@ -15,9 +15,9 @@ class CalendarProviders
     /** @var array<string, ConnectedProvider> */
     private array $providers = [];
 
-    public function __construct(GoogleCalendarProvider $google, MicrosoftCalendarProvider $microsoft, GoogleTasksProvider $googleTasks, MicrosoftTodoProvider $todo, TodoistProvider $todoist)
+    public function __construct(GoogleCalendarProvider $google, MicrosoftCalendarProvider $microsoft, GoogleTasksProvider $googleTasks, MicrosoftTodoProvider $todo, TodoistProvider $todoist, IcsProvider $ics)
     {
-        foreach ([$google, $microsoft, $googleTasks, $todo, $todoist] as $provider) {
+        foreach ([$google, $microsoft, $googleTasks, $todo, $todoist, $ics] as $provider) {
             $this->providers[$provider->name()] = $provider;
         }
     }

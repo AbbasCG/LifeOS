@@ -199,7 +199,7 @@ class CalendarSyncService
     {
         $names = collect($account->collections ?? [])->pluck('name', 'id');
         $state = $account->sync_state ?? [];
-        $result = ['ok' => 0, 'failed' => [], 'upserted' => 0, 'removed' => 0, 'moved' => 0, 'mode' => 'incremental', 'details' => ['cancelled' => [], 'moved' => []]];
+        $result = ['ok' => 0, 'failed' => [], 'upserted' => 0, 'removed' => 0, 'moved' => 0, 'mode' => 'incremental', 'details' => ['cancelled' => [], 'moved' => [], 'skipped' => 0]];
         $from = CarbonImmutable::now()->subDays(self::PAST_DAYS)->startOfDay();
         $to = CarbonImmutable::now()->addDays(self::FUTURE_DAYS)->endOfDay();
         $tz = $account->user->timezone();
@@ -231,6 +231,7 @@ class CalendarSyncService
             foreach (['upserted', 'removed', 'moved'] as $key) {
                 $result[$key] += $applied[$key];
             }
+            $result['details']['skipped'] += $changes->skipped;
             $result['details']['cancelled'] = array_slice([...$result['details']['cancelled'], ...$applied['cancelled']], 0, 10);
             $result['details']['moved'] = array_slice([...$result['details']['moved'], ...$applied['moved_items']], 0, 10);
         }

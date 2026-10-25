@@ -8,7 +8,7 @@ import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
-export type SyncRunInfo = { id: number; mode: 'full' | 'incremental'; status: 'running' | 'success' | 'partial' | 'failed' | 'rate_limited' | 'revoked'; trigger: string; started_at: string; finished_at: string | null; duration_ms: number | null; upserted: number; removed: number; moved: number; error: string | null }
+export type SyncRunInfo = { details?: { skipped?: number }; id: number; mode: 'full' | 'incremental'; status: 'running' | 'success' | 'partial' | 'failed' | 'rate_limited' | 'revoked'; trigger: string; started_at: string; finished_at: string | null; duration_ms: number | null; upserted: number; removed: number; moved: number; error: string | null }
 export type ConnectedAccount = {
   id: number; provider: string; email: string | null; display_name: string | null; status: 'active' | 'error' | 'revoked'
   last_synced_at: string | null; last_attempt_at?: string | null; retry_after?: string | null; consecutive_failures?: number; scopes_ok?: boolean | null
@@ -62,6 +62,7 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
   const granted = (scope: string) => (account.granted_scopes ?? []).some(g => g.toLowerCase().includes(scope.toLowerCase()))
   const runLabel = (r: SyncRunInfo) => ({ success: t('Synced', 'تمت'), partial: t('Partly synced', 'مزامنة جزئية'), failed: t('Failed', 'فشلت'), rate_limited: t('Rate-limited', 'محدودة المعدل'), revoked: t('Access revoked', 'أُلغي الوصول'), running: t('Running', 'جارية') }[r.status])
   const runs = account.recent_runs ?? []
+  const feed = account.provider === 'ics', skipped = runs[0]?.details?.skipped ?? 0
   return <li className={`account-card state-${state}`}>
     <div className="account-head">
       <span className={`status-dot dot-${state}`} aria-hidden="true" />
@@ -81,12 +82,14 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
     <div className="permissions">
       <span className="perm-title"><ShieldCheck size={14} />{t('Data access', 'الوصول إلى البيانات')}</span>
       {requiredScopes.map(scope => <span key={scope} className={`perm ${account.granted_scopes?.length ? (granted(scope) ? 'ok' : 'missing') : ''}`}>{account.granted_scopes?.length ? (granted(scope) ? <CheckCircle2 size={12} /> : <XCircle size={12} />) : <Lock size={12} />}<code dir="ltr">{scope}</code></span>)}
+      {feed && <span className="perm ok"><CheckCircle2 size={12} />{t('Public or secret feed — no account access', 'رابط عام أو سري — دون وصول إلى الحساب')}</span>}
       <span className="perm muted"><Lock size={12} />{t('Read-only — LifeOS never writes', 'للقراءة فقط — لا يكتب LifeOS أبداً')}</span>
     </div>
-    {account.status !== 'revoked' && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={tasks} onSaved={onSaved} />}
+    {skipped > 0 && <p className="muted small account-note">{t(`${skipped} repeating event(s) use a pattern LifeOS can’t expand yet, so they were left out rather than guessed.`, `${skipped} موعد متكرر يستخدم نمطاً لا يستطيع LifeOS توسيعه بعد، لذا تُرك بدلاً من التخمين.`)}</p>}
+    {account.status !== 'revoked' && !feed && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={tasks} onSaved={onSaved} />}
     <div className="toolbar">
       {state === 'revoked' || state === 'scope'
-        ? <button className="primary" disabled={busy !== null} onClick={onReconnect}><Link2 size={15} />{t('Reconnect', 'إعادة الربط')}</button>
+        ? <button className="primary" disabled={busy !== null} onClick={onReconnect}><Link2 size={15} />{feed ? t('Use a new link', 'استخدام رابط جديد') : t('Reconnect', 'إعادة الربط')}</button>
         : <button className="quiet" disabled={busy !== null || state === 'waiting'} onClick={onSync} aria-busy={busy === `sync-${account.id}`}><RefreshCw size={15} className={busy === `sync-${account.id}` ? 'spin' : ''} />{busy === `sync-${account.id}` ? t('Syncing…', 'جارٍ المزامنة…') : t('Sync now', 'مزامنة الآن')}</button>}
       {runs.length > 0 && <button className="quiet" aria-expanded={history} onClick={() => setHistory(h => !h)}><History size={15} />{t('Sync history', 'سجل المزامنة')}</button>}
       <button className="quiet" disabled={busy !== null} onClick={onDisconnect}><Unplug size={15} />{t('Disconnect', 'فصل')}</button>

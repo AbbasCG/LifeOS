@@ -62,6 +62,11 @@ class AssistantController extends Controller
         return response()->json($actions->apply($request->user(), $this->find($request, $id), $data['action_ids'], $request)->present());
     }
 
+    public function undo(Request $request, string $id, AssistantActions $actions): JsonResponse
+    {
+        return response()->json($actions->undo($request->user(), $this->find($request, $id), $request)->present());
+    }
+
     public function dismiss(Request $request, string $id, AssistantActions $actions): JsonResponse
     {
         return response()->json($actions->dismiss($this->find($request, $id))->present());

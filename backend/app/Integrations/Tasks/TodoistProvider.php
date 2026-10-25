@@ -94,31 +94,71 @@ class TodoistProvider extends OAuthProvider implements TaskProvider
         return ['data:read'];
     }
 
+    /** @var array<string, array{full: bool, token: ?string, items: list<array<string, mixed>>}> one Sync API read per token and run */
+    private array $syncCache = [];
+
     public function taskChanges(string $accessToken, string $listId, ?string $syncToken, string $userTimezone): ChangeSet
     {
-        // Todoist's REST API returns active tasks only and has no change feed for read-only access, so every read is
-        // full: tasks that disappear were completed or deleted in Todoist and are removed here.
+        // The Sync API returns every project's changes in one read, so it is fetched once per run and filtered per
+        // project. A full read lists active tasks only; incremental reads also report completed and deleted ones.
+        $key = hash('sha256', $accessToken).'|'.($syncToken ?? '*');
+        $sync = $this->syncCache[$key] ??= $this->readSync($accessToken, $syncToken);
         $upserts = [];
-        $cursor = null;
-        do {
-            $page = $this->send(fn () => $this->http($accessToken)->get(self::API.'/tasks', array_filter(['project_id' => $listId, 'limit' => 200, 'cursor' => $cursor])))->json();
-            foreach ($page['results'] ?? [] as $item) {
-                $title = trim((string) ($item['content'] ?? ''));
-                if ($title === '' || ($item['checked'] ?? false)) {
-                    continue;
-                }
-                $date = $item['due']['date'] ?? null;
-                $dateOnly = $date !== null && strlen((string) $date) === 10;
-                // Date-only dues end the day; floating times are local to the user; times with an offset are absolute.
-                $due = $date === null ? null : ($dateOnly ? CarbonImmutable::parse($date, $userTimezone)->setTime(23, 59) : CarbonImmutable::parse($date, $item['due']['timezone'] ?? $userTimezone));
-                $priority = [4 => 'urgent', 3 => 'high', 2 => 'medium'][(int) ($item['priority'] ?? 1)] ?? null;
-                $upserts[] = ['id' => (string) $item['id'], 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => $dateOnly, 'priority' => $priority,
-                    'url' => 'https://app.todoist.com/app/task/'.rawurlencode((string) $item['id']), 'status' => 'open', 'completed_at' => null];
+        $removed = [];
+        foreach ($sync['items'] as $item) {
+            $id = (string) ($item['id'] ?? '');
+            if ($id === '') {
+                continue;
             }
-            $cursor = $page['next_cursor'] ?? null;
-        } while ($cursor);
+            if ((string) ($item['project_id'] ?? '') !== $listId || ($item['is_deleted'] ?? false)) {
+                // Moved to another project (re-imported there if that project is chosen) or deleted in Todoist.
+                if (! $sync['full']) {
+                    $removed[] = $id;
+                }
 
-        return new ChangeSet($upserts, [], null, true);
+                continue;
+            }
+            $row = $this->row($item, $listId, $userTimezone);
+            if ($row === null || ($sync['full'] && $row['status'] === 'completed')) {
+                continue;
+            }
+            $upserts[] = $row;
+        }
+
+        return new ChangeSet($upserts, $removed, $sync['token'], $sync['full']);
+    }
+
+    /**
+     * @return array{full: bool, token: ?string, items: list<array<string, mixed>>}
+     */
+    private function readSync(string $accessToken, ?string $syncToken): array
+    {
+        $response = $this->send(fn () => $this->http($accessToken)->asForm()->post(self::API.'/sync', ['sync_token' => $syncToken ?? '*', 'resource_types' => '["items"]']))->json();
+        $token = $response['sync_token'] ?? null;
+
+        return ['full' => $syncToken === null || (bool) ($response['full_sync'] ?? false), 'token' => is_string($token) && $token !== '' ? $token : null, 'items' => array_values(array_filter($response['items'] ?? [], 'is_array'))];
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     * @return array<string, mixed>|null
+     */
+    private function row(array $item, string $listId, string $userTimezone): ?array
+    {
+        $title = trim((string) ($item['content'] ?? ''));
+        if ($title === '') {
+            return null;
+        }
+        $date = $item['due']['date'] ?? null;
+        $dateOnly = $date !== null && strlen((string) $date) === 10;
+        // Date-only dues end the day; floating times are local to the user; times with an offset are absolute.
+        $due = $date === null ? null : ($dateOnly ? CarbonImmutable::parse($date, $userTimezone)->setTime(23, 59) : CarbonImmutable::parse($date, $item['due']['timezone'] ?? $userTimezone));
+        $priority = [4 => 'urgent', 3 => 'high', 2 => 'medium'][(int) ($item['priority'] ?? 1)] ?? null;
+        $completed = (bool) ($item['checked'] ?? false);
+        $completedAt = $completed && ! empty($item['completed_at']) ? CarbonImmutable::parse($item['completed_at'])->utc() : ($completed ? CarbonImmutable::now()->utc() : null);
+
+        return ['id' => (string) $item['id'], 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => $dateOnly, 'priority' => $priority,
+            'url' => 'https://app.todoist.com/app/task/'.rawurlencode((string) $item['id']), 'status' => $completed ? 'completed' : 'open', 'completed_at' => $completedAt];
     }
 
     public function revoke(string $token): void

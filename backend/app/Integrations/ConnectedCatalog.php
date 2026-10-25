@@ -15,7 +15,7 @@ class ConnectedCatalog
     public const CATEGORIES = ['calendars', 'tasks', 'productivity', 'email', 'future'];
 
     /** Implemented provider name => hub category. */
-    private const IMPLEMENTED = ['google' => 'calendars', 'outlook' => 'calendars', 'google_tasks' => 'tasks', 'microsoft_todo' => 'tasks', 'todoist' => 'tasks'];
+    private const IMPLEMENTED = ['google' => 'calendars', 'outlook' => 'calendars', 'google_tasks' => 'tasks', 'microsoft_todo' => 'tasks', 'todoist' => 'tasks', 'ics' => 'calendars'];
 
     /**
      * Not implemented yet: key => [category, label, en, ar, planned access].
@@ -25,7 +25,6 @@ class ConnectedCatalog
         'gmail' => ['email', 'Gmail', 'Planned and privacy-first: only sender, subject and date of messages you star or label, never message bodies — and never sent to an AI provider without your explicit consent.', 'مخطط مع أولوية الخصوصية: المرسل والموضوع والتاريخ فقط للرسائل التي تميزها بنجمة أو تصنيف، دون نص الرسائل — ولا تُرسل إلى مزود ذكاء اصطناعي دون موافقتك الصريحة.', 'gmail.metadata (headers only)'],
         'outlook_mail' => ['email', 'Outlook Mail', 'Planned and privacy-first: flagged messages as follow-ups (sender, subject, date only), never bodies, never shared with AI without consent.', 'مخطط مع أولوية الخصوصية: الرسائل المعلّمة كمتابعات (المرسل والموضوع والتاريخ فقط)، دون النص، ولا مشاركة مع الذكاء الاصطناعي دون موافقة.', 'Mail.ReadBasic'],
         'apple_calendar' => ['future', 'Apple Calendar (iCloud)', 'Feasible through CalDAV with an app-specific password (Apple offers no OAuth for iCloud Calendar). Planned as a read-only import.', 'ممكن عبر CalDAV بكلمة مرور خاصة بالتطبيق (لا توفر Apple خدمة OAuth لتقويم iCloud). مخطط كاستيراد للقراءة فقط.', 'CalDAV read'],
-        'ics_feed' => ['future', 'Calendar subscription (ICS)', 'Planned: subscribe to a read-only .ics URL (school, sports, public holidays).', 'مخطط: الاشتراك في رابط .ics للقراءة فقط (مدرسة، رياضة، عطلات رسمية).', 'Public or secret feed URL'],
     ];
 
     public function __construct(private CalendarProviders $providers) {}
