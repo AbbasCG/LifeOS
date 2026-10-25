@@ -15,6 +15,7 @@ import { Empty, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { CommandHero } from './today/CommandHero'
 import { HabitBurst } from './progress/Journey'
 import { DayDial } from './today/DayDial'
+import { IntelligenceBriefing } from './intelligence/IntelligenceBriefing'
 import { BriefingWidget, CheckinWidget, DeadlinesWidget, FocusTimeWidget, ProgressWidget, QuickActionsWidget } from './today/TodayWidgets'
 import type { TodayData } from '../lib/api'
 
@@ -73,6 +74,7 @@ export default function Dashboard() {
     checkin: <CheckinWidget data={today.data} onChange={() => { today.reload(); briefing.reload() }} />,
     deadlines: <DeadlinesWidget data={today.data} />,
     actions: <QuickActionsWidget />,
+    intelligence: <IntelligenceBriefing />,
     suggestions: data && data.suggestions.length > 0 ? <div className="suggestions">{data.suggestions.map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div> : null,
     stats: <div className="stats-grid">
       {!data ? Array.from({ length: 4 }, (_, i) => <Skeleton key={i} height={112} />) : <>

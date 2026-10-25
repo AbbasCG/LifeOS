@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { ChevronLeft, ChevronRight, Trophy, TrendingUp, TrendingDown, Check, ArrowRightLeft, X, Flame, Star, Sparkles, Lightbulb, CircleCheckBig } from 'lucide-react'
 import { api, type Plan, type ReviewDecision, type WeeklyReviewData } from '../lib/api'
 import { useApi } from '../lib/useApi'
+import { WeeklyInsights } from './intelligence/WeeklyInsights'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
@@ -70,6 +71,7 @@ function ReviewWorkflow({ week, setWeek, data, reload }: { week: string; setWeek
     <ErrorMessage error={error} />
 
     {step === 'look_back' && <div className="review-grid">
+      {data.intelligence?.enabled && <WeeklyInsights week={week} data={data.intelligence} />}
       <div className="stats-grid">
         <div className="stat reveal"><span>{t('Completed', 'منجزة')}</span><strong>{m.completed}</strong><small className="muted">{t(`${m.unfinished} still open`, `${m.unfinished} مفتوحة`)}</small></div>
         <div className="stat reveal"><span>{t('Focus time', 'وقت التركيز')}</span><strong>{minutesLabel(m.focus_minutes, ar)}</strong>{m.focus_change !== null ? <small className={`change ${m.focus_change >= 0 ? 'up' : 'down'}`}>{m.focus_change >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{m.focus_change > 0 ? '+' : ''}{m.focus_change}% {t('vs last week', 'عن الأسبوع الماضي')}</small> : <small className="muted">{t('No data last week', 'لا بيانات للأسبوع الماضي')}</small>}</div>

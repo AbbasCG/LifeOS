@@ -1086,3 +1086,180 @@ Every element of the approved design:
 ## Recommended next steps
 - Run checklist items 23–30 with test accounts once the user wants live verification.
 - Proactive Personal AI: write a spec (signals, when it may speak, consent, data limits) for approval before building.
+
+
+# V9 — Proactive Personal AI
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` after PR #7 (V8) was merged. **Not committed, not pushed** — waiting for approval.
+
+This release implements Proactive Personal AI as specified in the V9 prompt.
+- **Deterministic by design.** Every insight is computed on the server from the user's own data, with stated confidence and sources.
+- **External AI is optional and used in one place only:** the weekly summary, which needs two opt-ins and receives numbers only.
+- **Nothing changes user data on its own.**
+
+## Phase 0 — Audit
+- **Reused, not duplicated:**
+  - `BriefingService::score/rank` (priority scoring);
+  - `PlanningService` (config, windows, free intervals, workload summary);
+  - `CalendarService` (occurrences incl. connected calendars);
+  - `ConflictService` (overlaps, busy tasks, deadline risk);
+  - `GoalIntelligence` (goal pace, habit trends);
+  - `FocusInsights`;
+  - `DayPlanner` (variants, explanations, proposal → accept);
+  - `WeeklyReviewService`;
+  - `AssistantActions` (proposals with approval, re-validation and undo);
+  - `Notifier` (preferences, quiet hours, dedupe);
+  - the AI provider layer (`AssistantService::provider`, which already respects `assistant_external`);
+  - `AuditLogger`.
+- **Gaps found:**
+  1. no record of postponed deadlines;
+  2. no persisted, dismissible or deduplicated recommendations;
+  3. no single insight model with confidence and sources;
+  4. no AI preferences or data-source permissions beyond `assistant_external` / `ai_connected_data`;
+  5. the planner had no deadline-first strategy and no interruption input;
+  6. the weekly review mixed facts and advice;
+  7. no AI activity history or AI-data deletion;
+  8. demo reset missed `calendar_write_links` (V8) — fixed.
+- **Dependencies:** none added (backend or frontend).
+- **One migration** (additive, reversible; rollback verified on PostgreSQL).
+
+## Module status
+
+| Phase | Status | Implementation |
+|---|---|---|
+| 1 Personal intelligence engine | **Done** | `IntelligenceService` snapshot: priorities with a 0–100 score, reasons, risk, confidence and sources; deadline risk; 7-day workload; focus windows; focus capacity with confidence from history; high-severity conflicts; goals/habits needing attention; unfinished and repeatedly postponed work. Only allowed data sources are read. Cached per request. |
+| 2 Morning intelligence | **Done** | `GET /api/intelligence/briefing` plus a new **Morning intelligence** Today widget (tabs: Priorities, Today, Focus, Watch-outs; up to 3 suggestions). Added to the dashboard layout (customisable, can be hidden). |
+| 3 Adaptive planner | **Done** | `DayPlanner` gains a **Deadlines first** strategy, interruption-aware re-planning (`busy_until`, `lost_minutes`), and the user's preferred strategy. Low energy still wins. Choosing still creates a pending proposal; the calendar changes only on accept. |
+| 4 Proactive Copilot | **Done** | `RecommendationService` + `recommendations` table. Types: deadline, conflict, overload, goal, postponed, focus. Deduplicated by stable key, dismissible, snoozable (1/3/7 days), auto-resolved, rated, opt-in tuning, at most 6 active. Acting creates an existing Copilot proposal (approval + undo) or only navigates. |
+| 5 Weekly intelligence | **Done** | `WeeklyIntelligence`: measured **facts**, rule-based **interpretations** citing their evidence with confidence, workload pattern, next-week suggestions. Optional AI summary with a deterministic fallback, always labelled. |
+| 6 Personalization & privacy | **Done** | `preferences.intelligence`: master switch, 5 feature switches, 6 data-source permissions, frequency (off / in-app / daily digest), opt-in personalization, retention (30/90/180 days), preferred planning strategy. Reset personalization; delete AI data. Existing external-AI consents are surfaced. |
+| 7 AI Control Center | **Done** | `/settings/ai` (EN/RTL AR) covering all of the above plus an activity history (proposals, suggestions, AI audit log). |
+| 8 Premium UX | **Done** | Living Workspace tokens, spring/opacity motion only (off under reduced motion), no new 3D, responsive 390/820/1440, dark/light, consistent skeleton/empty/error states. |
+| 9 Testing | **Done** | See the matrix below. |
+| 10 Documentation | **Done** | This section. |
+
+## Architecture
+
+```
+            user's own data (tasks, events, connected calendars*, goals*, habits*, focus*, check-ins*)   * = permission
+                                              │
+         ┌──────────── existing engines (unchanged APIs) ────────────┐
+         │ BriefingService  PlanningService  CalendarService          │
+         │ ConflictService  GoalIntelligence FocusInsights  DayPlanner│
+         └───────────────────────────┬───────────────────────────────┘
+                                     ▼
+                       IntelligenceService::snapshot()      (deterministic, per request)
+                   ┌─────────────┬───────────┴──────────┬────────────────────┐
+                   ▼             ▼                      ▼                    ▼
+         MorningIntelligence  RecommendationService  WeeklyIntelligence   DayPlanner (strategy, interruption)
+          GET …/briefing      GET/POST recommendations  GET reviews/{w}     GET/POST day-plan
+                                     │ act                    │ narrative (opt-in, numbers only)
+                                     ▼                        ▼
+                         AssistantActions proposal     AI provider ──fail──▶ rule-based summary
+                         (pending → approve → undo)
+```
+
+## What is rule-based versus powered by an external AI model
+
+| Feature | How it works | External AI model? |
+|---|---|---|
+| Priority scores, reasons, risk, confidence and sources | Deterministic rules (`BriefingService` scoring + `IntelligenceService`) | **No** |
+| Deadline risk, workload, conflicts, focus windows, focus capacity | Deterministic calculations over the calendar, tasks and focus history | **No** |
+| Goal and habit attention, unfinished and postponed work | Deterministic rules (`GoalIntelligence`, postponement counter) | **No** |
+| Morning intelligence briefing and its "improvements" | Rule-based composition of the snapshot | **No** |
+| Proactive suggestions (all six types), deduplication, tuning | Rule-based (`RecommendationService`); tuning counts the user's ratings | **No** |
+| Planner strategies, interruption re-planning, explanations | Deterministic `DayPlanner` | **No** |
+| Weekly facts, interpretations, suggestions | Measured facts + a fixed rule set, labelled "rule-based" in the UI | **No** |
+| Weekly summary ("Summarise my week") | Rule-based text by default. **AI-written only if** `features.ai_narrative` and `assistant_external` are on and a provider is configured; it receives numbers only. Falls back to rule-based on any failure. The UI labels which one was used. | **Optional, opt-in** |
+| Copilot chat (pre-existing, unchanged) | Local assistant, or the external provider when `assistant_external` is allowed (connected details only with `ai_connected_data`) | Pre-existing, opt-in |
+
+**Verified in code before commit:**
+- The V9 services and controller contain no calendar write-back, no provider HTTP calls and no task or event writes.
+- They write only the user's AI preferences and recommendation records, and delete data only on explicit request.
+- "Act" only creates a pending proposal.
+- The single external-AI call is `WeeklyIntelligence::narrative`.
+
+## AI data flow and privacy model
+- **Local by default.**
+  - Insights, recommendations, the briefing, planner strategies and weekly interpretations are computed on the LifeOS server.
+  - No AI provider is called for them.
+- **Data-source permissions:** `calendar`, `connected`, `goals`, `habits`, `focus`, `checkins`.
+  - A disabled source is not read by the engine (tests cover connected calendars, goals and the whole calendar).
+  - Tasks are always used.
+- **External AI, one use only:** the weekly summary. It requires all three of:
+  - `features.ai_narrative` (off by default);
+  - the existing `assistant_external` consent;
+  - a configured provider.
+
+  It sends **only numeric facts** (e.g. `focus_minutes`, `on_time_rate`) and the keys of the triggered observations — never titles, events or notes (tested). Failures fall back to a deterministic summary labelled "rule-based".
+- **No profiling:** no personality, mood, health or other sensitive characteristics are inferred or stored. Confidence describes data volume, not the person.
+- **What is stored:** recommendations (situation key, type, text, evidence, the user's rating, status) and Copilot proposals. Retention is 30/90/180 days, pruned hourly. "Delete AI data" removes both; the security audit log of applied changes is kept.
+- **Personalization (opt-in):** after three or more "not useful" ratings that outnumber "useful", a suggestion type is shown less (high-severity ones still show). It can be reset at any time.
+- **No autonomous actions:**
+  - Acting on a suggestion creates a pending proposal; applying it goes through the existing re-validated approval, and undo.
+  - Sync, the scheduler and the hourly `lifeos:recommendations` job never change tasks or events and never write to external calendars (tested).
+- **Notifications:** "In-app only" by default. "Daily digest" sends at most one notification per day (per-user dedupe key), honouring notification channels and quiet hours.
+
+## API (all authenticated, scoped to the signed-in user)
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/intelligence/briefing` | Morning intelligence (`{enabled:false}` when off) |
+| `GET /api/recommendations` | Active suggestions (refreshes; respects frequency and opt-in tuning) |
+| `POST /api/recommendations/{id}/dismiss` | `{snooze_days?: 1\|3\|7}` — dismiss permanently, or snooze |
+| `POST /api/recommendations/{id}/feedback` | `{useful: bool}` |
+| `POST /api/recommendations/{id}/act` | Creates a **pending** Copilot proposal (422 for link-only suggestions) |
+| `GET / PUT /api/intelligence/settings` | AI preferences (strict validation); GET also returns external-AI status and stored counts |
+| `GET /api/intelligence/activity` | Proposals, suggestion history and AI audit events (safe fields only) |
+| `POST /api/intelligence/reset-personalization` | Clears stored ratings |
+| `DELETE /api/intelligence/data` | Deletes recommendations and Copilot proposals |
+| `GET /api/reviews/{week}` | Now includes `intelligence` (facts, interpretations, workload, suggestions) |
+| `POST /api/reviews/{week}/narrative` | Weekly summary: `{kind: ai\|rules, text, provider?, fallback_reason?}` (`throttle:assistant`) |
+| `GET /api/day-plan` / `POST /api/day-plan` | Accept `busy_until` (`H:i`) and `lost_minutes` (0–600); new variant `deadlines` |
+
+- **Schema:** migration `add_personal_intelligence` adds `tasks.postponed_count` and `tasks.last_postponed_at`, plus the new `recommendations` table.
+- **Postponement counting:**
+  - A deadline moved later by more than an hour counts.
+  - A first deadline, moving earlier, or a removal does not.
+  - The next recurring occurrence starts at 0.
+
+## Testing and verification matrix
+
+| Area | Automated coverage |
+|---|---|
+| Priority scoring and explanations | `PersonalIntelligenceTest`: ordering, reasons (overdue, deadline_risk, postponed), score 0–100, risk, confidence, sources |
+| Calendar and timezone edge cases | Pacific/Auckland near midnight (local day, no windows left, deadlines); deadline risk around a 6 h workshop; existing V6/V7 DST suites |
+| Focus capacity | no history → low confidence; 12 sessions/6 days → high, typical ×1.2; user's daily limit wins |
+| Consent and data sources | connected/goals/calendar permissions; briefing off; AI narrative needs feature + `assistant_external` + provider |
+| Multi-user isolation | other users' tasks absent; foreign recommendations 404 on dismiss/act/feedback; activity and deletion scoped |
+| Approval-gated actions | act → pending proposal with no data change → apply → undo; link suggestions can't act; chosen day plan stays pending |
+| Deduplication | repeated refreshes keep 6 rows; dismissed never return; snoozed hidden; resolved when handled; one digest per day |
+| Feedback and privacy | opt-in quieting, reset, retention pruning (hourly job), delete AI data keeps work data, strict settings validation, audit |
+| AI-provider failure and fallback | provider 529 → rule-based summary with `provider_error`; success → labelled AI; only numbers sent |
+| Planner | deadlines-first ordering, `busy_until` / `lost_minutes`, validation, preferred strategy, choose with interruption |
+| Arabic/English UI | Vitest `v9.test.tsx` (8); Playwright Arabic RTL Control Center; all components bilingual |
+| Browser journeys | Playwright `intelligence.spec.ts` (3 journeys × desktop + mobile) plus `/settings/ai` in the smoke tour; the existing V8 specs still pass |
+
+- **Results:**
+  - **Backend:** 222/222 (1867 assertions) on SQLite and PostgreSQL 16.
+  - **Frontend:** 92/92 Vitest (one existing dashboard test updated for the new default widget order).
+  - **Playwright:** 18/18 (9 specs × desktop and mobile, including the 3 new V9 journeys).
+  - TypeScript, ESLint (0 errors, 1 pre-existing warning), build, `npm audit --omit=dev` (0) and `composer audit` (none) — see the final report.
+- **Manual visual check** with demo data: EN light 1440, AR dark 390 (reduced motion), EN dark 820 — no overflow, no console errors, no external requests.
+  - Fixed during QA: the "Why?" toggle layout, and the briefing header wrapping its settings button at 820 px.
+
+## Known limitations (V9)
+- **Heuristic thresholds:** scores, thresholds (48 h deadlines, 100% overload, 3 "not useful" ratings, 3 idle days) and confidence levels are documented and tested, but not tuned on real usage data.
+- **Focus capacity** uses focus sessions only; time tracked outside LifeOS is invisible.
+- **Postponements** are counted from V9 on; earlier history is unknown.
+- **Weekly interpretations** are a fixed rule set (focus trend, busiest-day focus, deadline slippage, estimate overruns, plan follow-through, strong habits). They are observational ("may"), never causal.
+- **AI summary not verified live:** it has only been tested against a simulated provider. Real-provider wording quality is NOT VERIFIED.
+- **Delivery:** recommendations refresh on page load and hourly for daily digests; there is no real-time push for new situations.
+- **Server language:** recommendation texts are bilingual on the server; their date and time formatting uses the server's locale data.
+
+## Next-phase roadmap (proposal)
+- Calibrate thresholds with opt-in, aggregate, on-device statistics (no raw data leaving the server).
+- Recommendation actions for goals (generate a goal plan proposal directly) and for conflicts (pre-filled move preview).
+- An "explain this plan" view comparing strategies side by side.
+- Optional AI rewording of individual suggestions with the same consent model and fallback.
+- Live verification of the AI summary with a real provider account.

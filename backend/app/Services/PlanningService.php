@@ -381,11 +381,12 @@ class PlanningService
      * @param  array<string, mixed>|null  $c
      * @return array<string, mixed>
      */
-    public function summary(User $user, CarbonImmutable $first, int $days, array $items, array $warnings, ?array $c = null): array
+    public function summary(User $user, CarbonImmutable $first, int $days, array $items, array $warnings, ?array $c = null, ?Collection $events = null): array
     {
         $c ??= $this->config($user);
         $first = $first->setTimezone($c['tz'])->startOfDay();
-        $events = $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc());
+        // Callers that already filtered the calendar (e.g. by allowed data sources) pass their occurrences.
+        $events ??= $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc());
         $overlap = function (CarbonImmutable $s, CarbonImmutable $e, CarbonImmutable $ws, CarbonImmutable $we): int {
             $a = max($s, $ws);
             $b = min($e, $we);

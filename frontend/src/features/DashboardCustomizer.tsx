@@ -17,6 +17,7 @@ export default function DashboardCustomizer({ layout, onClose, onSaved }: { layo
     checkin: [t('Daily check-in', 'التسجيل اليومي'), t('Energy, mood and workload.', 'الطاقة والمزاج وعبء العمل.')],
     deadlines: [t('Upcoming deadlines', 'المواعيد القادمة'), t('Tasks, projects and goals due soon.', 'المهام والمشاريع والأهداف المستحقة قريباً.')],
     actions: [t('Quick actions', 'إجراءات سريعة'), t('One tap to capture, focus or plan.', 'نقرة واحدة للإضافة أو التركيز أو التخطيط.')],
+    intelligence: [t('Morning intelligence', 'ذكاء الصباح'), t('Priorities, focus windows, watch-outs and suggestions — explained.', 'الأولويات وفترات التركيز والتنبيهات والاقتراحات — مع التفسير.')],
     suggestions: [t('Smart suggestions', 'اقتراحات ذكية'), t('Actionable nudges based on your day.', 'تنبيهات عملية حسب يومك.')],
     stats: [t('Today at a glance', 'اليوم بنظرة'), t('Completed, focus, overdue and day load.', 'المنجز والتركيز والمتأخر وحمل اليوم.')],
     next_moves: [t('Your next moves', 'خطواتك التالية'), t('Top tasks ranked with reasons.', 'أهم المهام مرتبة مع الأسباب.')],

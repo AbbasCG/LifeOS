@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Task;
+use App\Services\WeeklyIntelligence;
 use App\Services\WeeklyReviewService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,9 +12,12 @@ use Illuminate\Validation\ValidationException;
 
 class ReviewController extends Controller
 {
-    public function show(Request $request, string $week, WeeklyReviewService $reviews): JsonResponse
+    public function show(Request $request, string $week, WeeklyReviewService $reviews, WeeklyIntelligence $weekly): JsonResponse
     {
-        return response()->json($reviews->build($request->user(), $reviews->weekStart($request->user(), $week)));
+        $start = $reviews->weekStart($request->user(), $week);
+        $review = $reviews->build($request->user(), $start);
+
+        return response()->json($review + ['intelligence' => $weekly->build($request->user(), $start, $review)]);
     }
 
     public function save(Request $request, string $week, WeeklyReviewService $reviews): JsonResponse

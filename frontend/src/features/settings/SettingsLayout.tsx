@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router'
-import { SlidersHorizontal, ShieldCheck, CalendarSync, Bot, BellRing, Workflow, HeartPulse } from 'lucide-react'
+import { SlidersHorizontal, ShieldCheck, CalendarSync, Bot, BellRing, Workflow, HeartPulse, BrainCircuit } from 'lucide-react'
 import { useText } from '../../lib/i18n'
 
 export default function SettingsLayout() {
@@ -10,6 +10,7 @@ export default function SettingsLayout() {
     { to: '/settings/wellbeing', label: t('Wellbeing', 'الرفاه'), icon: HeartPulse },
     { to: '/settings/notifications', label: t('Notifications', 'الإشعارات'), icon: BellRing },
     { to: '/settings/integrations', label: t('Connected accounts', 'الحسابات المرتبطة'), icon: CalendarSync },
+    { to: '/settings/ai', label: t('AI Control Center', 'مركز الذكاء الاصطناعي'), icon: BrainCircuit },
     { to: '/settings/assistant', label: t('Assistant', 'المساعد'), icon: Bot },
     { to: '/settings/automations', label: t('Automations', 'الأتمتة'), icon: Workflow },
   ]

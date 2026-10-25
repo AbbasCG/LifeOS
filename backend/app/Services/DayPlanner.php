@@ -20,7 +20,10 @@ use Illuminate\Validation\ValidationException;
  */
 class DayPlanner
 {
-    public const VARIANTS = ['balanced', 'deep', 'light'];
+    public const VARIANTS = ['balanced', 'deep', 'light', 'deadlines'];
+
+    /** Interruptions are reported in whole minutes, up to a full day. */
+    public const MAX_LOST_MINUTES = 600;
 
     public const LONG_STRETCH = 90;
 
@@ -29,12 +32,21 @@ class DayPlanner
     /**
      * @return array<string, mixed>
      */
-    public function plan(User $user, string $date, bool $replan = false): array
+    /**
+     * @param  array{busy_until?: string|null, lost_minutes?: int|null}  $interruption  what changed since the day started:
+     *                                                                                  busy until a time, and/or time lost
+     */
+    public function plan(User $user, string $date, bool $replan = false, array $interruption = []): array
     {
         $c = $this->planning->config($user);
         $day = CarbonImmutable::parse($date, $c['tz'])->startOfDay();
         $now = CarbonImmutable::now($c['tz']);
         $earliest = $day->isSameDay($now) ? $now->addMinutes(15 - $now->minute % 15)->startOfMinute() : $day;
+        $busyUntil = ! empty($interruption['busy_until']) ? $day->setTimeFromTimeString($interruption['busy_until']) : null;
+        if ($busyUntil && $busyUntil > $earliest) {
+            $earliest = $busyUntil;
+        }
+        $lost = min(self::MAX_LOST_MINUTES, max(0, (int) ($interruption['lost_minutes'] ?? 0)));
         $windows = collect($this->planning->windows($c, $day))->map(fn (array $w) => [max($w[0], $earliest), $w[1]])->filter(fn (array $w) => $w[1]->diffInMinutes($w[0], true) >= 15 && $w[1] > $w[0])->all();
 
         $occurrences = $this->calendar->occurrences($user, $day->utc(), $day->addDay()->utc());
@@ -64,16 +76,35 @@ class DayPlanner
         if ($c['daily_limit']) {
             $capacity = min($capacity, $c['daily_limit']);
         }
+        $capacity = max(0, $capacity - $lost);
 
         $context = compact('c', 'day', 'free', 'peak', 'capacity');
         $alternatives = [
             $this->variant('balanced', $candidates, $context, $energy),
             $this->variant('deep', $candidates, $context, $energy),
             $this->variant('light', $candidates, $context + ['capacity' => (int) floor($capacity * 0.6)], $energy),
+            $this->variant('deadlines', $candidates, $context, $energy),
         ];
-        $recommended = $energy !== null && $energy <= 2 ? 'light' : ($peak && $candidates->contains(fn ($t) => $t['minutes'] >= 90) ? 'deep' : 'balanced');
+        $preferred = IntelligenceSettings::feature($user, 'planner') ? IntelligenceSettings::for($user)['planning_strategy'] : null;
+        $nearDeadlines = $candidates->contains(fn ($t) => $t['task']->due_at && $t['task']->due_at <= $day->addDays(2)->utc());
+        $recommended = match (true) {
+            $energy !== null && $energy <= 2 => 'light',
+            $preferred !== null && in_array($preferred, self::VARIANTS, true) => $preferred,
+            $replan && $nearDeadlines => 'deadlines',
+            $peak && $candidates->contains(fn ($t) => $t['minutes'] >= 90) => 'deep',
+            default => 'balanced',
+        };
 
         $explanation = [];
+        if ($busyUntil) {
+            $explanation[] = ['en' => 'Re-planned from '.$busyUntil->format('H:i').' because you are busy until then.', 'ar' => 'أُعيد التخطيط بدءاً من '.$busyUntil->format('H:i').' لأنك مشغول حتى ذلك الوقت.'];
+        }
+        if ($lost > 0) {
+            $explanation[] = ['en' => sprintf('%s lost to an interruption is taken off today\'s capacity.', $this->duration($lost, false)), 'ar' => sprintf('خُصم %s ضاع بسبب مقاطعة من سعة اليوم.', $this->duration($lost, true))];
+        }
+        if ($recommended === $preferred && $preferred !== null) {
+            $explanation[] = ['en' => 'Your preferred planning strategy is suggested first.', 'ar' => 'تُقترح استراتيجية التخطيط المفضلة لديك أولاً.'];
+        }
         $explanation[] = ['en' => sprintf('%s of free time inside your boundaries after commitments and %d-minute buffers.', $this->duration($freeMinutes, false), $c['buffer']), 'ar' => sprintf('%s وقت متاح ضمن حدودك بعد الالتزامات وفواصل %d دقائق.', $this->duration($freeMinutes, true), $c['buffer'])];
         if ($energy !== null) {
             $explanation[] = $energy <= 2
@@ -94,6 +125,7 @@ class DayPlanner
             'date' => $day->toDateString(),
             'timezone' => $c['tz'],
             'replan' => $replan,
+            'interruption' => ['busy_until' => $busyUntil?->format('H:i'), 'lost_minutes' => $lost],
             'budget' => ['window_minutes' => $windowMinutes, 'committed_minutes' => $committed, 'free_minutes' => $freeMinutes, 'capacity_minutes' => $capacity, 'must_do_minutes' => $mustMinutes, 'buffer_minutes' => $c['buffer']],
             'boundaries' => collect($windows)->map(fn (array $w) => ['start' => $w[0]->format('H:i'), 'end' => $w[1]->format('H:i')])->all(),
             'energy' => $energy,
@@ -115,9 +147,12 @@ class DayPlanner
     /**
      * Turn the chosen variant into a pending proposal (the calendar is only changed when the user accepts it).
      */
-    public function choose(User $user, string $date, string $variant): ScheduleProposal
+    /**
+     * @param  array{busy_until?: string|null, lost_minutes?: int|null}  $interruption  the same interruption the user previewed
+     */
+    public function choose(User $user, string $date, string $variant, array $interruption = []): ScheduleProposal
     {
-        $plan = $this->plan($user, $date);
+        $plan = $this->plan($user, $date, false, $interruption);
         $chosen = collect($plan['alternatives'])->firstWhere('key', $variant);
         if (! $chosen || $chosen['items'] === []) {
             throw ValidationException::withMessages(['variant' => ['This plan has nothing to schedule. Try another option or free up time.']]);
@@ -145,6 +180,8 @@ class DayPlanner
         $pool = match ($key) {
             'deep' => $candidates->sortByDesc(fn ($t) => ($t['must'] ? 1000 : 0) + ($t['minutes'] >= 60 ? 500 : 0) + $t['score'])->values(),
             'light' => $candidates->filter(fn ($t) => $t['must'] || $t['score'] >= 40)->sortByDesc(fn ($t) => ($t['must'] ? 1000 : 0) + $t['score'])->values(),
+            // Earliest deadline first; tasks without a deadline follow by score.
+            'deadlines' => $candidates->sortBy(fn ($t) => [$t['task']->due_at?->getTimestamp() ?? PHP_INT_MAX, -$t['score']])->values(),
             default => $candidates->sortByDesc(fn ($t) => ($t['must'] ? 1000 : 0) + $t['score'])->values(),
         };
         $items = [];
@@ -193,11 +230,12 @@ class DayPlanner
         usort($items, fn ($a, $b) => strcmp($a['starts_at'], $b['starts_at']));
         $breaks = $this->breaks($items);
         $switches = max(0, count(array_unique(array_column($items, 'task_id'))) - 1);
-        $titles = ['balanced' => ['Balanced', 'متوازن'], 'deep' => ['Deep focus first', 'التركيز العميق أولاً'], 'light' => ['Light day', 'يوم خفيف']];
+        $titles = ['balanced' => ['Balanced', 'متوازن'], 'deep' => ['Deep focus first', 'التركيز العميق أولاً'], 'light' => ['Light day', 'يوم خفيف'], 'deadlines' => ['Deadlines first', 'المواعيد النهائية أولاً']];
         $descriptions = [
             'balanced' => ['Your priorities in order, in focus-sized blocks with breaks.', 'أولوياتك بالترتيب في فترات تركيز مع استراحات.'],
             'deep' => ['Longer 90-minute blocks for your biggest work in your peak hours; fewer context switches.', 'فترات أطول (٩٠ دقيقة) لأكبر أعمالك في ساعات ذروتك مع تنقل أقل.'],
             'light' => ['Only must-dos and top priorities, using about 60% of your capacity.', 'المهام الضرورية والأولويات العليا فقط، بنحو ٦٠٪ من طاقتك.'],
+            'deadlines' => ['Work in order of due date, so the nearest deadlines get time first.', 'العمل بترتيب المواعيد النهائية، فتحصل الأقرب على الوقت أولاً.'],
         ];
         $planned = (int) array_sum(array_column($items, 'minutes'));
 
