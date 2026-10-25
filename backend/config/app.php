@@ -14,6 +14,9 @@ return [
     */
 
     'name' => env('APP_NAME', 'LifeOS'),
+
+    // General API requests per user (or IP) per minute. Raise only for isolated test environments.
+    'api_requests_per_minute' => (int) env('API_REQUESTS_PER_MINUTE', 300),
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
 
     /*
