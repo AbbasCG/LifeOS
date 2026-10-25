@@ -217,9 +217,11 @@ class ConversationService
             };
             $slots['ask_interruption'] = false;
         } else {
-            $slots = in_array($choice['value'], self::MOVE_CHOICES, true)
-                ? array_merge($state['slots'] ?? [], ['moves' => $choice['value'] === 'moves:on', 'ask_interruption' => false])
-                : array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]);
+            $slots = match (true) {
+                in_array($choice['value'], self::MOVE_CHOICES, true) => array_merge($state['slots'] ?? [], ['moves' => $choice['value'] === 'moves:on', 'ask_interruption' => false]),
+                str_starts_with($choice['value'], 'area:') => array_merge($state['slots'] ?? [], ['area' => substr($choice['value'], 5)]),
+                default => array_merge($state['slots'] ?? [], ['alternative' => $choice['value'], 'variant' => $choice['value'], 'ask_interruption' => false]),
+            };
             $this->dismissPrevious($user, $answering);
         }
         $progress('planning');
@@ -286,6 +288,9 @@ class ConversationService
             }
             if (($count = CopilotPlanner::countIn($normalized)) !== null) {
                 $changes['count'] = $count;
+            }
+            if (($area = CopilotPlanner::areaIn($lower)) !== null && $area !== ($slots['area'] ?? null)) {
+                $changes['area'] = $area;
             }
             if (preg_match('/tomorrow|غدا|غداً|الغد/u', $lower)) {
                 $changes['within'] = 'tomorrow';

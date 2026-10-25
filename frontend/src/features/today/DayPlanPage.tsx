@@ -129,7 +129,8 @@ function BoundaryEditor({ onSaved }: { onSaved: () => void }) {
   async function save(form: FormData) {
     setBusy(true); setError('')
     const v = (k: string) => (form.get(k) as string) || null
-    try { await api('/api/settings', 'PUT', { buffer_minutes: Number(form.get('buffer_minutes') || 0), study_start: v('study_start'), study_end: v('study_end'), personal_start: v('personal_start'), personal_end: v('personal_end') }); onSaved() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    const n = (k: string) => (form.get(k) as string) ? Number(form.get(k)) : null
+    try { await api('/api/settings', 'PUT', { buffer_minutes: Number(form.get('buffer_minutes') || 0), study_start: v('study_start'), study_end: v('study_end'), personal_start: v('personal_start'), personal_end: v('personal_end'), study_daily_limit: n('study_daily_limit'), personal_daily_limit: n('personal_daily_limit') }); onSaved() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   if (!data) return <section className="panel"><Skeleton lines={2} /></section>
   return <form className="panel boundary-editor reveal" action={form => void save(form)}>
@@ -142,7 +143,10 @@ function BoundaryEditor({ onSaved }: { onSaved: () => void }) {
       <label>{t('Study until', 'الدراسة حتى')}<input name="study_end" type="time" defaultValue={String(data.study_end ?? '')} /></label>
       <label>{t('Personal time from', 'الوقت الشخصي من')}<input name="personal_start" type="time" defaultValue={String(data.personal_start ?? '')} /></label>
       <label>{t('Personal time until', 'الوقت الشخصي حتى')}<input name="personal_end" type="time" defaultValue={String(data.personal_end ?? '')} /></label>
+      <label>{t('Study limit per day (min)', 'حد الدراسة اليومي (د)')}<input name="study_daily_limit" type="number" min={15} max={900} step={15} placeholder={t('No limit', 'بلا حد')} defaultValue={data.study_daily_limit == null ? '' : Number(data.study_daily_limit)} /></label>
+      <label>{t('Personal limit per day (min)', 'حد الوقت الشخصي اليومي (د)')}<input name="personal_daily_limit" type="number" min={15} max={900} step={15} placeholder={t('No limit', 'بلا حد')} defaultValue={data.personal_daily_limit == null ? '' : Number(data.personal_daily_limit)} /></label>
     </div>
+    <p className="muted small">{t('Limits cap how much planned work goes into each window per day; leave empty for no limit. Your daily focus limit in General settings still applies to the whole day.', 'تحدد هذه الحدود مقدار العمل المخطط في كل فترة يومياً؛ اتركها فارغة لعدم وجود حد. يبقى حد التركيز اليومي في الإعدادات العامة سارياً على اليوم كله.')}</p>
     <ErrorMessage error={error} />
     <button className="primary" disabled={busy}>{t('Save boundaries', 'حفظ الحدود')}</button>
   </form>

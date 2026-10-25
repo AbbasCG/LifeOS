@@ -32,7 +32,7 @@ class AppServiceProvider extends ServiceProvider
     private function configureRateLimiting(): void
     {
         $identity = fn (Request $request): string => $request->user()?->id ? 'user:'.$request->user()->id : 'ip:'.$request->ip();
-        RateLimiter::for('api', fn (Request $request) => Limit::perMinute(300)->by($identity($request)));
+        RateLimiter::for('api', fn (Request $request) => Limit::perMinute(max(1, (int) config('app.api_requests_per_minute', 300)))->by($identity($request)));
         RateLimiter::for('assistant', fn (Request $request) => Limit::perMinute(max(1, (int) config('ai.requests_per_minute', 10)))->by($identity($request)));
         RateLimiter::for('auth', fn (Request $request) => [
             Limit::perMinute(6)->by('auth:'.mb_strtolower((string) $request->input('email')).'|'.$request->ip()),

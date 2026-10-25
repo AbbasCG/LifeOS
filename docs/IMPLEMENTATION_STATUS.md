@@ -1447,7 +1447,7 @@ CopilotPlanner
 
 # V11 — Copilot plans that move flexible events
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (2dc8ebc) after PR #9 (V10) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (2dc8ebc) after PR #9 (V10) was merged. Merged into `main` as PR #10.
 
 Scope chosen for V11 (from the V10 roadmap): Copilot plans may also propose **moving** existing flexible LifeOS events, with the V7 conflict preview. The other roadmap items are not part of this release:
 - live provider verification (needs your API key and authorization);
@@ -1518,3 +1518,54 @@ The existing V5 "rebalance" proposal now uses the same rules, so it also stops m
 - **Where moves go:** destinations use working hours for week plans, and all of that day's windows (work, study, personal) for interruptions; moves never go to days outside the plan's week.
 - **Focus blocks** never move anything; they only use free time.
 - **Language at page load:** if a message is sent within about a second of the page loading, the language the app had before switching (e.g. the previous session's) can still be used for that one reply. This is existing behavior, seen during manual QA.
+
+# V12 — Study and personal focus with per-area daily limits
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (9495f6d) after PR #10 (V11) was merged. **Not committed, not pushed** — waiting for approval.
+
+Scope (from the V10 roadmap): focus blocks and plans use your study and personal windows too, with an optional daily limit per area.
+
+## What changed
+- **Week planner (`PlanningService::compute`)** — used by Smart planning and Copilot's week and priority plans.
+  - Before V12, every task was planned in working hours. Now a task whose category area is Study or Personal goes into that window, when you have set one (Plan my day → Boundaries).
+  - Without the window, it keeps using working hours, exactly as before.
+  - Items record the area they were placed in, and acceptance re-validates them against that window.
+  - The day load in the summary is measured against working hours only, so study and personal blocks no longer count towards it.
+- **Per-area daily limits:**
+  - New settings `study_daily_limit` and `personal_daily_limit` (15–900 minutes, empty means no limit), on the Boundaries form.
+  - The week planner applies them per day.
+  - The day planner applies them on top of the overall budget.
+  - Copilot focus blocks count blocks already booked in that window towards the limit.
+  - The existing daily focus limit still governs working hours (and the whole day in the day planner).
+- **Copilot focus blocks** (`CopilotPlanner::focusBlocks`):
+  - **Choosing the area:** the request can name one ("study blocks", "personal projects", "للدراسة"), the provider can set `plan.area`, or a follow-up can change it ("use my study hours instead").
+  - **No area named:** blocks use working hours, then study hours. Personal time is used only when asked.
+  - **Area named but no window set:** working hours are used and a "No study hours set" notice explains where to set them.
+  - **Labels:** blocks read "Study: Exam revision" / "Personal: …". A large task keeps filling blocks while it has unassigned estimated time.
+  - **Switching:** the plan offers "In working hours / In study hours / In personal time" alternatives when windows exist.
+- **Fixed along the way:** day-plan items recorded the task's area even when the task was placed in working hours (no study window that day), so accepting such a plan failed with "Availability changed". Items now record the area actually used.
+- **Local router:** "study block(s)", "study session(s)", "personal block" and the Arabic equivalents now count as focus-block requests.
+
+## Testing
+- **Backend:** `AreaFocusTest` (6 tests).
+  - Study tasks land in study hours, at most the daily limit per day, and the plan is accepted.
+  - Without study hours, study tasks use working hours, as before.
+  - The day planner respects the study limit, and a plan placed in working hours is accepted (the fix above).
+  - Copilot study blocks respect the limit including an already-booked block, are labelled "Study: …", switch to working hours by choice and back by follow-up.
+  - Personal focus without a window falls back with a notice.
+  - Arabic study request.
+  - Settings validation.
+- **Vitest:** `v11-12.test.tsx` (+2) covers the Boundaries form saving the limits (empty means none), and the area switch on a focus plan.
+- **Results:**
+  - **Backend:** 251/251 on SQLite (three consecutive runs) and PostgreSQL 16.
+  - **Frontend:** Vitest 107/107.
+  - **Playwright:** 26/26 (no new browser journey; the demo account has no study hours).
+  - Also clean: `tsc -b`, ESLint (0 errors, 1 pre-existing warning), build, `npm audit --omit=dev` (0) and `composer audit` (none).
+- **Live AI:** the provider's `plan.area` field was tested only against a simulated API. Live behavior is **NOT VERIFIED**.
+
+## Known limitations (V12)
+- **Areas come from task categories:** uncategorised tasks count as work.
+- **One window per area per day,** shared by all days; no per-weekday study hours.
+- **Personal time** is used for focus blocks only when asked, and is never used by week plans for work tasks.
+- **Day load** in the week summary covers working hours only; study and personal load are not shown separately yet.
+- **Copilot focus-block limits** count existing task blocks only (not other events) towards an area's limit.

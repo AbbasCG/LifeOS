@@ -6,11 +6,13 @@ import { LanguageProvider } from '../contexts/LanguageContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
 import { ToastProvider } from '../components/ui/Toaster'
 import { PlanCard } from '../features/assistant/PlanCard'
+import DayPlanPage from '../features/today/DayPlanPage'
+import { AuthProvider } from '../contexts/AuthContext'
 import { ProposalCard } from '../features/assistant/ProposalCard'
 import type { AssistantProposal } from '../lib/api'
 import type { CopilotPlan } from '../lib/copilot'
 
-const wrap = (children: ReactNode) => <ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider>{children}</ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>
+const wrap = (children: ReactNode) => <ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider><AuthProvider>{children}</AuthProvider></ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>
 beforeEach(() => { cleanup(); localStorage.clear(); localStorage.setItem('lifeos-language', 'en'); vi.unstubAllGlobals() })
 
 const plan = (moves: CopilotPlan['moves']): CopilotPlan => ({ kind: 'plan_week', title: 'Plan for 26 Oct – 1 Nov', explanation: [], conflicts: [], alternatives: [{ key: 'balanced', label: 'Everything, by priority', current: true }], impact: { blocks: 2, planned_minutes: 120, moved_events: moves?.count ?? 0 }, moves })
@@ -53,12 +55,44 @@ describe('plans that move flexible blocks', () => {
     expect(screen.getByRole('button', { name: /Apply 2 change\(s\)/ })).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('checkbox')[1])
     fireEvent.click(screen.getByRole('button', { name: /Move 1 to calendar/ }))
-    await waitFor(() => expect(fetcher).toHaveBeenCalled())
-    expect(JSON.parse((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toEqual({ action_ids: ['a1'] })
+    const apply = () => (fetcher.mock.calls as unknown as [string, RequestInit | undefined][]).find(c => String(c[0]).endsWith('/apply'))
+    await waitFor(() => expect(apply()).toBeDefined())
+    expect(JSON.parse(apply()![1]!.body as string)).toEqual({ action_ids: ['a1'] })
   })
 
   it('warns about overlaps found by the preview', () => {
     render(wrap(<ProposalCard proposal={{ ...proposal, actions: [{ ...proposal.actions[0], conflicts: [{ title: 'Team sync', source_label: 'Google', starts_at: '', ends_at: '', minutes: 30 }] }] }} />))
     expect(screen.getByText('Overlaps: Team sync (Google)')).toBeInTheDocument()
+  })
+})
+
+describe('study and personal focus (V12)', () => {
+  const dayPlan = { date: '2027-03-23', timezone: 'UTC', replan: false, energy: null, estimate_ratio: 1, recommended: 'balanced', budget: { window_minutes: 480, committed_minutes: 0, free_minutes: 480, capacity_minutes: 480, must_do_minutes: 0, buffer_minutes: 10 }, boundaries: {}, peak: null, commitments: [], overload: null, recovery: [], explanation: [], alternatives: [{ key: 'balanced', title: { en: 'Balanced', ar: '' }, description: { en: 'Mixed.', ar: '' }, items: [], warnings: [], breaks: [], metrics: { planned_minutes: 0, tasks: 0, switches: 0, load_percent: 0, unscheduled_must_do: 0 }, explanation: [] }] }
+
+  it('saves daily limits for study and personal windows, empty meaning no limit', async () => {
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = /\/api\/user$/.test(url) ? { id: 1, name: 'A', email: 'a@x.io' } : /\/api\/day-plan\?/.test(url) ? dayPlan : /\/api\/settings$/.test(url) ? (init?.method === 'PUT' ? {} : { study_start: '19:00', study_end: '21:00', study_daily_limit: 60, buffer_minutes: 10 }) : {}
+      return new Response(JSON.stringify(body), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetcher)
+    render(wrap(<DayPlanPage />))
+    fireEvent.click(await screen.findByRole('button', { name: 'Boundaries and buffers' }))
+    expect(await screen.findByLabelText('Study limit per day (min)')).toHaveValue(60)
+    expect(screen.getByLabelText('Personal limit per day (min)')).toHaveValue(null)
+    fireEvent.change(screen.getByLabelText('Study limit per day (min)'), { target: { value: '90' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save boundaries' }))
+    await waitFor(() => expect(fetcher.mock.calls.some(c => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(true))
+    const put = fetcher.mock.calls.find(c => (c[1] as RequestInit | undefined)?.method === 'PUT')!
+    expect(JSON.parse((put[1] as RequestInit).body as string)).toMatchObject({ study_start: '19:00', study_daily_limit: 90, personal_daily_limit: null })
+  })
+
+  it('offers switching a focus plan between working, study and personal time', () => {
+    const choose = vi.fn()
+    const focus: CopilotPlan = { kind: 'focus_blocks', title: 'Focus blocks', explanation: ['Blocks are spread across different days first, inside your study hours.'], conflicts: [], impact: { blocks: 2, planned_minutes: 120, days: 2, moved_events: 0 },
+      alternatives: [{ key: 'default', label: 'Usual length', current: true }, { key: 'area:work', label: 'In working hours', current: false }, { key: 'area:study', label: 'In study hours', current: true }] }
+    render(wrap(<PlanCard plan={focus} onAlternative={choose} />))
+    expect(screen.getByRole('button', { name: 'In study hours' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'In working hours' }))
+    expect(choose).toHaveBeenCalledWith('area:work')
   })
 })

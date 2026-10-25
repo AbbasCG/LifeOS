@@ -23,6 +23,8 @@ class CopilotPlanner
 
     public const PRIORITIES = ['study', 'work', 'personal', 'projects', 'deadlines'];
 
+    public const AREAS = ['work', 'study', 'personal'];
+
     public function __construct(private PlanningService $planning, private DayPlanner $day, private CalendarService $calendar, private AssistantActions $actions) {}
 
     public const INTENTS = ['plan_week', 'prioritize', 'focus_blocks', 'reorganize_day'];
@@ -48,7 +50,8 @@ class CopilotPlanner
             'plan_week' => $this->planWeek($user, $ar, $provider, $priorities, in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', (bool) ($slots['next_week'] ?? false), 'plan_week', $moves),
             'prioritize' => $this->prioritize($user, $ar, $provider, $priorities, (bool) ($slots['next_week'] ?? false), in_array($alternative, ['balanced', 'essentials'], true) ? $alternative : 'balanced', $moves),
             'focus_blocks' => $this->focusBlocks($user, $ar, $provider, (int) ($slots['count'] ?? 3), isset($slots['minutes']) ? (int) $slots['minutes'] : null,
-                in_array($slots['within'] ?? null, ['today', 'tomorrow', 'week'], true) ? $slots['within'] : 'week', in_array($alternative, ['short', 'default', 'long'], true) ? $alternative : 'default'),
+                in_array($slots['within'] ?? null, ['today', 'tomorrow', 'week'], true) ? $slots['within'] : 'week', in_array($alternative, ['short', 'default', 'long'], true) ? $alternative : 'default',
+                is_string($slots['area'] ?? null) ? $slots['area'] : null),
             'reorganize_day' => $this->reorganizeDay($user, $ar, $provider, $this->date($slots['date'] ?? null, $tz),
                 array_filter(['busy_until' => $slots['interruption']['busy_until'] ?? null, 'lost_minutes' => $slots['interruption']['lost_minutes'] ?? null]),
                 (bool) ($slots['ask_interruption'] ?? false), in_array($alternative, DayPlanner::VARIANTS, true) ? $alternative : null, $moves),
@@ -72,6 +75,7 @@ class CopilotPlanner
                 'count' => self::countIn($text),
                 'minutes' => self::minutesIn($text),
                 'within' => $tomorrow ? 'tomorrow' : (preg_match('/\btoday\b|اليوم/u', $text) ? 'today' : 'week'),
+                'area' => self::areaIn($text),
             ], fn ($v) => $v !== null),
             'reorganize_day' => [
                 'date' => ($tomorrow ? $now->addDay() : $now)->toDateString(),
@@ -90,6 +94,19 @@ class CopilotPlanner
     public static function keepsInPlace(string $text): bool
     {
         return (bool) preg_match('/(don.?t|do not|without|no) mov(e|ing) (anything|any|my|events|blocks|things)(?! ?fixed)|keep (everything|it all|things) (in place|where)|لا تنقل|بدون نقل|دون نقل (أي|شيء)|أبق.? كل شيء/u', mb_strtolower($text));
+    }
+
+    /**
+     * The area a focus request names: "study blocks", "time for my personal projects", "للدراسة".
+     */
+    public static function areaIn(string $text): ?string
+    {
+        return match (true) {
+            (bool) preg_match('/stud|learn|course|exam|revis|homework|دراس|مذاكر|تعلم|امتحان/u', $text) => 'study',
+            (bool) preg_match('/personal|home|family|hobby|شخصي|منزل|عائل|هواي/u', $text) => 'personal',
+            (bool) preg_match('/\bwork\b|working hours|office|job|العمل|ساعات العمل|وظيف/u', $text) => 'work',
+            default => null,
+        };
     }
 
     public static function countIn(string $text): ?int
@@ -235,11 +252,13 @@ class CopilotPlanner
     }
 
     /**
-     * Find focus blocks in free time only (fixed appointments and every other event stay where they are).
+     * Find focus blocks in free time only (fixed appointments and every other event stay where they are), in working
+     * hours, study hours or personal time. Each area's daily limit counts blocks already booked in that window.
      *
+     * @param  string|null  $area  work|study|personal, or null for working and study hours
      * @return array<string, mixed>
      */
-    public function focusBlocks(User $user, bool $ar, string $provider, int $count = 3, ?int $minutes = null, string $within = 'week', string $alternative = 'default'): array
+    public function focusBlocks(User $user, bool $ar, string $provider, int $count = 3, ?int $minutes = null, string $within = 'week', string $alternative = 'default', ?string $area = null): array
     {
         $c = $this->planning->config($user);
         $now = CarbonImmutable::now($c['tz']);
@@ -247,12 +266,25 @@ class CopilotPlanner
         $minutes = match ($alternative) {
             'short' => 45, 'long' => 90, default => max(30, min(180, $minutes ?? max(60, (int) $c['block'])))
         };
+        $configured = array_values(array_filter(['study', 'personal'], fn ($a) => ($c["{$a}_start"] ?? null) && ($c["{$a}_end"] ?? null)));
+        $area = in_array($area, self::AREAS, true) ? $area : null;
+        $missing = $area && $area !== 'work' && ! in_array($area, $configured, true);
+        $useAreas = match (true) {
+            $area === null => array_merge(['work'], in_array('study', $configured, true) ? ['study'] : []),
+            $missing => ['work'],
+            default => [$area],
+        };
         $first = $within === 'tomorrow' ? $now->startOfDay()->addDay() : $now->startOfDay();
         $days = $within === 'week' ? 7 : 1;
         $occurrences = $this->calendar->occurrences($user, $first->utc(), $first->addDays($days)->utc());
         $busy = $occurrences->map(fn (array $o) => [$o['starts_at']->subMinutes($c['break']), $o['ends_at']->addMinutes($c['break'])])->all();
+        $taskBlocks = $occurrences->filter(fn (array $o) => ($o['source'] ?? 'lifeos') === 'lifeos' && ! empty($o['task_id']));
         $earliest = $now->addMinutes(15 - $now->minute % 15)->startOfMinute();
-        $tasks = BriefingService::rank(Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->limit(200)->get(), $now)->pluck('task')->values();
+        $areas = Category::where('user_id', $user->id)->pluck('area', 'id');
+        $ranked = BriefingService::rank(Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->limit(200)->get(), $now)->pluck('task');
+        $tasksFor = fn (string $a) => $area === null ? $ranked->values() : $ranked->filter(fn (Task $t) => ($t->category_id ? ($areas[$t->category_id] ?? 'work') : 'work') === $a)->values();
+        $used = [];
+        $assigned = [];
         $blocks = [];
         // First pass: at most one block per day, preferring the focus window; second pass fills remaining days.
         foreach ([1, 2] as $perDay) {
@@ -262,45 +294,75 @@ class CopilotPlanner
                     continue;
                 }
                 $windows = $this->planning->windows($c, $day);
-                $window = $windows['work'] ?? null;
-                if (! $window) {
-                    continue;
-                }
-                $preferred = $c['focus_start'] && $c['focus_end'] ? [$day->setTimeFromTimeString($c['focus_start']), $day->setTimeFromTimeString($c['focus_end'])] : null;
-                foreach (array_filter([$preferred, $window]) as [$from, $to]) {
-                    $from = max($from, $earliest);
-                    if ($from >= $to) {
+                foreach ($useAreas as $a) {
+                    $window = $windows[$a] ?? null;
+                    if (! $window) {
                         continue;
                     }
-                    $free = collect($this->planning->freeIntervals($from->utc(), $to->utc(), $busy))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes);
-                    if ($free) {
-                        $task = $tasks->get(count($blocks));
-                        $blocks[] = ['title' => $task ? ($ar ? "تركيز: {$task->title}" : "Focus: {$task->title}") : ($ar ? 'فترة تركيز' : 'Focus block'), 'task_id' => $task?->id,
-                            'starts_at' => $free[0], 'ends_at' => $free[0]->addMinutes($minutes)];
-                        $busy[] = [$free[0], $free[0]->addMinutes($minutes + $c['break'])];
-                        break;
+                    $key = $day->toDateString().$a;
+                    $used[$key] ??= (int) $taskBlocks->sum(fn (array $o) => max(0, min($o['ends_at'], $window[1]->utc())->getTimestamp() - max($o['starts_at'], $window[0]->utc())->getTimestamp()) / 60);
+                    if ($this->planning->areaLimit($c, $a, $window) < $used[$key] + $minutes) {
+                        continue;
                     }
+                    $preferred = $a === 'work' && $c['focus_start'] && $c['focus_end'] ? [$day->setTimeFromTimeString($c['focus_start']), $day->setTimeFromTimeString($c['focus_end'])] : null;
+                    $slot = null;
+                    foreach (array_filter([$preferred, $window]) as [$from, $to]) {
+                        $from = max($from, $earliest);
+                        $slot = $from < $to ? collect($this->planning->freeIntervals($from->utc(), $to->utc(), $busy))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes) : null;
+                        if ($slot) {
+                            break;
+                        }
+                    }
+                    if (! $slot) {
+                        continue;
+                    }
+                    // The top task that still has estimated time left after the blocks already given to it.
+                    $task = $tasksFor($a)->first(fn (Task $t) => max(0, $t->estimated_minutes - $t->actual_minutes) > ($assigned[$t->id] ?? 0));
+                    if ($task) {
+                        $assigned[$task->id] = ($assigned[$task->id] ?? 0) + $minutes;
+                    }
+                    $label = ['work' => ['Focus', 'تركيز'], 'study' => ['Study', 'دراسة'], 'personal' => ['Personal', 'وقت شخصي']][$a];
+                    $blocks[] = ['title' => $task ? ($ar ? "{$label[1]}: {$task->title}" : "{$label[0]}: {$task->title}") : ($ar ? "فترة {$label[1]}" : "{$label[0]} block"), 'task_id' => $task?->id,
+                        'starts_at' => $slot[0], 'ends_at' => $slot[0]->addMinutes($minutes), 'area' => $a];
+                    $busy[] = [$slot[0], $slot[0]->addMinutes($minutes + $c['break'])];
+                    $used[$key] += $minutes;
+                    break;
                 }
             }
         }
         usort($blocks, fn ($a, $b) => $a['starts_at'] <=> $b['starts_at']);
         $fixed = $occurrences->where('kind', 'fixed')->count();
+        $names = ['work' => ['working hours', 'ساعات العمل'], 'study' => ['study hours', 'ساعات الدراسة'], 'personal' => ['personal time', 'الوقت الشخصي']];
+        $where = implode($ar ? ' و' : ' and ', array_map(fn ($a) => $names[$a][$ar ? 1 : 0], $useAreas));
         $explanation = [
             $ar ? "بقيت كل المواعيد الثابتة ({$fixed}) وغيرها في مكانها؛ الفترات تستخدم الوقت المتاح فقط مع فاصل {$c['break']} دقائق." : "All {$fixed} fixed appointment(s) and other events stay where they are; blocks only use free time, with {$c['break']}-minute buffers.",
-            $ar ? 'وُزّعت الفترات على أيام مختلفة أولاً، داخل ساعات تركيزك إن وُجدت.' : 'Blocks are spread across different days first, inside your focus hours when set.',
+            $ar ? "وُزّعت الفترات على أيام مختلفة أولاً، ضمن {$where}." : "Blocks are spread across different days first, inside your {$where}.",
         ];
+        foreach (array_intersect(['study', 'personal'], $useAreas) as $a) {
+            if ($c["{$a}_limit"] ?? null) {
+                $explanation[] = $ar ? "حدّك اليومي لـ{$names[$a][1]} هو {$c["{$a}_limit"]} دقيقة، بما فيه ما هو محجوز مسبقاً." : "Your daily limit for {$names[$a][0]} is {$c["{$a}_limit"]} minutes, including what is already booked.";
+            }
+        }
         $conflicts = count($blocks) < $count ? [['type' => 'not_enough_time', 'title' => $ar ? 'وقت غير كافٍ' : 'Not enough free time', 'detail' => $ar ? 'وُجدت '.count($blocks)." من {$count} فترات بطول {$minutes} دقيقة." : 'Found '.count($blocks)." of {$count} free {$minutes}-minute slot(s).", 'minutes' => null]] : [];
+        if ($missing) {
+            $conflicts[] = ['type' => 'no_window', 'title' => $ar ? "لم تحدد {$names[$area][1]}" : "No {$names[$area][0]} set", 'detail' => $ar ? 'استُخدمت ساعات العمل. حدّد الفترة في «خطط يومي» ← الحدود.' : 'Working hours were used instead. Set the window in Plan my day → Boundaries.', 'minutes' => null];
+        }
         $summary = $blocks === []
             ? ($ar ? "لا توجد فترات متاحة بطول {$minutes} دقيقة." : "No free {$minutes}-minute slots were found.")
-            : ($ar ? 'اقتراح '.count($blocks)." فترات تركيز ({$minutes} دقيقة)." : 'Suggested '.count($blocks)." focus block(s) of {$minutes} minutes.");
-        $proposal = $blocks ? $this->actions->proposeBlocks($user, 'focus_blocks', $provider, $summary, $explanation, $blocks) : null;
+            : ($ar ? 'اقتراح '.count($blocks)." فترات ({$minutes} دقيقة) ضمن {$where}." : 'Suggested '.count($blocks)." block(s) of {$minutes} minutes in your {$where}.");
+        $proposal = $blocks ? $this->actions->proposeBlocks($user, 'focus_blocks', $provider, $summary, $explanation, array_map(fn ($b) => array_diff_key($b, ['area' => 1]), $blocks)) : null;
+        $alternatives = [['key' => 'short', 'label' => $ar ? 'فترات ٤٥ دقيقة' : '45-minute blocks', 'current' => $alternative === 'short'], ['key' => 'default', 'label' => $ar ? 'المدة المعتادة' : 'Usual length', 'current' => $alternative === 'default'], ['key' => 'long', 'label' => $ar ? 'فترات ٩٠ دقيقة' : '90-minute blocks', 'current' => $alternative === 'long']];
+        if ($configured !== []) {
+            foreach (array_merge(['work'], $configured) as $a) {
+                $alternatives[] = ['key' => "area:{$a}", 'label' => $ar ? 'في '.$names[$a][1] : 'In '.$names[$a][0], 'current' => $area === $a];
+            }
+        }
 
         return [
             'message' => $summary, 'proposal' => $proposal?->present(),
-            'plan' => ['kind' => 'focus_blocks', 'title' => $ar ? 'فترات تركيز' : 'Focus blocks', 'explanation' => $explanation, 'conflicts' => $conflicts,
-                'alternatives' => [['key' => 'short', 'label' => $ar ? 'فترات ٤٥ دقيقة' : '45-minute blocks', 'current' => $alternative === 'short'], ['key' => 'default', 'label' => $ar ? 'المدة المعتادة' : 'Usual length', 'current' => $alternative === 'default'], ['key' => 'long', 'label' => $ar ? 'فترات ٩٠ دقيقة' : '90-minute blocks', 'current' => $alternative === 'long']],
+            'plan' => ['kind' => 'focus_blocks', 'title' => $ar ? 'فترات تركيز' : 'Focus blocks', 'explanation' => $explanation, 'conflicts' => $conflicts, 'alternatives' => $alternatives,
                 'impact' => ['blocks' => count($blocks), 'planned_minutes' => count($blocks) * $minutes, 'days' => collect($blocks)->map(fn ($b) => $b['starts_at']->setTimezone($c['tz'])->toDateString())->unique()->count(), 'moved_events' => 0]],
-            'state' => ['intent' => 'focus_blocks', 'slots' => ['count' => $count, 'minutes' => $minutes, 'within' => $within, 'alternative' => $alternative]],
+            'state' => ['intent' => 'focus_blocks', 'slots' => ['count' => $count, 'minutes' => $minutes, 'within' => $within, 'alternative' => $alternative, 'area' => $area]],
         ];
     }
 

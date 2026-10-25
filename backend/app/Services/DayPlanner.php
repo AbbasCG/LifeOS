@@ -188,11 +188,15 @@ class DayPlanner
         $items = [];
         $warnings = [];
         $used = 0;
+        $usedByArea = [];
         foreach ($pool as $t) {
             $need = $t['minutes'];
             $parts = [];
+            // Study and personal time have their own optional daily limits on top of the overall budget.
+            $area = $this->resolveArea($free, $t['area']);
+            $areaLimit = $area !== null && $area !== 'work' ? ($c["{$area}_limit"] ?? null) : null;
             while ($need >= 15 && $used < $budget && count($parts) < PlanningService::MAX_BLOCKS_PER_TASK_PER_DAY) {
-                $size = (int) min($need, $block, $budget - $used);
+                $size = (int) min($need, $block, $budget - $used, $areaLimit === null ? PHP_INT_MAX : $areaLimit - ($usedByArea[$area] ?? 0));
                 if ($size < 15) {
                     break;
                 }
@@ -210,6 +214,7 @@ class DayPlanner
                 $parts[] = $slot;
                 $need -= $size;
                 $used += $size;
+                $usedByArea[$area] = ($usedByArea[$area] ?? 0) + $size;
             }
             foreach ($parts as $i => [$start, $end, $inPeak]) {
                 $reasons = $t['reasons'];
@@ -219,7 +224,7 @@ class DayPlanner
                 $items[] = [
                     'key' => $t['task']->id.'-'.($i + 1).'-'.$start->getTimestamp(), 'task_id' => $t['task']->id, 'task_version' => $t['task']->updated_at->toISOString(),
                     'title' => $t['task']->title, 'priority' => $t['task']->priority, 'starts_at' => $start->utc()->toIso8601String(), 'ends_at' => $end->utc()->toIso8601String(),
-                    'minutes' => (int) $start->diffInMinutes($end), 'part' => $i + 1, 'parts' => count($parts), 'manual' => false, 'area' => $t['area'], 'estimate_factor' => $t['factor'],
+                    'minutes' => (int) $start->diffInMinutes($end), 'part' => $i + 1, 'parts' => count($parts), 'manual' => false, 'area' => $area ?? 'work', 'estimate_factor' => $t['factor'],
                     'reasons' => array_values(array_unique($reasons)), 'explanation' => $this->why($t, $inPeak, $i + 1, count($parts)),
                 ];
             }
@@ -261,7 +266,7 @@ class DayPlanner
      */
     private function take(array &$free, string $area, int $minutes, ?CarbonImmutable $due, ?array $peak, array $c): ?array
     {
-        $area = isset($free[$area]) ? $area : (isset($free['work']) ? 'work' : array_key_first($free));
+        $area = $this->resolveArea($free, $area);
         if ($area === null) {
             return null;
         }
@@ -301,9 +306,19 @@ class DayPlanner
      */
     private function largestGap(array $free, string $area): int
     {
-        $area = isset($free[$area]) ? $area : (isset($free['work']) ? 'work' : array_key_first($free));
+        $area = $this->resolveArea($free, $area);
 
         return $area === null ? 0 : (int) collect($free[$area])->max(fn (array $f) => $f[0]->diffInMinutes($f[1]));
+    }
+
+    /**
+     * The window a task of this area is planned in: its own window when the user has one today, else working hours.
+     *
+     * @param  array<string, mixed>  $free
+     */
+    private function resolveArea(array $free, string $area): ?string
+    {
+        return isset($free[$area]) ? $area : (isset($free['work']) ? 'work' : array_key_first($free));
     }
 
     /**
