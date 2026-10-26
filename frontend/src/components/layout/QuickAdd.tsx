@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Flame, Plus, SlidersHorizontal, Sun, Sunrise, WifiOff } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Flame, Plus, SlidersHorizontal, Sun, Sunrise, WifiOff, Heart } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useOnline } from '../../lib/pwa'
 import { api, type RecordItem } from '../../lib/api'
@@ -10,6 +10,7 @@ import { BottomSheet } from '../visual'
 import { VoiceButton } from '../../features/assistant/VoiceButton'
 import { RecordForm } from '../../features/ResourcePage'
 import { ErrorMessage } from '../ui/Shared'
+import { openHabitSheet } from '../../lib/quickActions'
 import { dueFor, QUICK_ADD, TASKS_CHANGED, type Priority, type When } from '../../lib/quickAdd'
 
 /**
@@ -51,6 +52,7 @@ export default function QuickAdd() {
   const priorities: [Priority, string, typeof Flame][] = [['urgent', t('Urgent', 'عاجل'), Flame], ['high', t('High', 'عالية'), ArrowUp], ['medium', t('Normal', 'عادية'), Plus], ['low', t('Low', 'منخفضة'), ArrowDown]]
   return <>
     {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} footer={<>
+      <button type="button" className="quiet quick-habit" onClick={() => { close(); openHabitSheet() }}><Heart size={16} />{t('Log a habit', 'سجّل عادة')}</button>
       <button type="button" className="quiet" disabled={!text.trim()} onClick={() => { setDraft(task()); close() }}><SlidersHorizontal size={16} />{t('More details', 'تفاصيل أكثر')}</button>
       <button type="submit" form="quick-add-form" className="primary" disabled={!text.trim() || busy || !online}><Plus size={17} />{t('Add task', 'إضافة المهمة')}</button>
     </>}>

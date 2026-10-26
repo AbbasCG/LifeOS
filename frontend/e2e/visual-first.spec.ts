@@ -101,7 +101,7 @@ test('the app is installable and its shortcut opens Quick add', async ({ page, s
   const manifest = await (await page.request.get('/manifest.webmanifest')).json()
   expect(manifest.display).toBe('standalone')
   expect(manifest.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true)
-  expect(manifest.shortcuts.map((s: { url: string }) => s.url)).toEqual(expect.arrayContaining(['/?add=task', '/focus', '/calendar']))
+  expect(manifest.shortcuts.map((s: { url: string }) => s.url)).toEqual(expect.arrayContaining(['/?add=task', '/?focus=start', '/?log=habits', '/calendar']))
   await page.goto('/?add=task')
   const sheet = page.getByRole('dialog', { name: 'Quick add' })
   await expect(sheet).toBeVisible()

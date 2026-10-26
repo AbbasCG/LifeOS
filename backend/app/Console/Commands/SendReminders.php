@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\FocusSession;
+use App\Models\Habit;
+use App\Models\HabitEntry;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\CalendarService;
@@ -63,6 +65,16 @@ class SendReminders extends Command
         foreach ((clone $open)->whereNotNull('due_at')->where('due_at', '<=', now()->addHour())->where('due_at', '>=', now()->subDays(7))->cursor() as $task) {
             $overdue = $task->due_at->isPast();
             $notifier->send($user, 'deadlines', 'task:'.$task->id.':'.$task->due_at->timestamp, ($overdue ? ($ar ? 'مهمة متأخرة: ' : 'Overdue: ') : ($ar ? 'موعد المهمة: ' : 'Task due: ')).$task->title, ['link' => '/tasks', 'kind' => $overdue ? 'overdue' : 'due']);
+        }
+
+        // Habits with a reminder time: once a day (daily) or once a week (weekly), until done for that day or week.
+        foreach (Habit::where('user_id', $user->id)->whereNotNull('remind_time')->where('remind_time', '<=', $time)->get() as $habit) {
+            $weekly = $habit->recurrence === 'weekly';
+            $from = $weekly ? $now->startOfWeek(CarbonImmutable::MONDAY) : $now->startOfDay();
+            if (HabitEntry::where('habit_id', $habit->id)->where('date', '>=', $from->toDateString())->where('date', '<=', $now->toDateString())->exists()) {
+                continue;
+            }
+            $notifier->send($user, 'reminders', 'habit:'.$habit->id.':'.$from->toDateString(), ($ar ? 'عادة: ' : 'Habit: ').$habit->title, ['body' => $weekly ? ($ar ? 'لم تُسجَّل هذا الأسبوع بعد.' : 'Not logged this week yet.') : ($ar ? 'لم تُسجَّل اليوم بعد.' : 'Not logged today yet.'), 'link' => '/?habit='.$habit->id, 'kind' => 'habit']);
         }
 
         $default = (int) ($prefs['event_remind_minutes'] ?? self::DEFAULT_EVENT_LEAD);

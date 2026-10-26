@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Bell, BellRing, CalendarClock, CheckCheck, AlarmClock, Timer, Trash2, ClipboardList, AlertTriangle } from 'lucide-react'
+import { Bell, BellRing, CalendarClock, CheckCheck, AlarmClock, Timer, Trash2, ClipboardList, AlertTriangle, Heart } from 'lucide-react'
 import { api, type InboxNotification } from '../../lib/api'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { Dialog, ErrorMessage } from '../ui/Shared'
 
-const icons: Record<string, typeof Bell> = { reminder: AlarmClock, due: CalendarClock, overdue: AlertTriangle, event: CalendarClock, focus: Timer, planning: ClipboardList, review: ClipboardList }
+const icons: Record<string, typeof Bell> = { habit: Heart, reminder: AlarmClock, due: CalendarClock, overdue: AlertTriangle, event: CalendarClock, focus: Timer, planning: ClipboardList, review: ClipboardList }
 const POLL_MS = 60_000
 
 export default function NotificationCenter() {
@@ -54,6 +54,7 @@ export default function NotificationCenter() {
         const Icon = icons[item.kind] || Bell
         return <li key={item.id} className={item.read_at ? 'read' : 'unread'}>
           <button className="notification-main" onClick={() => void select(item)}><span className={`notification-icon kind-${item.kind}`}><Icon size={16} /></span><span><strong>{item.title}</strong><small className="muted">{ago(item.created_at, now)}</small></span>{!item.read_at && <span className="dot" aria-label={t('Unread', 'غير مقروء')} />}</button>
+          {item.actions?.map(a => <button key={a.action} className="quiet notification-quick" onClick={() => void select({ ...item, link: a.link })}>{a.title}</button>)}
           <button className="icon-button" aria-label={t('Delete notification', 'حذف الإشعار')} onClick={() => void run(() => api<{ unread_count: number }>(`/api/notifications/${item.id}`, 'DELETE')).then(r => { if (r) setItems(items.filter(i => i.id !== item.id)) })}><Trash2 size={15} /></button>
         </li>
       })}</ul>}

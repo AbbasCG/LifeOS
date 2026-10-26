@@ -12,6 +12,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
+import { notify as notifyUser } from '../lib/quickActions'
 
 const DISTRACTIONS = ['phone', 'people', 'notifications', 'thought', 'other'] as const
 
@@ -42,9 +43,12 @@ export default function FocusPage() {
   const suggestion = !active ? nextPomodoroStep(lastFinished && now - new Date(lastFinished.completed_at ?? lastFinished.created_at).getTime() < 3 * 3600_000 ? lastFinished : undefined) : null
   const label = (kind: SessionKind, m: FocusMode | null) => kind === 'short_break' ? t('Short break', 'استراحة قصيرة') : kind === 'long_break' ? t('Long break', 'استراحة طويلة') : kind === 'manual' ? t('Logged time', 'وقت مسجّل') : m === 'deep' ? t('Deep work', 'عمل عميق') : m === 'pomodoro' ? t('Pomodoro', 'بومودورو') : t('Focus', 'تركيز')
 
-  const notify = useCallback((title: string, body: string) => {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') { try { new Notification(title, { body, icon: '/icons/icon-192.png', tag: 'lifeos-focus' }) } catch { /* some browsers only allow notifications from a service worker */ } }
-  }, [])
+  // Through the service worker where possible: Android needs it, and it adds one-tap buttons where the browser has them.
+  const notify = useCallback((title: string, body: string, isBreak: boolean) => {
+    void notifyUser(title, { body, tag: 'lifeos-focus', link: '/focus', actions: isBreak
+      ? [{ action: 'focus-again', title: t('Focus again', 'تركيز مجدداً'), link: '/?focus=start' }]
+      : [{ action: 'focus-break', title: t('Start break', 'ابدأ استراحة'), link: '/?focus=break' }, { action: 'focus-again', title: t('Focus again', 'تركيز مجدداً'), link: '/?focus=start' }] })
+  }, [t])
 
   const act = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
     if (!active) return
@@ -63,7 +67,7 @@ export default function FocusPage() {
     finishing.current = active.id
     const isBreak = active.kind !== 'focus'
     void act('finish', notes ? { notes } : {}).then(() => {
-      notify(isBreak ? t('Break is over', 'انتهت الاستراحة') : t('Focus session complete', 'اكتملت جلسة التركيز'), isBreak ? t('Ready for the next round?', 'مستعد للجولة التالية؟') : t('Nice work. Take a short break.', 'عمل رائع. خذ استراحة قصيرة.'))
+      notify(isBreak ? t('Break is over', 'انتهت الاستراحة') : t('Focus session complete', 'اكتملت جلسة التركيز'), isBreak ? t('Ready for the next round?', 'مستعد للجولة التالية؟') : t('Nice work. Take a short break.', 'عمل رائع. خذ استراحة قصيرة.'), isBreak)
       toast(isBreak ? t('Break finished.', 'انتهت الاستراحة.') : t('Session complete — time saved.', 'اكتملت الجلسة — حُفظ الوقت.'))
     })
   }, [active, remaining, act, notes, notify, toast, t])

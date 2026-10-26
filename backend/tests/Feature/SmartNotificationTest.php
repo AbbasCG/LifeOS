@@ -90,6 +90,34 @@ class SmartNotificationTest extends TestCase
         $this->assertNull(app(Notifier::class)->send($this->user, 'reminders', 'k1', 'Call the bank'), 'Duplicate keys must not notify again');
     }
 
+    public function test_push_payload_carries_one_tap_actions_in_the_users_language(): void
+    {
+        $this->subscribe();
+        $captured = [];
+        Http::fake(['fcm.googleapis.com/*' => function (HttpRequest $request) use (&$captured) {
+            $captured[] = $request;
+
+            return Http::response('', 201);
+        }]);
+
+        $habit = app(Notifier::class)->send($this->user, 'reminders', 'h1', 'Habit: Read', ['link' => '/?habit=7', 'kind' => 'habit']);
+        SendPushNotification::dispatchSync($habit->id);
+        $payload = json_decode($this->decrypt($captured[0]->body()), true);
+        $this->assertSame([['action' => 'habit-done', 'title' => 'Done', 'link' => '/?habit=7&done=1']], $payload['actions']);
+
+        $this->prefs(['language' => 'ar']);
+        $focus = app(Notifier::class)->send($this->user, 'focus', 'f1', 'انتهت جلسة التركيز', ['link' => '/focus', 'force' => true]);
+        SendPushNotification::dispatchSync($focus->id);
+        $payload = json_decode($this->decrypt($captured[1]->body()), true);
+        $this->assertSame(['focus-break', 'focus-again'], array_column($payload['actions'], 'action'));
+        $this->assertSame('ابدأ استراحة', $payload['actions'][0]['title']);
+        $this->assertSame(['/?focus=break', '/?focus=start'], array_column($payload['actions'], 'link'));
+
+        $plain = app(Notifier::class)->send($this->user, 'reminders', 'k9', 'Call the bank', ['link' => '/tasks']);
+        SendPushNotification::dispatchSync($plain->id);
+        $this->assertSame([], json_decode($this->decrypt($captured[2]->body()), true)['actions']);
+    }
+
     public function test_gone_subscriptions_are_removed_and_transient_errors_retry(): void
     {
         $this->subscribe();

@@ -1947,7 +1947,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73396e1) after PR
 
 # V20 — Visual-first, zero-friction experience
 
-Branch `claude/magical-johnson-1s7q7b`, on top of PR #18 (V19). Requested as "LifeOS V11 — Visual-first, zero-friction experience"; numbered V20 because V11 already exists. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, on top of PR #18 (V19). Requested as "LifeOS V11 — Visual-first, zero-friction experience"; numbered V20 because V11 already exists. Merged into `main` as PR #19 (after a date-dependent e2e fix: on Mondays the demo review week is already completed).
 
 Frontend only: no backend, API, migration or permission change. All V1–V19 features stay reachable; details moved behind one tap instead of being removed.
 
@@ -2092,3 +2092,68 @@ No horizontal overflow on any screen in English desktop, English phone and Arabi
 - **The Today layout above "More for today" is fixed.** Customization (V2) still applies to the widgets inside it.
 - **Proposal and conversation texts keep the language they were created in** (an English summary stays English in Arabic mode).
 - **Not tested on real devices.** The visual check used Chromium (desktop and Pixel 7 emulation) only.
+
+# V21 — Quick habit & focus actions
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7457de1) after PR #19 (V20) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Habit reminders:**
+  - Optional "Remind me at" time on each habit; new nullable `habits.remind_time` column (additive migration).
+  - `lifeos:reminders` sends "Habit: …" once a day for daily habits, or once a week for weekly ones (Monday-based, like streaks), from that local time until the habit is logged.
+  - Quiet hours, channel settings and "no reminders while focusing" apply as for other reminders.
+- **One-tap actions** (`QuickActions` service): each action is an **in-app link**, and the signed-in app performs it with Undo, so tapping a notification never changes data on its own.
+  - A habit reminder offers **Done** → `/?habit=ID&done=1`.
+  - A finished focus session (push, or the Focus page's own alert) offers **Start break** → `/?focus=break` and **Focus again** → `/?focus=start`.
+  - The push payload carries the actions in the user's language. The service worker shows them as buttons, keeps only same-origin links (at most two), and opens the chosen link; a plain tap still opens the notification's link.
+  - The in-app notification list (`GET /api/notifications` now includes `actions`) shows the same buttons, so every browser has them.
+- **In the app:**
+  - `/?habit=ID&done=1` logs the habit for today with **Undo**; `/?log=habits` (or `?habit=ID`) opens the new **habit sheet**; `/?focus=start` / `/?focus=break` start a 25-minute session or a 5-minute break and open Focus. A running session is never replaced ("A session is already running.").
+  - Each link is acted on once, and its parameters are removed so reloading or going Back doesn't repeat it.
+  - **Habit sheet:** today's habits with one-tap ticks (tap again to undo), daily/weekly, reminder time and streak. It opens from Today ("All habits"), Quick add ("Log a habit"), the PWA shortcut, or a habit notification.
+- **Focus page alert:** sent through the service worker when available (required on Android, and the only way to show buttons), otherwise a plain notification as before.
+- **PWA shortcuts:** Add task, **Start focus now** (`/?focus=start`), **Log a habit** (`/?log=habits`), Calendar. "Plan my day" was dropped to keep four.
+- **Honest support check:** Settings → Notifications says whether *this* browser shows buttons on notifications. This is detected with `Notification.maxActions`, not assumed. Where it doesn't, it explains that tapping opens LifeOS with the action ready and that the in-app list has the same buttons.
+
+## Browser support (what was verified)
+- **Detection:** buttons are offered only when the browser reports `Notification.maxActions > 0`. Per the platforms' documentation, that is Chromium-based browsers on desktop and Android; Safari (macOS/iOS) and Firefox do not show buttons.
+- **Verified here:** in headless Chromium for the action links, the habit sheet and the settings line, and with the service worker's push and click handling run against a stub in unit tests.
+- **Not tested on real devices:** real push delivery with buttons on Android, Windows or macOS is **NOT VERIFIED**.
+- **Shortcuts** need the app to be installed. They appear on long-press (Android) or right-click (desktop Chromium) of the app icon; iOS ignores them.
+
+## Testing
+- **Backend:** `HabitQuickActionsTest` (5 tests).
+  - The reminder time is saved, validated (`HH:MM`) and cleared.
+  - Daily habits remind once from their local time, not when already logged, not without a time, and again the next day.
+  - Weekly habits remind once per week and not after being logged that week.
+  - Quiet hours and running focus sessions suppress reminders; Arabic titles and bodies.
+  - The notification list offers the actions, owner-scoped.
+  - `SmartNotificationTest` decrypts the real push payload: "Done" for a habit, Arabic "Start break" / "Focus again" for focus, none for other reminders.
+- **Vitest:** `v21.test.tsx` (9 tests):
+  - a habit is logged from a link, the link is cleared, and Undo works;
+  - the shortcut opens the habit sheet and a tick logs;
+  - the sheet opens from inside the app;
+  - a break starts from a link;
+  - weekly habits count per Monday week;
+  - page notifications get buttons only when `maxActions` is reported;
+  - the service worker shows only same-origin actions and opens the chosen action's link, the plain link, or `/` for a foreign link.
+- **Playwright:** `quick-actions.spec.ts` (3 journeys × desktop and mobile):
+  - a habit logged from the "Done" link, then Undo, then a tick in the sheet;
+  - focus started from the shortcut, a second start refused, then a break;
+  - the settings support line matches what the browser reports.
+  - `visual-first.spec.ts` checks the new shortcut links.
+- **Results:**
+  - **Backend:** 287/287 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 143/143.
+  - **Playwright:** 58/58.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** with demo data (EN desktop, AR Pixel 7 dark): a real habit reminder from `lifeos:reminders` with "Done" in the notification list, the habit sheet opened from the reminder, and the settings support line. No overflow and no unexpected console errors.
+  - Fixed during QA: the reminder's habit is now listed first in the sheet; the support line's icon layout.
+  - The demo reminder and reminder time were removed afterwards.
+
+## Known limitations (V21)
+- **Buttons depend on the browser** (above). Without them, a tap opens LifeOS and one more tap does the action.
+- **Actions need the app to open.** A button opens LifeOS and the action runs there (signed in, with Undo); nothing is done in the background. If the session has expired, sign in first and tap again.
+- **Reminder timing follows the scheduler** (`lifeos:reminders`, normally every few minutes). Reminders are not sent while a focus session runs, nor during quiet hours (a skipped day is not caught up).
+- **One reminder time per habit,** with no per-weekday times.
+- **Language right after opening:** if the device's saved language differs from the account's, the first confirmation after a cold start can appear in the device's language.

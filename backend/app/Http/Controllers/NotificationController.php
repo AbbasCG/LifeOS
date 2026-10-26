@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\InboxNotification;
+use App\Services\QuickActions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,8 @@ class NotificationController extends Controller
             $query->whereNull('read_at');
         }
         $page = $query->latest()->latest('id')->paginate(30);
+        $language = $request->user()->preferences()['language'] ?? 'en';
+        $page->getCollection()->each(fn (InboxNotification $n) => $n->setAttribute('actions', QuickActions::for($n, $language)));
 
         return response()->json($page->toArray() + ['unread_count' => $this->unreadCount($request)]);
     }

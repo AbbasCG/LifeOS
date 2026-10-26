@@ -59,9 +59,9 @@ export function newClientId(): string {
  * Start a focus session right away (one tap from Today, Tasks or the calendar): a Pomodoro for the task, or plain
  * focus without one. If a session is already running, nothing new is started and the caller just opens Focus.
  */
-export async function startFocus(taskId?: number | null, minutes = POMODORO.focus): Promise<'started' | 'already_running'> {
+export async function startFocus(taskId?: number | null, minutes = POMODORO.focus, kind: SessionKind = 'focus'): Promise<'started' | 'already_running'> {
   try {
-    await api('/api/focus-sessions', 'POST', { kind: 'focus', duration_seconds: minutes * 60, mode: 'pomodoro', cycle: 1, task_id: taskId ?? null, client_id: newClientId() })
+    await api('/api/focus-sessions', 'POST', { kind, duration_seconds: minutes * 60, mode: 'pomodoro', cycle: 1, task_id: kind === 'focus' ? taskId ?? null : null, client_id: newClientId() })
     return 'started'
   } catch (e) {
     if (/active session/i.test((e as Error).message)) return 'already_running'

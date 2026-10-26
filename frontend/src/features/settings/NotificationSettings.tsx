@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { BellRing, Smartphone, Send, Trash2, MoonStar, History, CheckCircle2, AlertTriangle, Info } from 'lucide-react'
+import { BellRing, Smartphone, Send, Trash2, MoonStar, History, CheckCircle2, AlertTriangle, Info, Zap } from 'lucide-react'
 import { api, type InboxNotification } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { pushState, enablePush, disablePush, type PushState } from '../../lib/push'
+import { notificationSupport } from '../../lib/quickActions'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
 
 type Channel = { enabled: boolean; push: boolean }
@@ -73,6 +74,10 @@ export default function NotificationSettings() {
     <section className="panel reveal">
       <h2><Smartphone size={18} /> {t('Push on this device', 'الإشعارات على هذا الجهاز')}</h2>
       <p className={`push-state state-${state}`}><StateIcon size={16} />{stateText}</p>
+      {/* Detected in this browser, not assumed: buttons on notifications exist only in some browsers. */}
+      <p className="muted small quick-support"><Zap size={14} aria-hidden="true" />{notificationSupport().buttons
+        ? t('One-tap buttons on notifications (“Done”, “Start break”) work in this browser.', 'أزرار الإجراء السريع في الإشعارات («تم»، «ابدأ استراحة») تعمل في هذا المتصفح.')
+        : t('This browser doesn’t show buttons on notifications. Tapping a notification opens LifeOS with the action ready, and the notification list in the app has the same buttons.', 'هذا المتصفح لا يعرض أزراراً في الإشعارات. النقر على الإشعار يفتح LifeOS والإجراء جاهز، وقائمة الإشعارات في التطبيق تضم الأزرار نفسها.')}</p>
       <div className="toolbar">
         {state === 'available' && <button className="primary" disabled={!!busy} onClick={() => void enable()}><BellRing size={16} />{t('Turn on push', 'تفعيل الإشعارات')}</button>}
         {pushReady && <button className="quiet" disabled={!!busy} onClick={() => void disable()}>{t('Turn off on this device', 'إيقاف على هذا الجهاز')}</button>}
