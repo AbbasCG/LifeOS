@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ArrowUpRight, Check, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck, LayoutGrid } from 'lucide-react'
+import { ArrowUpRight, Check, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck, LayoutGrid, ListChecks } from 'lucide-react'
 import { api, type Briefing, type PlannedVsActual, type Suggestion } from '../lib/api'
 import { FULL_WIDTH, normalizeLayout, type DashboardLayout, type WidgetId } from '../lib/dashboard'
 import { mondayOf } from '../lib/dates'
@@ -15,6 +15,7 @@ import { Empty, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { NowCard, TodayStrip, TopThree, ProgressRow, CopilotPick } from './today/NowView'
 import { Expandable, RingStat } from '../components/visual'
 import { TASKS_CHANGED } from '../lib/quickAdd'
+import { HABITS_CHANGED, openHabitSheet } from '../lib/quickActions'
 import { HabitBurst } from './progress/Journey'
 import { DayDial } from './today/DayDial'
 import { IntelligenceBriefing } from './intelligence/IntelligenceBriefing'
@@ -68,7 +69,7 @@ export default function Dashboard() {
   const data = briefing.data
   const greeting = data?.period === 'evening' ? t('Good evening', 'مساء الخير') : data?.period === 'afternoon' ? t('Good afternoon', 'نهارك سعيد') : t('Good morning', 'صباح الخير')
   const refresh = () => { briefing.reload(); today.reload(); void overview.reload() }
-  useEffect(() => { window.addEventListener(TASKS_CHANGED, refresh); return () => window.removeEventListener(TASKS_CHANGED, refresh) })
+  useEffect(() => { window.addEventListener(TASKS_CHANGED, refresh); window.addEventListener(HABITS_CHANGED, refresh); return () => { window.removeEventListener(TASKS_CHANGED, refresh); window.removeEventListener(HABITS_CHANGED, refresh) } })
   async function act(id: number, fn: () => Promise<unknown>) {
     setBusy(id); setError('')
     try { await fn(); refresh() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
@@ -121,7 +122,7 @@ export default function Dashboard() {
       <TopThree briefing={data} onChange={refresh} />
       <div className="today-col">
         <ProgressRow today={today.data} />
-        {habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}</section>}
+        {habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}<button type="button" className="quiet habit-all" onClick={openHabitSheet}><ListChecks size={15} aria-hidden="true" />{t('All habits', 'كل العادات')}</button></section>}
       </div>
     </div>
     <CopilotPick />

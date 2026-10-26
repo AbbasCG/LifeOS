@@ -6,6 +6,8 @@ use App\Integrations\Push\PushException;
 use App\Integrations\Push\WebPush;
 use App\Models\InboxNotification;
 use App\Models\PushSubscription;
+use App\Models\User;
+use App\Services\QuickActions;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -41,7 +43,8 @@ class SendPushNotification implements ShouldBeUnique, ShouldQueue
 
             return;
         }
-        $payload = json_encode(['id' => $notification->id, 'title' => $notification->title, 'body' => $notification->body, 'link' => $notification->link ?: '/', 'category' => $notification->category, 'tag' => 'lifeos-'.$notification->id], JSON_UNESCAPED_UNICODE);
+        $language = User::find($notification->user_id)?->preferences()['language'] ?? 'en';
+        $payload = json_encode(['id' => $notification->id, 'title' => $notification->title, 'body' => $notification->body, 'link' => $notification->link ?: '/', 'category' => $notification->category, 'tag' => 'lifeos-'.$notification->id, 'actions' => QuickActions::for($notification, $language)], JSON_UNESCAPED_UNICODE);
         $delivered = 0;
         $errors = [];
         $retry = false;

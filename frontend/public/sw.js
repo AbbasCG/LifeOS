@@ -62,23 +62,35 @@ self.addEventListener('fetch', event => {
 })
 
 /* Browser push. The payload is encrypted end-to-end by the server (RFC 8291); it contains only a title, short
- * body and an in-app link. Links are restricted to this origin. */
+ * body, an in-app link and optional one-tap actions (also in-app links). Links are restricted to this origin. */
+const sameOrigin = link => typeof link === 'string' && link.startsWith('/') && !link.startsWith('//')
+
+/** One-tap actions ("Done", "Start break"): each is an in-app link the app performs, with Undo, when it opens. */
+function quickActions(list) {
+  return (Array.isArray(list) ? list : []).filter(a => a && typeof a.action === 'string' && typeof a.title === 'string' && sameOrigin(a.link)).slice(0, 2)
+}
+
 self.addEventListener('push', event => {
   let data = {}
   try { data = event.data ? event.data.json() : {} } catch { data = { title: event.data ? event.data.text() : 'LifeOS' } }
   const title = typeof data.title === 'string' && data.title ? data.title : 'LifeOS'
+  const actions = quickActions(data.actions)
   event.waitUntil(self.registration.showNotification(title, {
     body: typeof data.body === 'string' ? data.body : '',
     tag: typeof data.tag === 'string' ? data.tag : undefined,
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    data: { link: typeof data.link === 'string' && data.link.startsWith('/') && !data.link.startsWith('//') ? data.link : '/' },
+    // Browsers without notification buttons ignore `actions`; a tap then opens the notification's link as before.
+    actions: actions.map(a => ({ action: a.action, title: a.title })),
+    data: { link: sameOrigin(data.link) ? data.link : '/', actions },
   }))
 })
 
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  const target = new URL(event.notification.data && event.notification.data.link || '/', self.location.origin).href
+  const data = event.notification.data || {}
+  const chosen = event.action && quickActions(data.actions).find(a => a.action === event.action)
+  const target = new URL(chosen ? chosen.link : sameOrigin(data.link) ? data.link : '/', self.location.origin).href
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = windows.find(client => new URL(client.url).origin === self.location.origin)
