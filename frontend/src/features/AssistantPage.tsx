@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { Send, Sparkles, ShieldCheck, Play, ListPlus, CheckCircle2, Bot, User as UserIcon, MessageSquarePlus, History, Trash2, Pencil, X, HelpCircle, Search, Download, LayoutTemplate, CalendarPlus } from 'lucide-react'
+import { Send, Sparkles, ShieldCheck, Play, ListPlus, CheckCircle2, Bot, User as UserIcon, MessageSquarePlus, History, Trash2, Pencil, X, HelpCircle, Search, Download, LayoutTemplate, CalendarPlus, CalendarRange } from 'lucide-react'
 import { api, type RecordItem, type AssistantStatus, type AssistantProposal, type TodayData } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useText } from '../lib/i18n'
@@ -12,6 +12,7 @@ import { ProposalCard } from './assistant/ProposalCard'
 import { ContextChips, PlanCard, SourceBadge } from './assistant/PlanCard'
 import { LivingOrb } from '../components/orb/LivingOrb'
 import { VoiceButton } from './assistant/VoiceButton'
+import { Expandable } from '../components/visual'
 import { clientId, exportUrl, sendCopilot, TEMPLATES_CHANGED, type Choice, type ConversationList, type CopilotMessage, type PlanTemplate, type Stage } from '../lib/copilot'
 
 /**
@@ -164,7 +165,7 @@ export default function AssistantPage() {
   </aside>
 
   return <section className="page assistant-page">
-    <header className="page-heading reveal copilot-companion"><LivingOrb size={96} progress={(today?.progress.overall ?? 0) / 100} mode={busy ? 'thinking' : 'idle'} label={busy ? t('Copilot is thinking', 'المساعد يفكر') : t(`Copilot companion. Today is ${today?.progress.overall ?? 0}% done.`, `رفيق المساعد. أُنجز ${today?.progress.overall ?? 0}٪ من اليوم.`)} /><div style={{ flex: 1 }}><p className="eyebrow">{t('Copilot', 'المساعد')}</p><h1>{t('Think it through', 'فكّر بوضوح')}</h1><p className="muted">{t('Suggestions you can review. Decisions that stay yours.', 'اقتراحات للمراجعة وقرارات تبقى لك.')}</p></div><Link className="quiet" to="/planning">{t('Open smart planner', 'فتح المخطط الذكي')}</Link></header>
+    <header className="page-head copilot-head"><LivingOrb size={44} progress={(today?.progress.overall ?? 0) / 100} mode={busy ? 'thinking' : 'idle'} label={busy ? t('Copilot is thinking', 'المساعد يفكر') : t(`Copilot companion. Today is ${today?.progress.overall ?? 0}% done.`, `رفيق المساعد. أُنجز ${today?.progress.overall ?? 0}٪ من اليوم.`)} /><h1>{t('Copilot', 'المساعد')}</h1><div className="page-head-action"><Link className="quiet" to="/planning" aria-label={t('Open smart planner', 'فتح المخطط الذكي')}><CalendarRange size={16} aria-hidden="true" /><span className="hide-phone" aria-hidden="true">{t('Smart planner', 'المخطط الذكي')}</span></Link></div></header>
     <div className="copilot-workspace">
       {sidebar}
       {drawer && <button type="button" className="drawer-scrim" aria-label={t('Close history', 'إغلاق السجل')} onClick={() => setDrawer(false)} />}
@@ -174,17 +175,25 @@ export default function AssistantPage() {
           <h2 className="chat-title">{current?.title ?? t('New conversation', 'محادثة جديدة')}</h2>
           {active && messages.length > 0 && <span className="export-links"><Download size={14} aria-hidden="true" /><a href={exportUrl(active, 'md')} download aria-label={t('Export this conversation as Markdown', 'تصدير هذه المحادثة بصيغة Markdown')}>Markdown</a><a href={exportUrl(active, 'json')} download aria-label={t('Export this conversation as JSON', 'تصدير هذه المحادثة بصيغة JSON')}>JSON</a></span>}
         </div>
-        <p className="privacy-note"><ShieldCheck size={16} />{status && status.active.provider !== 'local'
-          ? t(`Answers come from ${status.active.label}. It receives your request, a few earlier turns and only the data the question needs (as allowed in the AI Control Center). It can only suggest changes — you approve each one.`, `تأتي الإجابات من ${status.active.label}. يتلقى طلبك وبعض الرسائل السابقة والبيانات التي يحتاجها السؤال فقط (حسب إعدادات مركز التحكم). يقترح التغييرات دون تنفيذها — أنت توافق على كل تغيير.`)
-          : t('A private local assistant answers using your data on this server. It never changes anything without your confirmation.', 'يجيب مساعد محلي خاص باستخدام بياناتك على هذا الخادم، ولا يغيّر شيئاً دون تأكيدك.')}{' '}<Link to="/settings/assistant">{t('Assistant settings', 'إعدادات المساعد')}</Link></p>
+        {/* One line by default; who answers and what it may read is one tap away. */}
+        <Expandable className="privacy-note" icon={<ShieldCheck size={16} aria-hidden="true" />} summary={status && status.active.provider !== 'local'
+          ? t(`${status.active.label} · suggests only, you approve`, `${status.active.label} · يقترح فقط وأنت توافق`)
+          : t('Private, on this server · suggests only, you approve', 'خاص على هذا الخادم · يقترح فقط وأنت توافق')}>
+          <p>{status && status.active.provider !== 'local'
+            ? t(`Answers come from ${status.active.label}. It receives your request, a few earlier turns and only the data the question needs (as allowed in the AI Control Center). It can only suggest changes — you approve each one.`, `تأتي الإجابات من ${status.active.label}. يتلقى طلبك وبعض الرسائل السابقة والبيانات التي يحتاجها السؤال فقط (حسب إعدادات مركز التحكم). يقترح التغييرات دون تنفيذها — أنت توافق على كل تغيير.`)
+            : t('A private local assistant answers using your data on this server. It never changes anything without your confirmation.', 'يجيب مساعد محلي خاص باستخدام بياناتك على هذا الخادم، ولا يغيّر شيئاً دون تأكيدك.')}{' '}<Link to="/settings/assistant">{t('Assistant settings', 'إعدادات المساعد')}</Link></p>
+        </Expandable>
         {!active && !linkedProposal && pendingProposals && pendingProposals.length > 0 && messages.length === 0 && <div className="linked-proposal">
           <p className="eyebrow">{t('Waiting for your approval', 'بانتظار موافقتك')}</p>
-          {pendingProposals.map(p => <div key={p.id} className="pending-proposal"><p>{p.summary}</p><ProposalCard proposal={p} /></div>)}
+          {pendingProposals.slice(0, 1).map(p => <div key={p.id} className="pending-proposal"><p>{p.summary}</p><ProposalCard proposal={p} /></div>)}
+          {pendingProposals.length > 1 && <Expandable summary={t(`${pendingProposals.length - 1} more waiting`, `${pendingProposals.length - 1} أخرى بانتظارك`)}>
+            {pendingProposals.slice(1).map(p => <div key={p.id} className="pending-proposal"><p>{p.summary}</p><ProposalCard proposal={p} /></div>)}
+          </Expandable>}
         </div>}
         {linkedProposal && <div className="linked-proposal"><p className="muted">{t('Suggested by your automations', 'مقترح من الأتمتة')}</p><p>{linkedProposal.summary}</p><ProposalCard proposal={linkedProposal} /></div>}
         <div className="chat-log" aria-live="polite" aria-busy={busy}>
           {messages.length === 0 && context.some(c => !prompts.includes(c)) && <div className="context-chips" aria-label={t('Suggested for right now', 'مقترح الآن')}>{context.filter(c => !prompts.includes(c)).map(c => <button key={c} className="chip-button" disabled={busy} onClick={() => setMessage(c)}><Sparkles size={13} />{c}</button>)}</div>}
-          {messages.length === 0 && <div className="chat-empty"><span className="orb"><Sparkles size={26} /></span><h2>{t('How can I help today?', 'كيف يمكنني مساعدتك اليوم؟')}</h2><p className="muted">{t('Plan your week, find focus time, recover from an interruption, or ask about priorities, deadlines and goals — in English or Arabic.', 'خطط أسبوعك، اعثر على وقت للتركيز، تعافَ من مقاطعة، أو اسأل عن الأولويات والمواعيد والأهداف — بالعربية أو الإنجليزية.')}</p></div>}
+          {messages.length === 0 && <div className="chat-empty"><span className="orb"><Sparkles size={26} /></span><h2>{t('How can I help today?', 'كيف يمكنني مساعدتك اليوم؟')}</h2><p className="muted">{t('Tap a suggestion below or type.', 'اختر اقتراحاً بالأسفل أو اكتب.')}</p></div>}
           {messages.map(m => <div key={m.id} className={`chat-turn ${m.role} reveal`}>
             <span className="chat-avatar" aria-hidden="true">{m.role === 'user' ? <UserIcon size={15} /> : <Bot size={15} />}</span>
             <div className="chat-bubble">

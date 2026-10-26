@@ -3,6 +3,8 @@ import { test, expect } from './fixtures'
 test('morning intelligence explains the day, and suggestions only become proposals', async ({ page, setLanguage }) => {
   await setLanguage('en')
   await page.goto('/')
+  // Today leads with the next action; the full morning briefing is one tap away.
+  await page.getByText('More for today').click()
   const briefing = page.locator('.intel-briefing')
   await expect(briefing.getByRole('heading', { name: 'Morning intelligence' })).toBeVisible()
   await expect(briefing.locator('.intel-list li').first()).toBeVisible()
@@ -28,6 +30,8 @@ test('morning intelligence explains the day, and suggestions only become proposa
 test('weekly intelligence separates measured facts from interpretations', async ({ page, setLanguage }) => {
   await setLanguage('en')
   await page.goto('/review')
+  // On Mondays the demo week under review is already completed, so the page opens on "Next week".
+  await page.getByRole('button', { name: /Look back/ }).click()
   const weekly = page.locator('.weekly-insights')
   await expect(weekly.getByRole('heading', { name: 'Weekly intelligence' })).toBeVisible()
   await expect(weekly.getByText('Measured')).toBeVisible()

@@ -1899,7 +1899,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (db2cf35) after PR
 
 # V19 — Energy-aware plan learning
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73396e1) after PR #17 (V18) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73396e1) after PR #17 (V18) was merged. Merged into `main` as PR #18.
 
 ## What changed
 - **Energy as a third situation.** Plan learning (V14/V15) now also tells low-, normal- and high-energy days apart.
@@ -1944,3 +1944,151 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73396e1) after PR
 - **Energy only.** Mood, stress and sleep from the check-in are not used.
 - **Situations are still tried one at a time** (energy, then day, then load), not combined.
 - **Fixed energy bands** (1–2 / 3 / 4–5).
+
+# V20 — Visual-first, zero-friction experience
+
+Branch `claude/magical-johnson-1s7q7b`, on top of PR #18 (V19). Requested as "LifeOS V11 — Visual-first, zero-friction experience"; numbered V20 because V11 already exists. **Not committed, not pushed** — waiting for approval.
+
+Frontend only: no backend, API, migration or permission change. All V1–V19 features stay reachable; details moved behind one tap instead of being removed.
+
+## What changed
+- **Visual building blocks** (`components/visual`, `styles/visual.css`, loaded last):
+  - spacing, radius and semantic tone tokens for light and dark;
+  - `ProgressRing`/`RingStat` (spoken label, value in the middle);
+  - `PriorityMark` (icon + color, word for screen readers);
+  - `DueChip` ("Today 14:00", "Tomorrow", "Tue", "3d late" in red with an icon);
+  - `KindIcon` (meeting, focus, task);
+  - `Expandable` (native `<details>`; content renders only when opened);
+  - `BottomSheet` (bottom sheet on phones, centered card on desktop; built on `<dialog>`);
+  - `PageHead` (title + one primary action) and `EmptyNote`.
+- **Navigation:**
+  - phone bottom bar: Today, Tasks, a raised **+ (Quick add)**, Calendar, Focus;
+  - sidebar grouped into main / Plan / Progress / More ("Overview" is now "Today");
+  - compact phone top bar; language, theme and sign-out moved into the phone menu.
+- **Quick add** (topbar +, bottom-bar +, empty states, PWA shortcut `/?add=task`):
+  - one line (typed or dictated with the V17 voice button);
+  - optional chips: When (Today / Tomorrow / This week / No date → 17:00 that day) and Priority;
+  - Enter saves; natural phrases still fill time and length; "More details" opens the full form;
+  - offline: says nothing will be saved and disables Add (no queued writes).
+  - Replaces the old capture dialog (`VoiceCapture.tsx` removed).
+- **Today** (`/`), top to bottom:
+  - the date;
+  - **Now card**: the current calendar item or top-ranked task, priority and due chips, one big **Start focus**, **Done**, overall progress ring;
+  - **day strip**: hour bar with blocks by kind, free gaps, a "now" line, booked % and free minutes;
+  - **Top 3** (tick to complete, ▶ to focus);
+  - three progress rings, habit chips, the first Copilot suggestion, up to two suggestions;
+  - everything else (morning intelligence, deadlines, goals, check-in, customizable widgets) is under **More for today**.
+  - `CommandHero.tsx` removed.
+- **Tasks** (`/tasks`, new `TasksPage`):
+  - inline add;
+  - filter chips (All open, Late, Today, 7 days, Done), with priority and list/board under "More options";
+  - groups **Now / Next / Later**;
+  - one-tap complete with **Undo**; on phones, swipe forward to complete and back to focus (mirrored in Arabic);
+  - row details (notes, subtasks, edit, delete) open on tap; the kanban board and connected tasks are kept.
+- **Calendar:**
+  - one compact sticky bar: title (day, date range or month), ‹ Today ›, icon view switch, free-time toggle, New event;
+  - agenda is the phone default and the last view is remembered;
+  - swipe left/right changes day, week or month (mirrored in RTL);
+  - "N overlapping" conflict chip; kind icons on events; a new agenda layout.
+- **Focus:**
+  - one large **Start focus** first, then the task picker;
+  - minutes, project, notes and breaks under "More options";
+  - "Add a note" collapsed while running;
+  - 30-day stats and history are expandable.
+- **Goals, habits, projects:**
+  - **Goals**: progress rings; health cards show status, milestones, days left, next action and the Review button, with "Why?" collapsed.
+  - **Habits**: the checklist comes first; 30-day consistency is collapsed with an "N at risk" badge.
+  - **Projects**: milestone rings and one short line ("2 late · 5 open · 8d left").
+  - All three get compact `PageHead` headers.
+- **Copilot:**
+  - compact header (small orb, "Copilot", smart-planner icon);
+  - a one-line privacy chip that expands to the full statement;
+  - a shorter empty state;
+  - only the newest pending proposal is shown, others under "N more waiting".
+- **AI proposals:**
+  - summary chips first (N new, N moves, total time, N overlaps);
+  - moves listed first, then new blocks grouped by day with times only;
+  - each move's reason under "Why"; conflict checks stay visible;
+  - "Why this plan" collapsed;
+  - one short reassurance line.
+  - Every item is still pre-selected and nothing is applied without the Apply button.
+- **Insights:**
+  - "Insights" header with 7d/14d/30d/90d;
+  - custom range and project filter collapsed;
+  - four KPIs (on-time as a ring, estimate accuracy in words), two insights, and the two main charts;
+  - every other chart, pattern panel, habit table and daily table under "More patterns";
+  - chart explanations behind "What this means".
+- **Weekly review:**
+  - "Weekly review" header;
+  - four rings (done, focus, on time, habits) and achievements first;
+  - weekly intelligence shows two interpretations, with the rest and the workload chart expandable;
+  - day-by-day and completed lists collapsed.
+- **Settings:** the heading is now "Settings".
+- **PWA:**
+  - manifest shortcuts: Quick add, Start focus, Calendar, Plan my day;
+  - `?add=task` opens Quick add.
+  - Unchanged:
+    - the service worker still caches only the public shell and assets, never `/api`;
+    - the explicit offline banner;
+    - the update prompt;
+    - safe-area insets;
+    - push as before (V3, browser-dependent).
+
+## Results (demo account, before → after)
+
+Measured with Playwright at 1440×900 desktop and Pixel 7 phone. The phone column is page height in px; words are the visible words in `main`.
+
+| Screen | Desktop height | Phone height | Words |
+|---|---|---|---|
+| Today | 4898 → 1642 | 8510 → 2197 | 684 → 172 |
+| Tasks | 5171 → 3720 | 6489 → 4069 | → 329 |
+| Calendar | — → 933 | 1884 → 2632 (agenda now lists the whole week) | → 230 |
+| Focus | 1418 → 933 | 2363 → 999 | → 179 |
+| Goals | 4042 → 3352 | 6144 → 4960 | → 413 |
+| Copilot | 13405 → 2648 | 17411 → 3391 | 2820 → 522 |
+| Insights | 4787 → 1501 | 7223 → 1675 | 859 → 142 |
+| Weekly review | 2926 → 1974 | 4345 → 2309 | 458 → 218 |
+
+Taps saved:
+- **Start focus on the top task:** 1 tap from Today (was: open Focus, pick the task, start).
+- **Complete a task:** 1 tap (was: open the task, change its status, save).
+- **Add a task:** + then Enter (was: open Tasks, New task, a form).
+- **Next day in the calendar:** 1 tap or a swipe.
+
+No horizontal overflow on any screen in English desktop, English phone and Arabic dark phone.
+
+## Testing
+- **Vitest:** `v20.test.tsx` (7 tests):
+  - quick-choice due dates;
+  - Quick add posts title, priority and due date and signals lists;
+  - it opens from the PWA shortcut;
+  - offline, it says so and does not post;
+  - rings, priorities and deadlines are spoken;
+  - expandables render content only when open;
+  - proposals lead with counts, list moves first, group by day and keep everything selected.
+  - Updated: the dashboard test opens "More for today"; the goal test opens "Why?"; the analytics test opens "More patterns" and the filters.
+- **Playwright:** new `visual-first.spec.ts` (5 journeys × desktop and mobile):
+  - the next action is visible within 3 s, and Start focus opens a running session (cancelled afterwards);
+  - Quick add → task in the list → one-tap complete → Undo (the task is deleted afterwards);
+  - calendar Next/Previous change the heading;
+  - an AI proposal shows summary chips and the approval line, and is dismissed;
+  - the manifest is installable (standalone, maskable icon, shortcuts) and `/?add=task` opens Quick add.
+  - `intelligence.spec.ts` now opens "More for today" before the morning briefing.
+- **Results:**
+  - **Backend:** 281/281 on SQLite and PostgreSQL 16 (unchanged); Pint passes.
+  - **Frontend:** Vitest 134/134.
+  - **Playwright:** 52/52.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Fixed during QA:**
+  - the week and agenda headings did not change when moving forward (now a date range);
+  - views were squeezed out of the phone calendar bar;
+  - a duplicate "Create new" accessible name;
+  - the review focus ring overflowed.
+
+## Known limitations (V20)
+- **No offline writes.** Tasks, completions and events need a connection; the app says so instead of queueing silently.
+- **Install and shortcuts depend on the browser.** Manifest shortcuts work in Chromium-based browsers when installed; iOS Safari ignores them. Push notifications are unchanged and depend on browser support.
+- **Swipe gestures are touch only;** mouse users use the buttons.
+- **The Today layout above "More for today" is fixed.** Customization (V2) still applies to the widgets inside it.
+- **Proposal and conversation texts keep the language they were created in** (an English summary stays English in Arabic mode).
+- **Not tested on real devices.** The visual check used Chromium (desktop and Pixel 7 emulation) only.

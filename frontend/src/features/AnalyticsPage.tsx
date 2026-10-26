@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { TrendingDown, TrendingUp, Flame, Info } from 'lucide-react'
+import { TrendingDown, TrendingUp, Flame, Info, BarChart3, SlidersHorizontal, LayoutGrid } from 'lucide-react'
+import { Expandable, PageHead, ProgressRing } from '../components/visual'
 import { type Analytics } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
@@ -25,7 +26,9 @@ function Change({ value, smallBase }: { value: number | null; smallBase?: string
 }
 
 function ChartPanel({ title, subtitle, children, wide, explain }: { title: string; subtitle?: string; children: ReactNode; wide?: boolean; explain?: string }) {
-  return <section className={`panel chart-panel reveal ${wide ? 'wide' : ''}`}><header><h2>{title}</h2>{subtitle && <p className="muted">{subtitle}</p>}</header>{children}{explain && <p className="chart-explain"><Info size={13} aria-hidden="true" /><span>{explain}</span></p>}</section>
+  const t = useText()
+  // The chart speaks first; what it means is one tap away.
+  return <section className={`panel chart-panel reveal ${wide ? 'wide' : ''}`}><header><h2>{title}</h2>{subtitle && <p className="muted">{subtitle}</p>}</header>{children}{explain && <details className="chart-explain"><summary><Info size={13} aria-hidden="true" />{t('What this means', 'ماذا يعني هذا')}</summary><span>{explain}</span></details>}</section>
 }
 
 export default function AnalyticsPage() {
@@ -43,10 +46,11 @@ export default function AnalyticsPage() {
   const hasActivity = !!data && (data.totals.completed > 0 || data.totals.focus_minutes > 0 || data.totals.created > 0)
   const weekdays = Array.from({ length: 7 }, (_, i) => new Date(2026, 0, 4 + i).toLocaleDateString(language, { weekday: 'short' }))
   return <section className="page analytics-page">
-    <header className="page-heading reveal">
-      <div><p className="eyebrow">{t('Insights', 'التحليلات')}</p><h1>{t('See your progress', 'شاهد تقدمك')}</h1><p className="muted">{t('Patterns from your recorded work, compared with the period before.', 'أنماط من عملك المسجل مقارنة بالفترة السابقة.')}</p></div>
+    <PageHead title={t('Insights', 'التحليلات')} icon={BarChart3}>
+      <div className="segmented" role="radiogroup" aria-label={t('Time range', 'الفترة الزمنية')}>{RANGES.map(r => <button key={r} role="radio" aria-checked={!custom && days === r} className={!custom && days === r ? 'active' : ''} onClick={() => { setCustom(null); setDays(r) }}>{t(`${r}d`, `${r} ي`)}<span className="sr-only">{t(` (${r} days)`, ` (${r} يوماً)`)}</span></button>)}</div>
+    </PageHead>
+    <Expandable className="analytics-filters" icon={<SlidersHorizontal size={16} aria-hidden="true" />} summary={<>{t('Custom range & project', 'فترة مخصصة ومشروع')}{(custom || projectId) && <span className="badge">{t('On', 'مفعّل')}</span>}</>} defaultOpen={Boolean(custom || projectId)}>
       <div className="analytics-controls">
-        <div className="segmented" role="radiogroup" aria-label={t('Time range', 'الفترة الزمنية')}>{RANGES.map(r => <button key={r} role="radio" aria-checked={!custom && days === r} className={!custom && days === r ? 'active' : ''} onClick={() => { setCustom(null); setDays(r) }}>{t(`${r} days`, `${r} يوماً`)}</button>)}</div>
         <form className="custom-range" onSubmit={e => { e.preventDefault(); if (draftValid) setCustom(draft) }}>
           <label><span className="sr-only">{t('From', 'من')}</span><input type="date" aria-label={t('From', 'من')} value={draft.from} max={today} onChange={e => setDraft(d => ({ ...d, from: e.target.value }))} /></label>
           <span aria-hidden="true">–</span>
@@ -55,18 +59,17 @@ export default function AnalyticsPage() {
         </form>
         <select aria-label={t('Project', 'المشروع')} value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">{t('All projects', 'كل المشاريع')}</option>{projects.items.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select>
       </div>
-    </header>
+    </Expandable>
     {data && <p className="muted small range-note">{t(`${data.range.from} → ${data.range.to}${data.project ? ` · ${data.project.title}` : ''} · compared with ${data.range.previous_from ?? ''} → ${data.range.previous_to ?? ''}`, `${data.range.from} ← ${data.range.to}${data.project ? ` · ${data.project.title}` : ''} · مقارنة بـ ${data.range.previous_from ?? ''} ← ${data.range.previous_to ?? ''}`)}</p>}
     <ErrorMessage error={error} />
     {!data ? <div className="stats-grid">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} height={120} />)}</div> : <div className={`analytics-body ${loading ? 'is-loading' : ''}`}>
       <div className="stats-grid">
         <div className="stat reveal"><span>{t('Tasks completed', 'مهام منجزة')}</span><strong>{data.totals.completed}</strong><Change value={data.comparison.completed.change} smallBase={data.comparison.completed.previous < 3 ? String(data.comparison.completed.previous) : undefined} /></div>
         <div className="stat reveal"><span>{t('Focus time', 'وقت التركيز')}</span><strong>{(data.totals.focus_minutes / 60).toFixed(1)}{t('h', 'س')}</strong><Change value={data.comparison.focus_minutes.change} smallBase={data.comparison.focus_minutes.previous < 180 ? `${(data.comparison.focus_minutes.previous / 60).toFixed(1)}${t('h', 'س')}` : undefined} /></div>
-        <div className="stat reveal"><span>{t('On-time completion', 'الإنجاز في الوقت')}</span><strong>{data.totals.on_time_rate === null ? '—' : `${data.totals.on_time_rate}%`}</strong><small className="muted">{t('Of tasks with deadlines', 'من المهام ذات المواعيد')}</small></div>
-        <div className="stat reveal"><span>{t('Estimate accuracy', 'دقة التقدير')}</span><strong>{data.totals.estimate_ratio === null ? '—' : `${data.totals.estimate_ratio}×`}</strong><small className="muted">{data.totals.estimate_ratio === null ? t('Track focus on tasks to measure', 'سجّل التركيز على المهام للقياس') : t(`${data.totals.actual_minutes} actual vs ${data.totals.estimated_minutes} estimated min`, `${data.totals.actual_minutes} فعلية مقابل ${data.totals.estimated_minutes} مقدرة`)}</small></div>
+        <div className="stat stat-ring reveal"><span>{t('On-time completion', 'الإنجاز في الوقت')}</span>{data.totals.on_time_rate === null ? <strong>—</strong> : <ProgressRing value={data.totals.on_time_rate} size={64} stroke={7} tone={data.totals.on_time_rate >= 80 ? 'success' : data.totals.on_time_rate >= 50 ? 'warning' : 'danger'} label={t(`On time: ${data.totals.on_time_rate}%`, `في الوقت: ${data.totals.on_time_rate}٪`)}><strong>{data.totals.on_time_rate}%</strong></ProgressRing>}</div>
+        <div className="stat reveal"><span>{t('Estimate accuracy', 'دقة التقدير')}</span><strong>{data.totals.estimate_ratio === null ? '—' : `${data.totals.estimate_ratio}×`}</strong><small className="muted" title={data.totals.estimate_ratio === null ? undefined : t(`${data.totals.actual_minutes} actual vs ${data.totals.estimated_minutes} estimated min`, `${data.totals.actual_minutes} فعلية مقابل ${data.totals.estimated_minutes} مقدرة`)}>{data.totals.estimate_ratio === null ? t('Track focus on tasks to measure', 'سجّل التركيز على المهام للقياس') : data.totals.estimate_ratio > 1.1 ? t('Takes longer than planned', 'تستغرق أطول من المخطط') : data.totals.estimate_ratio < 0.9 ? t('Faster than planned', 'أسرع من المخطط') : t('Close to plan', 'قريبة من المخطط')}</small></div>
       </div>
-      <PeriodCards periods={data.periods} />
-      <div className="suggestions">{data.insights.map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>
+      <div className="suggestions">{data.insights.slice(0, 2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>
       {!hasActivity ? <Empty>{t('No activity in this period yet. Complete tasks and focus sessions to see your patterns.', 'لا يوجد نشاط في هذه الفترة بعد. أنجز مهاماً وجلسات تركيز لترى أنماطك.')}</Empty> : <div className="chart-grid">
         <ChartPanel wide title={t('Tasks over time', 'المهام عبر الزمن')} subtitle={t('Completed versus newly added tasks each day.', 'المهام المنجزة مقابل المضافة يومياً.')} explain={t('When the solid line stays above the dashed one, you are finishing more than you add and your list is shrinking.', 'عندما يبقى الخط المتصل فوق المتقطع فأنت تنجز أكثر مما تضيف وتتقلص قائمتك.')}>
           <div className="chart" role="img" aria-label={t('Tasks completed and created per day', 'المهام المنجزة والمضافة يومياً')}>
@@ -95,6 +98,11 @@ export default function AnalyticsPage() {
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
+      </div>}
+      <Expandable className="analytics-more" icon={<LayoutGrid size={16} aria-hidden="true" />} summary={t('More patterns', 'أنماط أخرى')}>
+      {data.insights.length > 2 && <div className="suggestions">{data.insights.slice(2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i + 2} />)}</div>}
+      <PeriodCards periods={data.periods} />
+      {hasActivity && <div className="chart-grid">
         <ChartPanel title={t('When you focus', 'متى تركز')} subtitle={t('Focus minutes by hour of day.', 'دقائق التركيز حسب ساعة اليوم.')} explain={t('The tallest bars are your natural focus hours — the planner places demanding work there.', 'الأعمدة الأعلى هي ساعات تركيزك الطبيعية — يضع المخطط العمل الصعب فيها.')}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={data.focus_by_hour.map(h => ({ ...h, label: `${String(h.hour).padStart(2, '0')}:00` }))} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -140,6 +148,7 @@ export default function AnalyticsPage() {
         <summary>{t('View daily data as a table', 'عرض البيانات اليومية كجدول')}</summary>
         <div className="table-scroll"><table><thead><tr><th>{t('Date', 'التاريخ')}</th><th>{t('Completed', 'منجزة')}</th><th>{t('Added', 'مضافة')}</th><th>{t('Focus minutes', 'دقائق التركيز')}</th></tr></thead><tbody>{data.series.map(d => <tr key={d.date}><td>{d.date}</td><td>{d.completed}</td><td>{d.created}</td><td>{d.focus_minutes}</td></tr>)}</tbody></table></div>
       </details>
+      </Expandable>
     </div>}
   </section>
 }

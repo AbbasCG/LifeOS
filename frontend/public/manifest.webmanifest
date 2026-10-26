@@ -20,8 +20,9 @@
     { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "shortcuts": [
-    { "name": "Plan my day", "short_name": "Plan", "url": "/planning", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Quick add a task", "short_name": "Add task", "url": "/?add=task", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Start focus", "short_name": "Focus", "url": "/focus", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Weekly review", "short_name": "Review", "url": "/review", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Today's calendar", "short_name": "Calendar", "url": "/calendar", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Plan my day", "short_name": "Plan", "url": "/planning", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

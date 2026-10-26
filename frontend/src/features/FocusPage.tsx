@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router'
-import { Play, Pause, Square, X, BellRing, BellOff, Coffee, Brain, Timer, PenLine, Zap, Flame, Target, AlertTriangle, CheckCircle2, Clock, Maximize2, Minimize2, Orbit } from 'lucide-react'
+import { Play, Pause, Square, X, BellRing, BellOff, Coffee, Brain, Timer, PenLine, Zap, Flame, Target, AlertTriangle, CheckCircle2, Clock, Maximize2, Minimize2, Orbit, Focus, SlidersHorizontal, BarChart3, History } from 'lucide-react'
+import { Expandable, PageHead } from '../components/visual'
 import { AnimatePresence, m } from 'motion/react'
 import { LivingOrb } from '../components/orb/LivingOrb'
 import { api, type Page } from '../lib/api'
@@ -127,9 +128,7 @@ export default function FocusPage() {
   const ins = insights.data
 
   return <section className="page focus-page">
-    <header className="page-heading"><div><p className="eyebrow">{t('Focus', 'التركيز')}</p><h1>{t('One thing at a time', 'شيء واحد في كل مرة')}</h1><p className="muted">{t('Pick a rhythm, link your work, and let the timer hold the space.', 'اختر إيقاعك واربط عملك ودع المؤقت يحمي وقتك.')}</p></div>
-      {permission !== 'unsupported' && permission !== 'granted' && <button className="quiet" onClick={() => void enableAlerts()} disabled={permission === 'denied'} title={permission === 'denied' ? t('Notifications are blocked in your browser settings.', 'الإشعارات محظورة في إعدادات المتصفح.') : undefined}>{permission === 'denied' ? <BellOff size={16} /> : <BellRing size={16} />}{permission === 'denied' ? t('Alerts blocked', 'التنبيهات محظورة') : t('Enable timer alerts', 'تفعيل تنبيهات المؤقت')}</button>}
-    </header>
+    <PageHead title={t('Focus', 'التركيز')} icon={Focus} action={permission !== 'unsupported' && permission !== 'granted' ? <button className="icon-button" onClick={() => void enableAlerts()} disabled={permission === 'denied'} aria-label={permission === 'denied' ? t('Timer alerts are blocked in your browser settings', 'تنبيهات المؤقت محظورة في إعدادات المتصفح') : t('Enable timer alerts', 'تفعيل تنبيهات المؤقت')} title={permission === 'denied' ? t('Alerts blocked', 'التنبيهات محظورة') : t('Enable timer alerts', 'تفعيل تنبيهات المؤقت')}>{permission === 'denied' ? <BellOff size={19} /> : <BellRing size={19} />}</button> : undefined} />
     <ErrorMessage error={error} />
     <div className="focus-v5">
       <section className={`panel focus-stage${active ? ` is-${active.status}` : ''}${active && active.kind !== 'focus' ? ' is-break' : ''}`} aria-live="polite">
@@ -158,38 +157,38 @@ export default function FocusPage() {
                 <input value={distractionNote} maxLength={200} onChange={e => setDistractionNote(e.target.value)} placeholder={t('Optional note', 'ملاحظة اختيارية')} aria-label={t('Distraction note', 'ملاحظة المقاطعة')} />
                 <div className="chip-row">{DISTRACTIONS.map(d => <button key={d} className="chip-button" disabled={busy} onClick={() => void logDistraction(d)}>{reason(d)}</button>)}<button className="text-link" onClick={() => setDistracting(false)}>{t('Cancel', 'إلغاء')}</button></div>
               </div>}
-            <label className="session-notes">{t('Session notes', 'ملاحظات الجلسة')}<textarea rows={2} maxLength={2000} value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('What did you get done? Saved when you finish.', 'ماذا أنجزت؟ تُحفظ عند الإنهاء.')} /></label>
+            <Expandable className="session-notes-x" summary={notes ? t('Note added', 'أُضيفت ملاحظة') : t('Add a note', 'إضافة ملاحظة')} icon={<PenLine size={15} aria-hidden="true" />}><label className="session-notes">{t('Session notes', 'ملاحظات الجلسة')}<textarea rows={2} maxLength={2000} value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('What did you get done? Saved when you finish.', 'ماذا أنجزت؟ تُحفظ عند الإنهاء.')} /></label></Expandable>
           </div>}
           <div className="toolbar center">
             <button className="quiet" onClick={() => setImmersive(true)}><Maximize2 size={15} />{t('Immersive mode', 'وضع الانغماس')}</button>
             <button className="quiet" aria-pressed={ambience} onClick={toggleAmbience}><Orbit size={15} />{ambience ? t('3D ambience on', 'الأجواء ثلاثية الأبعاد مفعّلة') : t('3D ambience off', 'الأجواء ثلاثية الأبعاد متوقفة')}</button>
           </div>
-          <p className="muted small center">{t('Press Space to pause or resume.', 'اضغط المسافة للإيقاف أو الاستئناف.')}</p>
         </> : <>
           {suggestion && <div className="next-step">
             {suggestion.kind === 'focus' ? <Zap size={16} /> : <Coffee size={16} />}
             <span>{suggestion.kind === 'focus' ? t(`Break done — ready for Pomodoro round ${suggestion.cycle}?`, `انتهت الاستراحة — مستعد لجولة البومودورو ${suggestion.cycle}؟`) : t(`Round ${suggestion.cycle} complete. Take a ${suggestion.minutes}-minute ${suggestion.kind === 'long_break' ? 'long ' : ''}break.`, `اكتملت الجولة ${suggestion.cycle}. خذ استراحة ${suggestion.minutes} دقائق.`)}</span>
             <button className="primary" disabled={busy} onClick={() => void start(suggestion.kind, suggestion.minutes, suggestion.cycle)}>{suggestion.kind === 'focus' ? t('Start round', 'بدء الجولة') : t('Start break', 'بدء الاستراحة')}</button>
           </div>}
-          <div className="form-grid focus-setup">
-            {(mode === 'custom' || mode === 'manual') && <label>{mode === 'manual' ? t('Minutes worked', 'الدقائق المنجزة') : t('Minutes', 'الدقائق')}<input type="number" min={1} max={240} value={minutes} onChange={e => setMinutes(Number(e.target.value))} /></label>}
-            <label className={mode === 'custom' || mode === 'manual' ? '' : 'full'}>{t('Task', 'المهمة')}<select value={taskId} onChange={e => setTaskId(e.target.value)}><option value="">{t('No task', 'بدون مهمة')}</option>{tasks.items.filter(v => v.status !== 'completed').map(v => <option key={v.id} value={v.id}>{v.title}</option>)}</select></label>
-            {!taskId && <label className="full">{t('Project', 'المشروع')}<select value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">{t('No project', 'بدون مشروع')}</option>{projects.items.filter(p => p.status !== 'completed').map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
-            {mode === 'manual' && <label className="full">{t('Notes (optional)', 'ملاحظات (اختياري)')}<textarea rows={2} maxLength={2000} value={notes} onChange={e => setNotes(e.target.value)} /></label>}
-          </div>
           <div className="focus-controls">
-            <button className="primary big" disabled={busy || minutes < 1 || minutes > 240} onClick={() => void start(mode === 'manual' ? 'manual' : 'focus', minutes)}>{mode === 'manual' ? <><PenLine size={18} />{t('Save time', 'حفظ الوقت')}</> : <><Play size={18} />{mode === 'pomodoro' ? t(`Start ${POMODORO.focus} min`, `ابدأ ${POMODORO.focus} دقيقة`) : mode === 'deep' ? t(`Start ${DEEP_MINUTES} min deep work`, `ابدأ ${DEEP_MINUTES} دقيقة عمل عميق`) : t('Start focus', 'بدء التركيز')}</>}</button>
-            {mode !== 'manual' && <>
-              <button className="quiet big" disabled={busy} onClick={() => void start('short_break', POMODORO.short)}><Coffee size={16} />{t('5 min break', 'استراحة ٥ د')}</button>
-              <button className="quiet big" disabled={busy} onClick={() => void start('long_break', POMODORO.long)}><Coffee size={16} />{t('15 min break', 'استراحة ١٥ د')}</button>
-            </>}
+            <button className="cta focus-start" disabled={busy || minutes < 1 || minutes > 240} onClick={() => void start(mode === 'manual' ? 'manual' : 'focus', minutes)}>{mode === 'manual' ? <><PenLine size={20} />{t('Save time', 'حفظ الوقت')}</> : <><Play size={22} />{mode === 'pomodoro' ? t(`Start ${POMODORO.focus} min`, `ابدأ ${POMODORO.focus} دقيقة`) : mode === 'deep' ? t(`Start ${DEEP_MINUTES} min deep work`, `ابدأ ${DEEP_MINUTES} دقيقة عمل عميق`) : t('Start focus', 'بدء التركيز')}</>}</button>
           </div>
+          <label className="focus-task">{t('Task', 'المهمة')}<select value={taskId} onChange={e => setTaskId(e.target.value)}><option value="">{t('No task', 'بدون مهمة')}</option>{tasks.items.filter(v => v.status !== 'completed').map(v => <option key={v.id} value={v.id}>{v.title}</option>)}</select></label>
+          <Expandable className="focus-options" summary={t('More options', 'خيارات أخرى')} icon={<SlidersHorizontal size={16} aria-hidden="true" />}>
+            <div className="form-grid focus-setup">
+              {(mode === 'custom' || mode === 'manual') && <label>{mode === 'manual' ? t('Minutes worked', 'الدقائق المنجزة') : t('Minutes', 'الدقائق')}<input type="number" min={1} max={240} value={minutes} onChange={e => setMinutes(Number(e.target.value))} /></label>}
+              {!taskId && <label className={mode === 'custom' || mode === 'manual' ? '' : 'full'}>{t('Project', 'المشروع')}<select value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">{t('No project', 'بدون مشروع')}</option>{projects.items.filter(p => p.status !== 'completed').map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
+              {mode === 'manual' && <label className="full">{t('Notes (optional)', 'ملاحظات (اختياري)')}<textarea rows={2} maxLength={2000} value={notes} onChange={e => setNotes(e.target.value)} /></label>}
+            </div>
+            {mode !== 'manual' && <div className="toolbar">
+              <button className="quiet" disabled={busy} onClick={() => void start('short_break', POMODORO.short)}><Coffee size={16} />{t('5 min break', 'استراحة ٥ د')}</button>
+              <button className="quiet" disabled={busy} onClick={() => void start('long_break', POMODORO.long)}><Coffee size={16} />{t('15 min break', 'استراحة ١٥ د')}</button>
+            </div>}
+          </Expandable>
         </>}
       </section>
 
       <aside className="focus-side">
-        <section className="panel">
-          <h2>{t('Last 30 days', 'آخر ٣٠ يوماً')}</h2>
+        <Expandable defaultOpen={false} summary={<>{t('Last 30 days', 'آخر ٣٠ يوماً')}{ins && ins.sessions > 0 && <span className="summary-stat">{Math.round(ins.minutes / 6) / 10}{t('h', 'س')} · <Flame size={13} aria-hidden="true" />{ins.streak_days}</span>}</>} icon={<BarChart3 size={17} aria-hidden="true" />}>
           {!ins ? <Skeleton lines={3} /> : ins.sessions === 0 ? <p className="muted">{t('Finish a session to see your focus patterns.', 'أنهِ جلسة لترى أنماط تركيزك.')}</p> : <>
             <div className="focus-stats">
               <div><strong>{Math.round(ins.minutes / 6) / 10}{t('h', 'س')}</strong><span>{t('focused', 'تركيز')}</span></div>
@@ -205,9 +204,8 @@ export default function FocusPage() {
             </ul>
             {ins.tips.length > 0 && <ul className="finding-list">{ins.tips.map((tip, i) => <li key={i} className="finding-positive">{language === 'ar' ? tip.ar : tip.en}</li>)}</ul>}
           </>}
-        </section>
-        <section className="panel">
-          <h2>{t('Session history', 'سجل الجلسات')}</h2>
+        </Expandable>
+        <Expandable summary={<>{t('Session history', 'سجل الجلسات')}{history.length > 0 && <span className="summary-stat">{history.length}</span>}</>} icon={<History size={17} aria-hidden="true" />}>
           {sessions === null ? <Skeleton lines={3} /> : history.length === 0 ? <p className="muted">{t('Your sessions will appear here.', 'ستظهر جلساتك هنا.')}</p> :
             <ul className="session-history">{history.map(s => <li key={s.id} className={s.status}>
               <div className="row"><strong>{label(s.kind, s.mode)}</strong><span className="muted small">{fmtTime(s.completed_at ?? s.created_at)}</span></div>
@@ -218,7 +216,7 @@ export default function FocusPage() {
               </div>
               {s.notes && <p className="muted small">{s.notes}</p>}
             </li>)}</ul>}
-        </section>
+        </Expandable>
       </aside>
     </div>
   <AnimatePresence>{immersive && active && <m.div className="focus-immersive" role="dialog" aria-modal="true" aria-label={t('Immersive focus', 'تركيز منغمس')} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }}>

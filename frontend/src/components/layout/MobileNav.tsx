@@ -1,19 +1,21 @@
 import { NavLink } from 'react-router'
 import { m } from 'motion/react'
-import { LayoutDashboard, CheckSquare, CalendarDays, Focus, Menu } from 'lucide-react'
+import { CalendarDays, CheckSquare, Focus, LayoutDashboard, Plus } from 'lucide-react'
 import { useText } from '../../lib/i18n'
+import { openQuickAdd } from '../../lib/quickAdd'
 
-/** Bottom tab bar for small screens; the full navigation stays in the sidebar drawer. */
-export default function MobileNav({ onMore }: { onMore: () => void }) {
+/**
+ * Bottom tab bar for phones: four destinations and Quick Add in the middle, in thumb reach. Everything else is in the
+ * menu (top left).
+ */
+export default function MobileNav() {
   const t = useText()
-  const items = [
-    { to: '/', label: t('Today', 'اليوم'), icon: LayoutDashboard },
-    { to: '/tasks', label: t('Tasks', 'المهام'), icon: CheckSquare },
-    { to: '/calendar', label: t('Calendar', 'التقويم'), icon: CalendarDays },
-    { to: '/focus', label: t('Focus', 'التركيز'), icon: Focus },
-  ]
+  const tab = (to: string, label: string, Icon: typeof Plus) => <NavLink to={to} end={to === '/'} className={({ isActive }) => isActive ? 'active' : ''}>{({ isActive }) => <>{isActive && <m.span layoutId="tab-active" className="tab-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={22} /><span>{label}</span></>}</NavLink>
   return <nav className="mobile-nav" aria-label={t('Primary', 'التنقل الرئيسي')}>
-    {items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => isActive ? 'active' : ''}>{({ isActive }) => <>{isActive && <m.span layoutId="tab-active" className="tab-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={21} /><span>{label}</span></>}</NavLink>)}
-    <button type="button" onClick={onMore}><Menu size={21} /><span>{t('More', 'المزيد')}</span></button>
+    {tab('/', t('Today', 'اليوم'), LayoutDashboard)}
+    {tab('/tasks', t('Tasks', 'المهام'), CheckSquare)}
+    <button type="button" className="tab-add" onClick={openQuickAdd} aria-label={t('Quick add', 'إضافة سريعة')}><span><Plus size={26} /></span></button>
+    {tab('/calendar', t('Calendar', 'التقويم'), CalendarDays)}
+    {tab('/focus', t('Focus', 'التركيز'), Focus)}
   </nav>
 }

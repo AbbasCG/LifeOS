@@ -1,3 +1,4 @@
+import { api } from './api'
 export type FocusMode = 'pomodoro' | 'deep' | 'custom' | 'manual'
 export type SessionKind = 'focus' | 'short_break' | 'long_break' | 'manual'
 export type Interruption = { at: string; reason: string; note?: string | null; elapsed?: number }
@@ -52,4 +53,18 @@ export function newClientId(): string {
   b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80
   const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
+/**
+ * Start a focus session right away (one tap from Today, Tasks or the calendar): a Pomodoro for the task, or plain
+ * focus without one. If a session is already running, nothing new is started and the caller just opens Focus.
+ */
+export async function startFocus(taskId?: number | null, minutes = POMODORO.focus): Promise<'started' | 'already_running'> {
+  try {
+    await api('/api/focus-sessions', 'POST', { kind: 'focus', duration_seconds: minutes * 60, mode: 'pomodoro', cycle: 1, task_id: taskId ?? null, client_id: newClientId() })
+    return 'started'
+  } catch (e) {
+    if (/active session/i.test((e as Error).message)) return 'already_running'
+    throw e
+  }
 }

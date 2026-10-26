@@ -110,7 +110,8 @@ describe('goal intelligence', () => {
     const fetcher = mockApi([user, { match: /\/api\/insights\/progress$/, body: { goals: [goal], projects: [], habits: [] } }, { match: /\/api\/tasks$/, method: 'POST', body: { data: { id: 10 } }, status: 201 }])
     render(wrap(<ProgressPanel resource="goals" />))
     expect(await screen.findByText('At risk')).toBeInTheDocument()
-    expect(screen.getByText('30% done with 70% of the time used.')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Why?'))
+    expect(await screen.findByText('30% done with 70% of the time used.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /16 km long run/ })).toHaveAttribute('href', '/focus?task=9')
     fireEvent.click(screen.getByRole('button', { name: /Tempo block/ }))
     await waitFor(() => expect(lastBody(fetcher, 'POST')).toEqual({ title: 'Tempo block', goal_id: 3, status: 'todo' }))
@@ -210,6 +211,9 @@ describe('personal analytics', () => {
   it('applies a custom range and project filter, and never shows percentages on tiny baselines', async () => {
     const fetcher = mockApi([user, { match: /\/api\/projects\?/, body: { data: [{ id: 5, title: 'Site' }] } }, { match: /\/api\/analytics\?/, body: analytics }])
     render(wrap(<AnalyticsPage />))
+    // Headline numbers first; the deeper patterns and the filters open on request.
+    fireEvent.click(await screen.findByText('More patterns'))
+    fireEvent.click(screen.getByText('Custom range & project'))
     expect(await screen.findByText('Energy vs productivity')).toBeInTheDocument()
     expect(screen.getByText('+20% · was 5')).toBeInTheDocument()
     expect(screen.getAllByText(/too little to compare/).length).toBeGreaterThan(0)
