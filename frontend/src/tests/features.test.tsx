@@ -80,9 +80,11 @@ describe('dashboard', () => {
     render(wrap(<Dashboard />))
     expect(await screen.findByText('Ship the report')).toBeInTheDocument()
     expect(screen.getByText('Good afternoon', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('Overdue', { selector: '.chip' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /1 overdue task/ })).toHaveAttribute('href', '/tasks?due=overdue')
-    expect(screen.getByText('Run 100km')).toBeInTheDocument()
+    // Everything beyond the next action, the day strip, top three and progress waits under "More for today".
+    expect(screen.queryByText('Run 100km')).toBeNull()
+    fireEvent.click(screen.getByText('More for today'))
+    expect(await screen.findByText('Run 100km')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Read/ }))
     await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/habits/3/entry', expect.objectContaining({ method: 'PUT' })))
     const body = JSON.parse(fetcher.mock.calls.find(c => c[0] === '/api/habits/3/entry')![1]!.body as string)

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ChevronLeft, ChevronRight, Trophy, TrendingUp, TrendingDown, Check, ArrowRightLeft, X, Flame, Star, Sparkles, Lightbulb, CircleCheckBig } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Trophy, Check, ArrowRightLeft, X, Flame, Star, Sparkles, Lightbulb, CircleCheckBig, ClipboardCheck, BarChart3 } from 'lucide-react'
+import { Expandable, RingStat } from '../components/visual'
 import { api, type Plan, type ReviewDecision, type WeeklyReviewData } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { WeeklyInsights } from './intelligence/WeeklyInsights'
@@ -29,8 +30,8 @@ function ReviewHeader({ week, setWeek, status }: { week: string; setWeek: (w: st
   const t = useText(), { language } = useLanguage()
   const end = addDays(week, 6)
   const fmt = (d: string) => new Date(`${d}T12:00`).toLocaleDateString(language, { month: 'short', day: 'numeric' })
-  return <header className="page-heading reveal">
-    <div><p className="eyebrow">{t('Weekly review', 'المراجعة الأسبوعية')}</p><h1>{t('Look back. Decide. Plan ahead.', 'انظر للخلف. قرّر. خطّط للأمام.')}</h1><p className="muted">{t('Fifteen calm minutes to close the week and choose what matters next.', 'خمس عشرة دقيقة هادئة لإغلاق الأسبوع واختيار ما يهم بعده.')}</p></div>
+  return <header className="page-head review-head">
+    <h1><ClipboardCheck size={22} aria-hidden="true" />{t('Weekly review', 'المراجعة الأسبوعية')}</h1>
     <div className="toolbar week-switcher">
       <button className="icon-button" aria-label={t('Previous week', 'الأسبوع السابق')} onClick={() => setWeek(addDays(week, -7))}><ChevronLeft className="flip-rtl" /></button>
       <strong>{fmt(week)} – {fmt(end)}</strong>
@@ -71,17 +72,21 @@ function ReviewWorkflow({ week, setWeek, data, reload }: { week: string; setWeek
     <ErrorMessage error={error} />
 
     {step === 'look_back' && <div className="review-grid">
-      {data.intelligence?.enabled && <WeeklyInsights week={week} data={data.intelligence} />}
-      <div className="stats-grid">
-        <div className="stat reveal"><span>{t('Completed', 'منجزة')}</span><strong>{m.completed}</strong><small className="muted">{t(`${m.unfinished} still open`, `${m.unfinished} مفتوحة`)}</small></div>
-        <div className="stat reveal"><span>{t('Focus time', 'وقت التركيز')}</span><strong>{minutesLabel(m.focus_minutes, ar)}</strong>{m.focus_change !== null ? <small className={`change ${m.focus_change >= 0 ? 'up' : 'down'}`}>{m.focus_change >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{m.focus_change > 0 ? '+' : ''}{m.focus_change}% {t('vs last week', 'عن الأسبوع الماضي')}</small> : <small className="muted">{t('No data last week', 'لا بيانات للأسبوع الماضي')}</small>}</div>
-        <div className="stat reveal"><span>{t('On time', 'في الوقت')}</span><strong>{m.on_time_rate === null ? '—' : `${m.on_time_rate}%`}</strong><small className="muted">{t('Of tasks with deadlines', 'من المهام ذات المواعيد')}</small></div>
-        <div className="stat reveal"><span>{t('Habit consistency', 'انتظام العادات')}</span><strong>{m.habit_consistency === null ? '—' : `${m.habit_consistency}%`}</strong><small className="muted">{t(`${data.habits.length} habits`, `${data.habits.length} عادات`)}</small></div>
+      <div className="ring-row review-rings">
+        <RingStat value={m.completed} max={Math.max(1, m.completed + m.unfinished)} display={m.completed} caption={t(`Done · ${m.unfinished} open`, `منجزة · ${m.unfinished} مفتوحة`)} tone="success" />
+        <RingStat value={m.focus_minutes} max={Math.max(m.focus_minutes, 600)} display={t(`${(m.focus_minutes / 60).toFixed(1)}h`, `${(m.focus_minutes / 60).toFixed(1)} س`)} caption={m.focus_change !== null ? t(`Focus · ${m.focus_change > 0 ? '+' : ''}${m.focus_change}%`, `تركيز · ${m.focus_change > 0 ? '+' : ''}${m.focus_change}٪`) : t('Focus', 'تركيز')} />
+        <RingStat value={m.on_time_rate ?? 0} max={100} display={m.on_time_rate === null ? '—' : `${m.on_time_rate}%`} caption={t('On time', 'في الوقت')} tone="accent" />
+        <RingStat value={m.habit_consistency ?? 0} max={100} display={m.habit_consistency === null ? '—' : `${m.habit_consistency}%`} caption={t('Habits', 'العادات')} tone="warning" />
       </div>
       <section className="panel reveal"><h2><Trophy size={18} /> {t('Achievements', 'إنجازات')}</h2>{data.achievements.length ? <ul className="badge-list">{data.achievements.map(a => <li key={a.key}><Star size={15} />{ar ? a.ar : a.en}</li>)}</ul> : <p className="muted">{t('A quiet week. Next week is a fresh start.', 'أسبوع هادئ. الأسبوع القادم بداية جديدة.')}</p>}</section>
+      {data.intelligence?.enabled && <WeeklyInsights week={week} data={data.intelligence} />}
+      <Expandable className="wide" icon={<BarChart3 size={16} aria-hidden="true" />} summary={t('Day by day and completed tasks', 'يوماً بيوم والمهام المنجزة')}>
+      <div className="review-grid">
       <section className="panel reveal"><h2>{t('Focus by day', 'التركيز حسب اليوم')}</h2><ul className="bar-list">{data.focus_by_day.map(d => <li key={d.date}><div className="row"><span>{new Date(`${d.date}T12:00`).toLocaleDateString(language, { weekday: 'long' })}</span><span className="muted">{minutesLabel(d.minutes, ar)}</span></div><div className="meter"><div style={{ width: `${d.minutes / maxFocus * 100}%` }} /></div></li>)}</ul></section>
       <section className="panel reveal"><h2>{t('Planned vs actual', 'المخطط مقابل الفعلي')}</h2><PlannedActualBars data={data.planned_vs_actual} /></section>
       <section className="panel reveal wide"><h2>{t(`Completed this week (${data.completed.length})`, `منجز هذا الأسبوع (${data.completed.length})`)}</h2>{data.completed.length ? <ul className="done-list">{data.completed.map(task => <li key={task.id}><CircleCheckBig size={16} /><span>{task.title}</span><small className="muted">{task.actual_minutes ? `${minutesLabel(task.actual_minutes, ar)} / ${minutesLabel(task.estimated_minutes, ar)}` : minutesLabel(task.estimated_minutes, ar)}</small></li>)}</ul> : <p className="muted">{t('No tasks were completed this week.', 'لم تُنجز مهام هذا الأسبوع.')}</p>}</section>
+      </div>
+      </Expandable>
     </div>}
 
     {step === 'unfinished' && <section className="panel reveal">

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ArrowUpRight, Check, Timer, Sparkles, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck } from 'lucide-react'
+import { ArrowUpRight, Check, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck, LayoutGrid } from 'lucide-react'
 import { api, type Briefing, type PlannedVsActual, type Suggestion } from '../lib/api'
 import { FULL_WIDTH, normalizeLayout, type DashboardLayout, type WidgetId } from '../lib/dashboard'
 import { mondayOf } from '../lib/dates'
@@ -12,7 +12,9 @@ import { useReasonLabel } from '../lib/labels'
 import { useApi } from '../lib/useApi'
 import { localDate } from '../lib/hooks'
 import { Empty, ErrorMessage, Skeleton } from '../components/ui/Shared'
-import { CommandHero } from './today/CommandHero'
+import { NowCard, TodayStrip, TopThree, ProgressRow, CopilotPick } from './today/NowView'
+import { Expandable, RingStat } from '../components/visual'
+import { TASKS_CHANGED } from '../lib/quickAdd'
 import { HabitBurst } from './progress/Journey'
 import { DayDial } from './today/DayDial'
 import { IntelligenceBriefing } from './intelligence/IntelligenceBriefing'
@@ -34,11 +36,6 @@ export function SuggestionCard({ suggestion, index }: { suggestion: Suggestion; 
   return suggestion.action ? <Link to={suggestion.action} className={className} style={style}>{body}</Link> : <div className={className} style={style}>{body}</div>
 }
 
-function minutesLabel(minutes: number, t: (en: string, ar: string) => string) {
-  const h = Math.floor(minutes / 60), m = minutes % 60
-  return h ? `${h}${t('h', 'س')} ${m ? `${m}${t('m', 'د')}` : ''}`.trim() : `${m}${t('m', 'د')}`
-}
-
 function ReviewWidget() {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar'
   const { data } = useApi<PlannedVsActual>(`/api/plans/insights?from=${mondayOf()}&days=7`)
@@ -55,6 +52,13 @@ function ReviewWidget() {
   </section>
 }
 
+/** Widgets the new Today screen already shows up top; they are not repeated under "More for today". */
+const SHOWN_ABOVE: WidgetId[] = ['next_moves', 'stats', 'agenda', 'progress', 'focus', 'actions', 'suggestions']
+
+/**
+ * Today (V20): understand the day in three seconds. One dominant NOW card with one action, today on a single strip,
+ * the top three tasks, progress rings and one Copilot suggestion. Everything else is one tap away under "More".
+ */
 export default function Dashboard() {
   const t = useText(), auth = useAuth(), { language } = useLanguage(), reason = useReasonLabel()
   const briefing = useApi<Briefing>('/api/briefing'), overview = useOverview(), today = useApi<TodayData>('/api/today')
@@ -63,10 +67,16 @@ export default function Dashboard() {
   const layout = normalizeLayout(settings.data?.dashboard)
   const data = briefing.data
   const greeting = data?.period === 'evening' ? t('Good evening', 'مساء الخير') : data?.period === 'afternoon' ? t('Good afternoon', 'نهارك سعيد') : t('Good morning', 'صباح الخير')
+  const refresh = () => { briefing.reload(); today.reload(); void overview.reload() }
+  useEffect(() => { window.addEventListener(TASKS_CHANGED, refresh); return () => window.removeEventListener(TASKS_CHANGED, refresh) })
   async function act(id: number, fn: () => Promise<unknown>) {
     setBusy(id); setError('')
-    try { await fn(); briefing.reload(); today.reload(); await overview.reload() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
+    try { await fn(); refresh() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
+  const habits = data?.habits ?? []
+  const habitChips = habits.length > 0 && <div className="habit-list compact" aria-label={t('Habits today', 'عادات اليوم')}>{habits.slice(0, 8).map(habit => <button key={habit.id} className={`habit-chip ${habit.done_today ? 'done' : ''} ${habit.at_risk ? 'risk' : ''}`} aria-pressed={habit.done_today} disabled={busy === -habit.id} onClick={() => void act(-habit.id, async () => { await api(`/api/habits/${habit.id}/entry`, 'PUT', { date: localDate(), completed: !habit.done_today }); if (!habit.done_today) { setBurst(habit.id); window.setTimeout(() => setBurst(b => b === habit.id ? null : b), 700) } })}>
+    {burst === habit.id && <HabitBurst />}<span className="habit-check">{habit.done_today && <Check size={14} />}</span><span className="habit-name">{habit.title}</span><span className="streak" title={t('Current streak', 'السلسلة الحالية')}><Flame size={14} />{habit.current_streak}</span>
+  </button>)}</div>
   const widgets: Record<WidgetId, ReactNode> = {
     today: <BriefingWidget data={today.data} />,
     progress: <ProgressWidget data={today.data} />,
@@ -75,18 +85,11 @@ export default function Dashboard() {
     deadlines: <DeadlinesWidget data={today.data} />,
     actions: <QuickActionsWidget />,
     intelligence: <IntelligenceBriefing />,
-    suggestions: data && data.suggestions.length > 0 ? <div className="suggestions">{data.suggestions.map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div> : null,
-    stats: <div className="stats-grid">
-      {!data ? Array.from({ length: 4 }, (_, i) => <Skeleton key={i} height={112} />) : <>
-        <div className="stat reveal"><span>{t('Completed today', 'أُنجز اليوم')}</span><strong>{data.stats.completed_today}</strong><small className="muted">{t(`${data.stats.open_tasks} still open`, `${data.stats.open_tasks} مفتوحة`)}</small></div>
-        <div className="stat reveal" style={{ animationDelay: '50ms' }}><span>{t('Focus today', 'تركيز اليوم')}</span><strong>{minutesLabel(data.stats.focus_minutes_today, t)}</strong><small className="muted">{t(`${overview.data?.focus_minutes ?? 0} min this week`, `${overview.data?.focus_minutes ?? 0} دقيقة هذا الأسبوع`)}</small></div>
-        <div className={`stat reveal ${data.stats.overdue_tasks ? 'stat-alert' : ''}`} style={{ animationDelay: '100ms' }}><span>{t('Overdue', 'متأخرة')}</span><strong>{data.stats.overdue_tasks}</strong><Link className="muted" to="/tasks?due=overdue">{t('Review', 'مراجعة')}</Link></div>
-        <div className="stat reveal" style={{ animationDelay: '150ms' }}><span>{t('Day load', 'حِمل اليوم')}</span><strong>{data.stats.available_minutes ? `${data.stats.load_percent}%` : '—'}</strong><div className="meter" aria-hidden="true"><div className={data.stats.load_percent > 100 ? 'over' : ''} style={{ width: `${Math.min(100, data.stats.load_percent)}%` }} /></div><small className="muted">{data.stats.available_minutes ? t(`${minutesLabel(data.stats.booked_minutes, t)} booked of ${minutesLabel(data.stats.available_minutes, t)}`, `${minutesLabel(data.stats.booked_minutes, t)} محجوزة من ${minutesLabel(data.stats.available_minutes, t)}`) : t('Not a working day', 'ليس يوم عمل')}</small></div>
-      </>}
-    </div>,
+    suggestions: null,
+    stats: null,
     next_moves: <section className="panel reveal">
-        <header className="row"><div><h2>{t('Your next moves', 'خطواتك التالية')}</h2><p className="muted">{t('Ranked by urgency, importance and deadlines.', 'مرتبة حسب الإلحاح والأهمية والمواعيد.')}</p></div><Link to="/tasks" className="icon-button" aria-label={t('All tasks', 'كل المهام')}><ArrowUpRight size={20} className="flip-rtl" /></Link></header>
-        {!data ? <Skeleton lines={3} /> : !data.focus.length ? <Empty>{t('A little breathing room. Add a task when you’re ready.', 'مساحة لالتقاط الأنفاس. أضف مهمة حين تكون مستعداً.')}</Empty> : data.focus.map((item, i) => <div className="record-row focus-row" key={item.id}>
+        <header className="row"><h2>{t('Your next moves', 'خطواتك التالية')}</h2><Link to="/tasks" className="icon-button" aria-label={t('All tasks', 'كل المهام')}><ArrowUpRight size={20} className="flip-rtl" /></Link></header>
+        {!data ? <Skeleton lines={3} /> : !data.focus.length ? <Empty>{t('Nothing open.', 'لا شيء مفتوح.')}</Empty> : data.focus.map((item, i) => <div className="record-row focus-row" key={item.id}>
           <span className="rank">{i + 1}</span>
           <button className="check" disabled={busy === item.id} aria-label={t('Complete task', 'إكمال المهمة')} onClick={() => void act(item.id, () => api(`/api/tasks/${item.id}`, 'PATCH', { status: 'completed' }))}><Check size={16} /></button>
           <div className="record-main"><strong>{item.title}</strong><div className="metadata"><span>{item.estimated_minutes} {t('min', 'د')}</span>{item.due_at && <time>{new Date(item.due_at).toLocaleString(language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>}{item.reasons.filter(r => r !== 'quick_win' || item.reasons.length === 1).map(r => <span key={r} className={`chip reason-${r}`}>{reason(r)}</span>)}</div></div>
@@ -94,34 +97,42 @@ export default function Dashboard() {
         </div>)}
       </section>,
     agenda: <DayDial data={today.data} />,
-    habits: <section className="panel reveal">
-        <header className="row"><h2>{t('Habits today', 'عادات اليوم')}</h2><Link to="/habits">{t('Manage', 'إدارة')}</Link></header>
-        {!data ? <Skeleton lines={2} /> : !data.habits.length ? <Empty>{t('Small routines create big change. Add your first habit.', 'الروتين الصغير يصنع تغييراً كبيراً. أضف أول عادة.')}</Empty> : <div className="habit-list">{data.habits.map(habit => <button key={habit.id} className={`habit-chip ${habit.done_today ? 'done' : ''} ${habit.at_risk ? 'risk' : ''}`} aria-pressed={habit.done_today} disabled={busy === -habit.id} onClick={() => void act(-habit.id, async () => { await api(`/api/habits/${habit.id}/entry`, 'PUT', { date: localDate(), completed: !habit.done_today }); if (!habit.done_today) { setBurst(habit.id); window.setTimeout(() => setBurst(b => b === habit.id ? null : b), 700) } })}>
-          {burst === habit.id && <HabitBurst />}<span className="habit-check">{habit.done_today && <Check size={14} />}</span><span className="habit-name">{habit.title}</span><span className="streak" title={t('Current streak', 'السلسلة الحالية')}><Flame size={14} />{habit.current_streak}</span>
-        </button>)}</div>}
-      </section>,
+    habits: null,
     goals: <section className="panel reveal">
-        <header className="row"><h2>{t('Goals in motion', 'أهداف قيد التقدم')}</h2><Target size={19} /></header>
-        {!data ? <Skeleton lines={2} /> : !data.goals.length ? <Empty>{t('Set a goal to give your days direction.', 'حدد هدفاً يمنح أيامك اتجاهاً.')}</Empty> : data.goals.map(goal => <div className="goal-row" key={goal.id}><div className="row"><strong>{goal.title}</strong><span className="muted">{goal.percent}%</span></div><div className="meter"><div style={{ width: `${goal.percent}%`, background: goal.color }} /></div><small className="muted">{goal.progress} / {goal.target}{goal.due_at ? ` · ${new Date(goal.due_at).toLocaleDateString(language)}` : ''}</small></div>)}
-        <Link className="quiet" to="/goals">{t('All goals', 'كل الأهداف')}</Link>
+        <header className="row"><h2>{t('Goals in motion', 'أهداف قيد التقدم')}</h2><Link to="/goals" className="icon-button" aria-label={t('All goals', 'كل الأهداف')}><Target size={19} /></Link></header>
+        {!data ? <Skeleton lines={2} /> : !data.goals.length ? <Empty>{t('No goals yet.', 'لا أهداف بعد.')}</Empty> : <div className="goal-rings">{data.goals.map(goal => <RingStat key={goal.id} value={goal.percent} max={100} display={`${goal.percent}%`} caption={goal.title} to="/goals" />)}</div>}
       </section>,
-    focus: <section className="focus-callout reveal"><Timer size={26} /><h2>{t('Give one thing your full attention.', 'امنح شيئاً واحداً كامل انتباهك.')}</h2><p>{data?.focus[0] ? t(`Next up: ${data.focus[0].title}`, `التالي: ${data.focus[0].title}`) : t('Choose a task. Set a timer. Find your rhythm.', 'اختر مهمة واضبط المؤقت وابدأ بإيقاعك.')}</p><Link to={data?.focus[0] ? `/focus?task=${data.focus[0].id}` : '/focus'} className="primary">{t('Enter focus mode', 'دخول وضع التركيز')}</Link></section>,
+    focus: null,
     weekly: <section className="panel reveal"><header className="row"><h2>{t('Your weekly rhythm', 'إيقاع أسبوعك')}</h2><Link to="/analytics">{t('Insights', 'التحليلات')}</Link></header>{overview.data ? <WeeklyChart data={overview.data} /> : <Skeleton height={200} />}</section>,
     review: <ReviewWidget />,
   }
-  return <section className="page dashboard">
-    <CommandHero today={today.data}
-      greeting={<>{greeting}{t(', ', '، ')}{auth.user?.name.split(' ')[0]}<span className="accent-dot">.</span></>}
-      summary={data ? t(`${data.focus.length} priorities · ${data.agenda.length} on your calendar · ${data.stats.focus_minutes_today} focus minutes today`, `${data.focus.length} أولويات · ${data.agenda.length} في تقويمك · ${data.stats.focus_minutes_today} دقيقة تركيز اليوم`) : t('A clear view of what matters today.', 'نظرة واضحة على ما يهمك اليوم.')}
-      actions={<>
-        <button className="icon-button" aria-label={t('Customize dashboard', 'تخصيص لوحة المعلومات')} title={t('Customize dashboard', 'تخصيص لوحة المعلومات')} onClick={() => setCustomizing(true)}><SlidersHorizontal size={19} /></button>
-        <Link className="quiet" to="/focus"><Timer size={18} />{t('Focus', 'تركيز')}</Link>
-        <Link className="primary" to="/today/plan"><Sparkles size={18} />{t('Plan my day', 'خطط يومي')}</Link>
-      </>} />
+  const more = layout.order.filter(id => !layout.hidden.includes(id) && !SHOWN_ABOVE.includes(id) && widgets[id] !== null)
+  const date = new Date(`${(data?.date ?? today.data?.date ?? localDate())}T12:00:00`).toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' })
+
+  return <section className="page dashboard v20">
+    <header className="today-head">
+      <h1>{date}</h1>
+      <p className="muted">{greeting}{t(', ', '، ')}{auth.user?.name.split(' ')[0]}</p>
+    </header>
     <ErrorMessage error={error || briefing.error || overview.error || today.error} />
-    <div className="dashboard-grid">
-      {layout.order.filter(id => !layout.hidden.includes(id) && widgets[id] !== null).map(id => <div key={id} className={`widget widget-${id} ${FULL_WIDTH.includes(id) ? 'span-full' : ''}`}>{widgets[id]}</div>)}
+    <NowCard briefing={data} today={today.data} onDone={refresh} />
+    <TodayStrip today={today.data} />
+    <div className="today-grid">
+      <TopThree briefing={data} onChange={refresh} />
+      <div className="today-col">
+        <ProgressRow today={today.data} />
+        {habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}</section>}
+      </div>
     </div>
+    <CopilotPick />
+    {data && data.suggestions.length > 0 && <div className="suggestions compact">{data.suggestions.slice(0, 2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>}
+    <Expandable className="today-more" icon={<LayoutGrid size={18} aria-hidden="true" />} summary={t('More for today', 'المزيد لليوم')}>
+      <div className="row"><span className="muted small">{t('Briefing, deadlines, goals, check-in and more.', 'الإحاطة والمواعيد والأهداف والتسجيل وغيرها.')}</span>
+        <button className="icon-button" aria-label={t('Customize dashboard', 'تخصيص لوحة المعلومات')} title={t('Customize dashboard', 'تخصيص لوحة المعلومات')} onClick={() => setCustomizing(true)}><SlidersHorizontal size={19} /></button></div>
+      <div className="dashboard-grid">
+        {more.map(id => <div key={id} className={`widget widget-${id} ${FULL_WIDTH.includes(id) ? 'span-full' : ''}`}>{widgets[id]}</div>)}
+      </div>
+    </Expandable>
     {customizing && <DashboardCustomizer layout={layout} onClose={() => setCustomizing(false)} onSaved={settings.reload} />}
   </section>
 }
