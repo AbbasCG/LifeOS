@@ -33,6 +33,9 @@ class WorkspaceController extends Controller
 {
     public const DASHBOARD_WIDGETS = ['today', 'intelligence', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'];
 
+    /** Sections of the top of Today (V22). "now" can be moved but never hidden. */
+    public const TODAY_SECTIONS = ['now', 'strip', 'top3', 'progress', 'habits', 'copilot', 'suggestions'];
+
     public const MODELS = ['tasks' => Task::class, 'projects' => Project::class, 'categories' => Category::class, 'events' => CalendarEvent::class, 'goals' => Goal::class, 'habits' => Habit::class];
 
     private function model(string $resource): string
@@ -182,9 +185,31 @@ class WorkspaceController extends Controller
         return response()->json(UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => ['language' => 'en', 'theme' => 'system', 'timezone' => 'Europe/Amsterdam', 'work_start' => '09:00', 'work_end' => '17:00', 'break_minutes' => 10, 'work_days' => [1, 2, 3, 4, 5]]])->preferences);
     }
 
+    /**
+     * Validation for the per-device top of Today. Written per device because `distinct` with a wildcard would compare
+     * the phone's sections with the desktop's.
+     *
+     * @return array<string, string>
+     */
+    private static function todayLayoutRules(): array
+    {
+        $rules = ['today_layout' => 'sometimes|array:phone,desktop'];
+        foreach (['phone', 'desktop'] as $device) {
+            $rules += [
+                "today_layout.{$device}" => 'array:order,hidden',
+                "today_layout.{$device}.order" => 'sometimes|array|max:'.count(self::TODAY_SECTIONS),
+                "today_layout.{$device}.order.*" => 'distinct|in:'.implode(',', self::TODAY_SECTIONS),
+                "today_layout.{$device}.hidden" => 'sometimes|array|max:'.(count(self::TODAY_SECTIONS) - 1),
+                "today_layout.{$device}.hidden.*" => 'distinct|in:'.implode(',', array_diff(self::TODAY_SECTIONS, ['now'])),
+            ];
+        }
+
+        return $rules;
+    }
+
     public function saveSettings(Request $request): JsonResponse
     {
-        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'ai_connected_data' => 'sometimes|boolean', 'voice_input' => 'sometimes|boolean', 'checkins_enabled' => 'sometimes|boolean', 'buffer_minutes' => 'sometimes|integer|min:0|max:60', 'study_start' => 'nullable|date_format:H:i', 'study_end' => 'nullable|date_format:H:i|required_with:study_start', 'personal_start' => 'nullable|date_format:H:i', 'personal_end' => 'nullable|date_format:H:i|required_with:personal_start', 'study_daily_limit' => 'nullable|integer|min:15|max:900', 'personal_daily_limit' => 'nullable|integer|min:15|max:900', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean']);
+        $data = $request->validate(['language' => 'sometimes|in:en,ar', 'theme' => 'sometimes|in:light,dark,system', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'ai_connected_data' => 'sometimes|boolean', 'voice_input' => 'sometimes|boolean', 'checkins_enabled' => 'sometimes|boolean', 'buffer_minutes' => 'sometimes|integer|min:0|max:60', 'study_start' => 'nullable|date_format:H:i', 'study_end' => 'nullable|date_format:H:i|required_with:study_start', 'personal_start' => 'nullable|date_format:H:i', 'personal_end' => 'nullable|date_format:H:i|required_with:personal_start', 'study_daily_limit' => 'nullable|integer|min:15|max:900', 'personal_daily_limit' => 'nullable|integer|min:15|max:900', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean'] + self::todayLayoutRules());
         $record = UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
         $prefs = array_replace($record->preferences, $data);
         if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {

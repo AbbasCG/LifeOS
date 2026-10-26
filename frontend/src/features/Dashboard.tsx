@@ -16,6 +16,8 @@ import { NowCard, TodayStrip, TopThree, ProgressRow, CopilotPick } from './today
 import { Expandable, RingStat } from '../components/visual'
 import { TASKS_CHANGED } from '../lib/quickAdd'
 import { HABITS_CHANGED, openHabitSheet } from '../lib/quickActions'
+import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySection } from '../lib/todayLayout'
+import { TodayCustomizer } from './today/TodayCustomizer'
 import { HabitBurst } from './progress/Journey'
 import { DayDial } from './today/DayDial'
 import { IntelligenceBriefing } from './intelligence/IntelligenceBriefing'
@@ -64,7 +66,8 @@ export default function Dashboard() {
   const t = useText(), auth = useAuth(), { language } = useLanguage(), reason = useReasonLabel()
   const briefing = useApi<Briefing>('/api/briefing'), overview = useOverview(), today = useApi<TodayData>('/api/today')
   const [error, setError] = useState(''), [busy, setBusy] = useState<number | null>(null), [burst, setBurst] = useState<number | null>(null), [customizing, setCustomizing] = useState(false)
-  const settings = useApi<{ dashboard?: Partial<DashboardLayout> }>('/api/settings')
+  const settings = useApi<{ dashboard?: Partial<DashboardLayout>; today_layout?: TodayLayout }>('/api/settings')
+  const device = useDevice(), [customizingTop, setCustomizingTop] = useState(false)
   const layout = normalizeLayout(settings.data?.dashboard)
   const data = briefing.data
   const greeting = data?.period === 'evening' ? t('Good evening', 'مساء الخير') : data?.period === 'afternoon' ? t('Good afternoon', 'نهارك سعيد') : t('Good morning', 'صباح الخير')
@@ -110,30 +113,41 @@ export default function Dashboard() {
   const more = layout.order.filter(id => !layout.hidden.includes(id) && !SHOWN_ABOVE.includes(id) && widgets[id] !== null)
   const date = new Date(`${(data?.date ?? today.data?.date ?? localDate())}T12:00:00`).toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' })
 
+  // V22: the top of Today in the order chosen for this device; hidden sections move into "More for today".
+  const top = normalizeToday(settings.data?.today_layout?.[device])
+  const sections: Record<TodaySection, ReactNode> = {
+    now: <NowCard briefing={data} today={today.data} onDone={refresh} />,
+    strip: <TodayStrip today={today.data} />,
+    top3: <TopThree briefing={data} onChange={refresh} />,
+    progress: <ProgressRow today={today.data} />,
+    habits: habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}<button type="button" className="quiet habit-all" onClick={openHabitSheet}><ListChecks size={15} aria-hidden="true" />{t('All habits', 'كل العادات')}</button></section>,
+    copilot: <CopilotPick />,
+    suggestions: data && data.suggestions.length > 0 && <div className="suggestions compact">{data.suggestions.slice(0, 2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>,
+  }
+  // Two half-width sections side by side only when they follow each other; the chosen order is never rearranged.
+  const place = (ids: TodaySection[]) => {
+    const visible = ids.filter(id => sections[id]), half = new Set<TodaySection>()
+    for (let i = 0; i < visible.length - 1; i++) if (HALF_WIDTH.includes(visible[i]) && HALF_WIDTH.includes(visible[i + 1])) { half.add(visible[i]); half.add(visible[i + 1]); i++ }
+    return visible.map(id => <div key={id} className={`today-section section-${id} ${half.has(id) ? 'half' : 'full'}`}>{sections[id]}</div>)
+  }
+
   return <section className="page dashboard v20">
     <header className="today-head">
       <h1>{date}</h1>
       <p className="muted">{greeting}{t(', ', '، ')}{auth.user?.name.split(' ')[0]}</p>
+      <button type="button" className="icon-button today-customize" onClick={() => setCustomizingTop(true)} aria-label={t('Customize Today', 'تخصيص «اليوم»')} title={t('Customize Today', 'تخصيص «اليوم»')}><SlidersHorizontal size={19} /></button>
     </header>
     <ErrorMessage error={error || briefing.error || overview.error || today.error} />
-    <NowCard briefing={data} today={today.data} onDone={refresh} />
-    <TodayStrip today={today.data} />
-    <div className="today-grid">
-      <TopThree briefing={data} onChange={refresh} />
-      <div className="today-col">
-        <ProgressRow today={today.data} />
-        {habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}<button type="button" className="quiet habit-all" onClick={openHabitSheet}><ListChecks size={15} aria-hidden="true" />{t('All habits', 'كل العادات')}</button></section>}
-      </div>
-    </div>
-    <CopilotPick />
-    {data && data.suggestions.length > 0 && <div className="suggestions compact">{data.suggestions.slice(0, 2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>}
+    <div className="today-top">{place(top.order.filter(id => !top.hidden.includes(id)))}</div>
     <Expandable className="today-more" icon={<LayoutGrid size={18} aria-hidden="true" />} summary={t('More for today', 'المزيد لليوم')}>
       <div className="row"><span className="muted small">{t('Briefing, deadlines, goals, check-in and more.', 'الإحاطة والمواعيد والأهداف والتسجيل وغيرها.')}</span>
         <button className="icon-button" aria-label={t('Customize dashboard', 'تخصيص لوحة المعلومات')} title={t('Customize dashboard', 'تخصيص لوحة المعلومات')} onClick={() => setCustomizing(true)}><SlidersHorizontal size={19} /></button></div>
+      {top.hidden.length > 0 && <div className="today-top in-more">{place(top.order.filter(id => top.hidden.includes(id)))}</div>}
       <div className="dashboard-grid">
         {more.map(id => <div key={id} className={`widget widget-${id} ${FULL_WIDTH.includes(id) ? 'span-full' : ''}`}>{widgets[id]}</div>)}
       </div>
     </Expandable>
+    {customizingTop && <TodayCustomizer saved={settings.data?.today_layout ?? {}} device={device} onClose={() => setCustomizingTop(false)} onSaved={settings.reload} />}
     {customizing && <DashboardCustomizer layout={layout} onClose={() => setCustomizing(false)} onSaved={settings.reload} />}
   </section>
 }

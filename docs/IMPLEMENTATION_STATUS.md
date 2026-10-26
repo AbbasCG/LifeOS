@@ -2095,7 +2095,7 @@ No horizontal overflow on any screen in English desktop, English phone and Arabi
 
 # V21 — Quick habit & focus actions
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7457de1) after PR #19 (V20) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7457de1) after PR #19 (V20) was merged. Merged into `main` as PR #20.
 
 ## What changed
 - **Habit reminders:**
@@ -2157,3 +2157,48 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7457de1) after PR
 - **Reminder timing follows the scheduler** (`lifeos:reminders`, normally every few minutes). Reminders are not sent while a focus session runs, nor during quiet hours (a skipped day is not caught up).
 - **One reminder time per habit,** with no per-weekday times.
 - **Language right after opening:** if the device's saved language differs from the account's, the first confirmation after a cold start can appear in the device's language.
+
+# V22 — Customizable Today
+
+Branch `claude/magical-johnson-1s7q7b`, on top of V21 (merged as PR #20). **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Choose and order the top of Today**, separately for phone and computer.
+  - The sections: Now card, Day strip, Top 3, Progress rings, Habits, Copilot pick, Suggestions.
+  - The Now card can be moved but never hidden, so the next action stays one glance away.
+- **Hidden sections are not lost:** they move into "More for today", in the same order.
+- **Customize Today** (sliders button next to the date, a bottom sheet on phones):
+  - opens on the device in use, with a Phone / Computer switch;
+  - each section has show/hide and move up/down buttons (keyboard and screen-reader friendly, no drag needed);
+  - **Reset** restores the default for that device; nothing is saved until **Save**.
+- **Layout on larger screens:** two half-width sections (Top 3, Progress, Habits) share a line only when they follow each other. The chosen order is never rearranged to fill gaps.
+- **Storage:** new preference `today_layout` = `{phone?, desktop?: {order, hidden}}`, validated per device (known sections, no duplicates, "now" cannot be hidden). Only devices that differ from the default are stored, so a reset device follows future defaults.
+- **Device detection:** phone below 700px wide, like the rest of the layout. The existing widget customizer under "More for today" (V2) is unchanged.
+
+## Testing
+- **Backend:** `TodayLayoutTest` (2 tests).
+  - Saving and reading per-device layouts; resetting one device keeps the other.
+  - Rejected:
+    - hiding "now";
+    - unknown sections;
+    - duplicates;
+    - unknown devices;
+    - unknown keys.
+- **Vitest:** `v22.test.tsx` (4 tests).
+  - The normalization rules.
+  - Today follows the saved desktop layout and moves hidden sections into "More".
+  - The customizer reorders and hides for one device and saves only what differs; Reset restores one device and keeps the other.
+- **Playwright:** `today-layout.spec.ts`, desktop and mobile. It opens on the device in use, moves Top 3 above the Now card, hides the Day strip, checks the order after a reload and the strip inside "More", then resets.
+- **Results:**
+  - **Backend:** 289/289 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 147/147.
+  - **Playwright:** 60/60.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** (EN desktop, AR Pixel 7 dark): customizer and a customized Today. No overflow and no unexpected console errors.
+  - Fixed during QA: dense grid packing placed a later half-width section before the Now card; the order is now strict.
+  - The demo layout was reset afterwards.
+
+## Known limitations (V22)
+- **Two devices only** (phone and computer), not per browser or tablet. Tablets wider than 700px use the computer layout.
+- **Section contents are not configurable** (for example, the number of tasks in Top 3).
+- **No drag and drop;** reordering uses up/down buttons.
