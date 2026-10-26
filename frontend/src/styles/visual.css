@@ -134,6 +134,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .today-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
 .today-head h1 { font-size: clamp(22px, 2.6vw, 30px); letter-spacing: -0.02em; }
 .today-head p { font-size: 14px; }
+.today-customize { margin-inline-start: auto; align-self: center; }
 
 .now-card { position: relative; display: grid; grid-template-columns: 1fr auto; gap: var(--space-4) var(--space-5); padding: clamp(18px, 3vw, 28px); border-radius: 26px; color: var(--color-text);
   background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--color-primary) 16%, transparent), transparent 60%), radial-gradient(90% 120% at 100% 100%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 60%), var(--panel-bg-strong, var(--color-surface));
@@ -191,9 +192,12 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .strip-note { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 
 /* Top three, progress, habits */
-.today-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--space-4); align-items: start; }
-.today-col { display: grid; gap: var(--space-4); }
-@media (max-width: 860px) { .today-grid { grid-template-columns: 1fr; } }
+/* V22: sections in the chosen order; two half-width ones in a row share a line on larger screens. */
+.today-top { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+.today-section.full { grid-column: 1 / -1; }
+.today-section > * { margin: 0; }
+.today-top.in-more { margin-bottom: var(--space-4); }
+@media (max-width: 860px) { .today-top { grid-template-columns: 1fr; } }
 .top-three, .progress-row, .habits-today { padding: var(--space-4) var(--space-5); }
 .top-three > header { margin-bottom: var(--space-2); }
 .top-three h2, .copilot-pick h2 { font-size: 16px; display: inline-flex; align-items: center; gap: 8px; }
@@ -392,3 +396,12 @@ details.chart-explain span { display: block; line-height: 1.5; }
 .notification-quick { min-height: 36px; padding-inline: 12px; font-weight: 650; }
 p.quick-support { display: flex; align-items: flex-start; gap: 6px; }
 p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primary); }
+
+/* ── Customize Today (V22) ─────────────────────────────────────────────────── */
+.today-device { margin-bottom: var(--space-2); }
+.today-device button { display: inline-flex; align-items: center; gap: 6px; }
+.today-sections { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: 4px; }
+.today-sections li { display: flex; align-items: center; gap: var(--space-2); padding: 6px 8px; border-radius: 12px; background: var(--color-surface-muted, var(--color-surface)); }
+.today-sections li.is-hidden .today-section-name { opacity: .55; text-decoration: line-through; }
+.today-section-name { flex: 1; display: grid; gap: 2px; font-weight: 600; min-width: 0; }
+.today-section-name small { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
