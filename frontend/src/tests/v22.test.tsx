@@ -34,16 +34,19 @@ const stub = (layout?: TodayLayout) => {
 
 describe('Today layout rules', () => {
   it('drops unknown sections, appends missing ones and never hides the Now card', () => {
-    expect(normalizeToday()).toEqual({ order: [...TODAY_SECTIONS], hidden: [] })
+    // V24: the focus section starts hidden for everyone until they choose to show it.
+    expect(normalizeToday()).toEqual({ order: [...TODAY_SECTIONS], hidden: ['focus'] })
     const layout = normalizeToday({ order: ['habits', 'weather' as never, 'now', 'habits'], hidden: ['now', 'copilot', 'copilot'] })
-    expect(layout.order).toEqual(['habits', 'now', 'strip', 'top3', 'progress', 'copilot', 'suggestions'])
-    expect(layout.hidden).toEqual(['copilot'])
+    expect(layout.order).toEqual(['habits', 'now', 'strip', 'top3', 'progress', 'focus', 'copilot', 'suggestions'])
+    expect(layout.hidden).toEqual(['copilot', 'focus'])
+    // A layout saved before V24 that already lists focus keeps the user's choice.
+    expect(normalizeToday({ order: [...TODAY_SECTIONS], hidden: [] }).hidden).toEqual([])
   })
 })
 
 describe('Today follows the saved layout for this device', () => {
   it('shows sections in the chosen order and moves hidden ones into "More for today"', async () => {
-    stub({ desktop: { order: ['habits', 'now', 'strip', 'top3', 'progress', 'copilot', 'suggestions'], hidden: ['suggestions'] }, phone: { hidden: ['habits'] } })
+    stub({ desktop: { order: ['habits', 'now', 'strip', 'top3', 'progress', 'focus', 'copilot', 'suggestions'], hidden: ['suggestions', 'focus'] }, phone: { hidden: ['habits'] } })
     const { container } = render(wrap(<Dashboard />))
     await screen.findByText('Ship the report')
     await waitFor(() => expect(container.querySelector('.today-top:not(.in-more) .today-section')?.className).toContain('section-habits'))
@@ -72,8 +75,8 @@ describe('Customize Today', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     const put = (fetcher.mock.calls as unknown as Call[]).find(c => c[1]?.method === 'PUT')!
     expect(JSON.parse(put[1]!.body as string)).toEqual({ today_layout: {
-      phone: { order: [...TODAY_SECTIONS], hidden: ['copilot'] },
-      desktop: { order: ['now', 'strip', 'top3', 'habits', 'progress', 'copilot', 'suggestions'], hidden: ['strip'] },
+      phone: { order: [...TODAY_SECTIONS], hidden: ['copilot', 'focus'] },
+      desktop: { order: ['now', 'strip', 'top3', 'progress', 'habits', 'focus', 'copilot', 'suggestions'], hidden: ['focus', 'strip'] },
     } })
   })
 
@@ -84,6 +87,6 @@ describe('Customize Today', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect((fetcher.mock.calls as unknown as Call[]).some(c => c[1]?.method === 'PUT')).toBe(true))
     const put = (fetcher.mock.calls as unknown as Call[]).find(c => c[1]?.method === 'PUT')!
-    expect(JSON.parse(put[1]!.body as string)).toEqual({ today_layout: { desktop: { order: [...TODAY_SECTIONS], hidden: ['strip'] } } })
+    expect(JSON.parse(put[1]!.body as string)).toEqual({ today_layout: { desktop: { order: [...TODAY_SECTIONS], hidden: ['strip', 'focus'] } } })
   })
 })

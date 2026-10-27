@@ -2205,7 +2205,7 @@ Branch `claude/magical-johnson-1s7q7b`, on top of V21 (merged as PR #20). Merged
 
 # V23 — Offline capture
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (e8aa9f8) after PR #21 (V22) was merged. **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (e8aa9f8) after PR #21 (V22) was merged. Merged into `main` as PR #22.
 
 ## What changed
 - **Kept on this device while offline:** three small actions.
@@ -2264,3 +2264,48 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (e8aa9f8) after PR
 - **New tasks queued offline are not shown in lists** until they are sent; they appear in "Waiting to sync".
 - **Habit conflicts are not detected** beyond a deleted habit, because logging a habit is idempotent.
 - **Stored in this browser only,** like any site data. Clearing site data deletes the queue.
+
+# V24 — Focus on Today
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (40fc133) after PR #22 (V23) was merged.
+
+## What changed
+- **New optional Today section "Focus"** in Customize Today (V22).
+  - It is **hidden by default**: new sections start hidden, so nobody's Today changes until they choose to show it. A layout saved before V24 gets it appended and hidden; Reset restores that default.
+  - It shows a ring of **minutes focused today** against a **daily focus goal**, including a session running now.
+  - It also shows:
+    - the **focus-day streak** (days in a row with any focus);
+    - the **goal streak** (days in a row the goal was met; today counts once it is met, and until then does not break the streak);
+    - the **best hour** of the last 30 days (the local hour with the most focus minutes).
+  - A play button starts focus in one tap.
+- **Daily focus goal:**
+  - Tap the ring to set it: 30 min, 1h, 1h 30m, 2h, 3h, 4h, or no goal.
+  - It is a target, not a limit; the existing daily focus limit (V12) is unchanged, and breaks don't count.
+  - New preference `daily_focus_goal` (10–720 minutes, nullable).
+- **API:** `GET /api/focus-sessions/today` returns `today_minutes`, `goal_minutes`, `goal_streak_days`, `streak_days`, `best_hour` and `best_hour_minutes`.
+  - Built on the existing `FocusInsights` (completed focus and logged sessions, in the user's time zone), plus the running session.
+  - `today_layout` accepts the new section. No database change.
+
+## Testing
+- **Backend:** `FocusTodayTest` (3 tests).
+  - Minutes, goal and both streaks over four days (breaks excluded), and the best local hour; a running session counts and can complete the goal streak.
+  - No goal and no history; a first running session starts a streak.
+  - Goal validation and removal; other users' sessions don't count; the layout accepts "focus".
+- **Vitest:** `v24.test.tsx` (4 tests).
+  - The section shows minutes against the goal, both streaks and the best hour.
+  - Without a goal, "Set a goal" and a one-tap goal (PUT `daily_focus_goal`).
+  - "Goal met today".
+  - Customize Today lists Focus as hidden, and showing it enables Reset.
+  - V22 expectations were updated for the new section.
+- **Playwright:** `focus-today.spec.ts`, desktop and mobile. Focus is hidden by default; it is shown via Customize Today; a 1h goal is set from the ring and the API confirms it; settings are restored afterwards. The V22 layout journey passes unchanged.
+- **Results:**
+  - **Backend:** 294/294 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 158/158.
+  - **Playwright:** 64/64.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** (EN desktop, AR Pixel 7 dark): the section next to the progress rings, no overflow and no console errors. The demo settings were reset afterwards.
+
+## Known limitations (V24)
+- **One goal for every day;** there are no weekday or weekend goals.
+- **The best hour needs history;** it is hidden until there are completed sessions in the last 30 days.
+- **Streaks count completed or logged focus;** cancelled sessions don't count, and a day with only breaks is not a focus day.

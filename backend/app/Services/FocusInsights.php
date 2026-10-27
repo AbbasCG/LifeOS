@@ -12,6 +12,41 @@ use Carbon\CarbonImmutable;
 class FocusInsights
 {
     /**
+     * The glanceable focus numbers for Today (V24): minutes so far today (including the running session), the daily
+     * goal and how many days in a row it was met, the focus-day streak and the best hour of the last 30 days.
+     *
+     * @return array{today_minutes: int, goal_minutes: int|null, goal_streak_days: int, streak_days: int, best_hour: int|null, best_hour_minutes: int}
+     */
+    public function today(User $user): array
+    {
+        $summary = $this->summary($user, 30);
+        $days = collect($summary['by_day']);
+        $running = FocusSession::where('user_id', $user->id)->where('kind', 'focus')->where('status', 'running')->whereNotNull('resumed_at')->get()
+            ->sum(fn (FocusSession $s) => min($s->duration_seconds, $s->elapsed_seconds + max(0, (int) $s->resumed_at->diffInSeconds(now()))));
+        $today = (int) $days->last()['minutes'] + (int) floor($running / 60);
+        $goal = $user->preferences()['daily_focus_goal'] ?? null;
+        $goalStreak = 0;
+        if ($goal) {
+            // Today counts once the goal is met; until then the streak runs up to yesterday.
+            $history = $days->pluck('minutes')->reverse()->values()->all();
+            $history[0] = $today;
+            for ($i = $today >= $goal ? 0 : 1; $i < count($history) && $history[$i] >= $goal; $i++) {
+                $goalStreak++;
+            }
+        }
+
+        return [
+            'today_minutes' => $today,
+            'goal_minutes' => $goal ? (int) $goal : null,
+            'goal_streak_days' => $goalStreak,
+            // A session running now makes today a focus day even before it ends.
+            'streak_days' => $summary['streak_days'] + ($days->last()['minutes'] === 0 && $running >= 60 ? 1 : 0),
+            'best_hour' => $summary['best_hour'],
+            'best_hour_minutes' => $summary['best_hour'] === null ? 0 : $summary['by_hour'][$summary['best_hour']],
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function summary(User $user, int $days = 30): array

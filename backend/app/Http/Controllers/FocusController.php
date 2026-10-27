@@ -28,6 +28,11 @@ class FocusController extends Controller
         return response()->json($insights->summary($request->user(), min(365, max(7, $request->integer('days', 30)))));
     }
 
+    public function today(Request $request, FocusInsights $insights): JsonResponse
+    {
+        return response()->json($insights->today($request->user()));
+    }
+
     public function store(Request $request): JsonResponse
     {
         $user = $request->user();

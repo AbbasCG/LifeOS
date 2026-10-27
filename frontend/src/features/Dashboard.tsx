@@ -20,6 +20,7 @@ import { logHabitOrQueue } from '../lib/offline'
 import { useToast } from '../lib/toast'
 import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySection } from '../lib/todayLayout'
 import { TodayCustomizer } from './today/TodayCustomizer'
+import { FocusToday } from './today/FocusToday'
 import { HabitBurst } from './progress/Journey'
 import { DayDial } from './today/DayDial'
 import { IntelligenceBriefing } from './intelligence/IntelligenceBriefing'
@@ -133,6 +134,7 @@ export default function Dashboard() {
     strip: <TodayStrip today={today.data} />,
     top3: <TopThree briefing={data} onChange={refresh} />,
     progress: <ProgressRow today={today.data} />,
+    focus: <FocusToday />,
     habits: habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}<button type="button" className="quiet habit-all" onClick={openHabitSheet}><ListChecks size={15} aria-hidden="true" />{t('All habits', 'كل العادات')}</button></section>,
     copilot: <CopilotPick />,
     suggestions: data && data.suggestions.length > 0 && <div className="suggestions compact">{data.suggestions.slice(0, 2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>,
