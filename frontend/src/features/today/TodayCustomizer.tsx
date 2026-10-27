@@ -18,7 +18,7 @@ export function TodayCustomizer({ saved, device, onClose, onSaved }: { saved: To
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const draft = drafts[tab]
   const names: Record<TodaySection, string> = {
-    now: t('Now card', 'بطاقة الآن'), strip: t('Day strip', 'شريط اليوم'), top3: t('Top 3', 'أهم ٣'), progress: t('Progress rings', 'حلقات التقدم'),
+    now: t('Now card', 'بطاقة الآن'), strip: t('Day strip', 'شريط اليوم'), top3: t('Top 3', 'أهم ٣'), progress: t('Progress rings', 'حلقات التقدم'), focus: t('Focus', 'التركيز'),
     habits: t('Habits', 'العادات'), copilot: t('Copilot pick', 'اقتراح المساعد'), suggestions: t('Suggestions', 'الاقتراحات'),
   }
   const update = (next: SectionLayout) => setDrafts(d => ({ ...d, [tab]: next }))
