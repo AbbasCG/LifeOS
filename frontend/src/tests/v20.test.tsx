@@ -8,6 +8,7 @@ import { ToastProvider } from '../components/ui/Toaster'
 import { AuthProvider } from '../contexts/AuthContext'
 import QuickAdd from '../components/layout/QuickAdd'
 import { dueFor, openQuickAdd, TASKS_CHANGED } from '../lib/quickAdd'
+import { pendingItems, setOfflineOwner } from '../lib/offline'
 import { DueChip, Expandable, PriorityMark, ProgressRing } from '../components/visual'
 import { ProposalCard } from '../features/assistant/ProposalCard'
 import type { AssistantProposal } from '../lib/api'
@@ -59,16 +60,20 @@ describe('quick add', () => {
     expect(await screen.findByRole('textbox', { name: 'Task' })).toBeInTheDocument()
   })
 
-  it('says so when offline and does not try to save', async () => {
+  it('keeps the task on this device when offline instead of posting it', async () => {
     const fetcher = stub()
+    setOfflineOwner(1)
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     render(wrap(<QuickAdd />))
     act(() => openQuickAdd())
     fireEvent.change(await screen.findByRole('textbox', { name: 'Task' }), { target: { value: 'Pay rent' } })
-    expect(screen.getByText(/You’re offline\. Nothing is saved until you reconnect\./)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Add task/ })).toBeDisabled()
+    expect(screen.getByText(/You’re offline\. The task is kept on this device until you send it\./)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Add task/ }))
+    await waitFor(() => expect(pendingItems()).toHaveLength(1))
+    expect(pendingItems()[0]).toMatchObject({ kind: 'task.create', label: 'Pay rent', state: 'waiting', payload: { title: 'Pay rent', priority: 'medium' } })
     expect(posted(fetcher)).toHaveLength(0)
     vi.restoreAllMocks()
+    setOfflineOwner(null)
   })
 })
 

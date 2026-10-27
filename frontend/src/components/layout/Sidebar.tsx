@@ -1,4 +1,5 @@
 import { BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
+import { confirmSignOut } from '../../lib/offline'
 import { NavLink } from 'react-router'
 import { m } from 'motion/react'
 import { useLanguage } from '../../contexts/LanguageContext'
@@ -30,7 +31,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       <div className="sidebar-prefs">
         <button type="button" className="icon-button" aria-label={ar ? 'English' : 'العربية'} onClick={() => { const next = ar ? 'en' : 'ar'; setLanguage(next); save({ language: next }) }}><Languages size={17} /><span>{ar ? 'EN' : 'ع'}</span></button>
         <button type="button" className="icon-button" aria-label={ar ? 'تغيير المظهر' : 'Change theme'} onClick={() => { const next = theme.resolvedTheme === 'dark' ? 'light' : 'dark'; theme.setTheme(next); save({ theme: next }) }}>{theme.resolvedTheme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
-        <button type="button" className="icon-button" aria-label={ar ? 'تسجيل الخروج' : 'Sign out'} onClick={() => void auth.logout().catch(() => {})}><LogOut size={17} /></button>
+        <button type="button" className="icon-button" aria-label={ar ? 'تسجيل الخروج' : 'Sign out'} onClick={() => { if (confirmSignOut(count => ar ? `سيُحذف ${count} تغيير محفوظ على هذا الجهاز. هل تريد تسجيل الخروج؟` : `${count} change(s) kept on this device will be deleted. Sign out anyway?`)) void auth.logout().catch(() => {}) }}><LogOut size={17} /></button>
       </div>
     </aside>
   </>

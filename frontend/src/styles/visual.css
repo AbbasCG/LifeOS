@@ -405,3 +405,19 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .today-sections li.is-hidden .today-section-name { opacity: .55; text-decoration: line-through; }
 .today-section-name { flex: 1; display: grid; gap: 2px; font-weight: 600; min-width: 0; }
 .today-section-name small { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
+
+/* ── Offline capture (V23) ─────────────────────────────────────────────────── */
+.sync-pill { position: fixed; z-index: 45; inset-inline-end: 20px; bottom: 20px; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 650; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--hairline-strong, var(--color-border)); box-shadow: var(--shadow-soft); }
+.sync-pill svg { color: var(--color-primary); }
+.sync-pill.has-conflict svg { color: var(--color-warning, #b45309); }
+@media (max-width: 700px) { .sync-pill { bottom: calc(var(--bottom-nav, 64px) + 12px); inset-inline-end: 12px; } }
+.sync-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sync-list li { display: flex; align-items: flex-start; gap: var(--space-3); padding: 10px; border-radius: 12px; background: var(--color-surface-muted, var(--color-surface)); }
+.sync-list li.state-conflict { border: 1px solid color-mix(in srgb, var(--color-warning, #b45309) 45%, transparent); }
+.sync-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); flex-shrink: 0; }
+.sync-body { flex: 1; display: grid; gap: 4px; min-width: 0; }
+.sync-body strong { overflow-wrap: anywhere; }
+.sync-conflict { display: inline-flex; align-items: center; gap: 4px; color: var(--color-warning, #b45309); font-weight: 600; }
+.sync-body .quiet { justify-self: start; min-height: 34px; }
+.sync-note { margin-inline-end: auto; align-self: center; }
+.habit-chip.queued { outline: 2px dashed color-mix(in srgb, var(--color-primary) 50%, transparent); outline-offset: 2px; }
