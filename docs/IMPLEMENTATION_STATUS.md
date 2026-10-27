@@ -2160,7 +2160,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7457de1) after PR
 
 # V22 — Customizable Today
 
-Branch `claude/magical-johnson-1s7q7b`, on top of V21 (merged as PR #20). **Not committed, not pushed** — waiting for approval.
+Branch `claude/magical-johnson-1s7q7b`, on top of V21 (merged as PR #20). Merged into `main` as PR #21.
 
 ## What changed
 - **Choose and order the top of Today**, separately for phone and computer.
@@ -2202,3 +2202,65 @@ Branch `claude/magical-johnson-1s7q7b`, on top of V21 (merged as PR #20). **Not 
 - **Two devices only** (phone and computer), not per browser or tablet. Tablets wider than 700px use the computer layout.
 - **Section contents are not configurable** (for example, the number of tasks in Top 3).
 - **No drag and drop;** reordering uses up/down buttons.
+
+# V23 — Offline capture
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (e8aa9f8) after PR #21 (V22) was merged. **Not committed, not pushed** — waiting for approval.
+
+## What changed
+- **Kept on this device while offline:** three small actions.
+  - Adding a task (Quick add).
+  - Completing a task (Tasks list, Top 3, the Now card).
+  - Logging or unlogging a habit (habit sheet, habit chips on Today).
+  - Each action is tried first; when the browser is offline or the server cannot be reached, it is queued instead, with a clear toast ("Saved on this device…"). Ticked rows stay ticked, and queued habit chips show a dashed outline.
+- **Never sent by itself:**
+  - A pill shows "N waiting to sync". When the connection returns, a toast suggests a review.
+  - **Waiting to sync** lists each item (kind, time) and sends only on **Send all**, one item at a time and oldest first, stopping if the connection drops again.
+- **No silent overwrites.** Before a queued completion is sent, the task is read again:
+  - already completed elsewhere: the item is dropped (nothing to do);
+  - deleted: a conflict ("No longer exists");
+  - changed since it was ticked (different `updated_at`): a conflict ("Changed on another device since then") with **Complete anyway** or discard;
+  - a habit that no longer exists, or anything the server rejects: a conflict as well.
+  - Any item can be discarded.
+- **No duplicates:**
+  - A queued task carries a device id (`client_id`, new nullable `tasks.client_id`, unique per user, additive migration).
+  - Sending it twice (a lost response, a retry) returns the first task (200) instead of creating another; the id cannot be changed later.
+  - Habit logs were already idempotent.
+- **Privacy:**
+  - The queue lives in this browser's storage under the signed-in account only; another account on the same device never sees or sends it.
+  - Signing out asks first when something is waiting, then deletes it.
+  - Without a known account, nothing is queued; an error is shown instead of losing the change.
+- **Lists stay on screen offline.** A failed reload because of no connection keeps the items already shown. Quick add no longer reloads lists after queueing. The offline banner now says what is kept.
+
+## Testing
+- **Backend:** `OfflineSyncTest` (2 tests).
+  - The same queued task sent twice creates one task and returns the first unchanged.
+  - Device ids are per user, must be UUIDs, and cannot be changed; tasks without one are unaffected.
+- **Vitest:** `v23.test.tsx` (7 tests):
+  - queueing when offline or unreachable (with device id and base);
+  - per-account queues; sign-out asks, then clears; no account means an error;
+  - sending creates, completes and logs;
+  - changed and deleted tasks become conflicts, sent only with "Complete anyway";
+  - already-completed items are dropped, and items are kept when the connection drops;
+  - the pill and the sheet: Send all disabled offline, a review suggestion when back online without sending, then sending on request;
+  - "Complete anyway" and discard.
+  - The V20 Quick add offline test now checks queueing instead of the disabled button.
+- **Playwright:** `offline.spec.ts`, desktop and mobile, with real browser offline mode:
+  - add a task and complete two while offline; "3 waiting to sync";
+  - back online: a suggestion only, and the server is unchanged;
+  - another edit to one task, then Send all: "2 sent. 1 need(s) your decision";
+  - Complete anyway, then everything is in sync; cleanup.
+- **Results:**
+  - **Backend:** 291/291 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 154/154.
+  - **Playwright:** 62/62.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** (EN desktop, AR Pixel 7 dark): offline tick, the banner, and a conflict with "Complete anyway". No overflow and no unexpected console errors.
+  - Fixed during QA: the task list emptied after an offline Quick add (a failed reload cleared it).
+
+## Known limitations (V23)
+- **Only these three actions.** Editing, deleting, calendar changes, focus sessions and Copilot need a connection.
+- **The app must already be open or cached.** Pages that were not loaded before going offline show no data, and nothing is fetched offline.
+- **New tasks queued offline are not shown in lists** until they are sent; they appear in "Waiting to sync".
+- **Habit conflicts are not detected** beyond a deleted habit, because logging a habit is idempotent.
+- **Stored in this browser only,** like any site data. Clearing site data deletes the queue.

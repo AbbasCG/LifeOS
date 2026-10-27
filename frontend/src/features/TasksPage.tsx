@@ -13,6 +13,7 @@ import { TASKS_CHANGED, openQuickAdd } from '../lib/quickAdd'
 import { RecordForm, useStatusLabel } from './ResourcePage'
 import { ConnectedTasksPanel } from './connected/ConnectedTasksPanel'
 import { useStartFocus } from '../lib/useStartFocus'
+import { completeTaskOrQueue } from '../lib/offline'
 
 type Filter = 'open' | 'overdue' | 'today' | 'week' | 'done'
 type Group = 'now' | 'next' | 'later'
@@ -51,7 +52,8 @@ export default function TasksPage() {
   async function complete(task: RecordItem) {
     setDone(d => [...d, task.id])
     try {
-      await api(`/api/tasks/${task.id}`, 'PATCH', { status: 'completed' })
+      // Offline, the completion is kept on this device and the row stays ticked until it is sent.
+      if (await completeTaskOrQueue(task) === 'queued') { toast(t('Saved on this device. Send it from “Waiting to sync” when you’re online.', 'حُفظ على هذا الجهاز. أرسله من «بانتظار المزامنة» عند الاتصال.')); return }
       toast(t('Done. Nice work.', 'تم. أحسنت.'), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', { status: task.status === 'completed' ? 'todo' : task.status }), t('Restored.', 'أُعيدت.')) })
       window.setTimeout(() => { setDone(d => d.filter(x => x !== task.id)); void data.reload() }, 500)
     } catch (e) { setDone(d => d.filter(x => x !== task.id)); toast((e as Error).message, 'error') }

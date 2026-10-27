@@ -24,6 +24,7 @@ use App\Services\AuditLogger;
 use App\Services\HabitStreaks;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -130,7 +131,23 @@ class WorkspaceController extends Controller
 
     public function store(ResourceRequest $request, string $resource): JsonResponse
     {
-        return $this->save($request, $resource, null)->response()->setStatusCode(201);
+        // A task queued offline may be sent twice (lost response, retry): the device's id returns the first one.
+        $replay = fn () => $resource === 'tasks' && $request->filled('client_id')
+            ? Task::where('user_id', $request->user()->id)->where('client_id', $request->input('client_id'))->first()
+            : null;
+        if ($existing = $replay()) {
+            return (new WorkspaceResource($existing))->response()->setStatusCode(200);
+        }
+        try {
+            return $this->save($request, $resource, null)->response()->setStatusCode(201);
+        } catch (UniqueConstraintViolationException $e) {
+            $existing = $replay();
+            if (! $existing) {
+                throw $e;
+            }
+
+            return (new WorkspaceResource($existing))->response()->setStatusCode(200);
+        }
     }
 
     public function update(ResourceRequest $request, string $resource, int $id): WorkspaceResource

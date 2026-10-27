@@ -16,6 +16,8 @@ import { NowCard, TodayStrip, TopThree, ProgressRow, CopilotPick } from './today
 import { Expandable, RingStat } from '../components/visual'
 import { TASKS_CHANGED } from '../lib/quickAdd'
 import { HABITS_CHANGED, openHabitSheet } from '../lib/quickActions'
+import { logHabitOrQueue } from '../lib/offline'
+import { useToast } from '../lib/toast'
 import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySection } from '../lib/todayLayout'
 import { TodayCustomizer } from './today/TodayCustomizer'
 import { HabitBurst } from './progress/Journey'
@@ -66,6 +68,7 @@ export default function Dashboard() {
   const t = useText(), auth = useAuth(), { language } = useLanguage(), reason = useReasonLabel()
   const briefing = useApi<Briefing>('/api/briefing'), overview = useOverview(), today = useApi<TodayData>('/api/today')
   const [error, setError] = useState(''), [busy, setBusy] = useState<number | null>(null), [burst, setBurst] = useState<number | null>(null), [customizing, setCustomizing] = useState(false)
+  const [queued, setQueued] = useState<number[]>([]), toast = useToast()
   const settings = useApi<{ dashboard?: Partial<DashboardLayout>; today_layout?: TodayLayout }>('/api/settings')
   const device = useDevice(), [customizingTop, setCustomizingTop] = useState(false)
   const layout = normalizeLayout(settings.data?.dashboard)
@@ -77,9 +80,19 @@ export default function Dashboard() {
     setBusy(id); setError('')
     try { await fn(); refresh() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
+  // Offline, a habit tick is kept on this device (shown ticked) and sent later from "Waiting to sync".
+  async function logChip(habit: { id: number; title: string; done_today: boolean }) {
+    setBusy(-habit.id); setError('')
+    try {
+      const completed = !(habit.done_today !== queued.includes(habit.id))
+      if (await logHabitOrQueue(habit, localDate(), completed) === 'queued') { setQueued(q => q.includes(habit.id) ? q.filter(id => id !== habit.id) : [...q, habit.id]); toast(t('Saved on this device. Send it from “Waiting to sync” when you’re online.', 'حُفظ على هذا الجهاز. أرسله من «بانتظار المزامنة» عند الاتصال.')); return }
+      if (completed) { setBurst(habit.id); window.setTimeout(() => setBurst(b => b === habit.id ? null : b), 700) }
+      refresh()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
+  }
   const habits = data?.habits ?? []
-  const habitChips = habits.length > 0 && <div className="habit-list compact" aria-label={t('Habits today', 'عادات اليوم')}>{habits.slice(0, 8).map(habit => <button key={habit.id} className={`habit-chip ${habit.done_today ? 'done' : ''} ${habit.at_risk ? 'risk' : ''}`} aria-pressed={habit.done_today} disabled={busy === -habit.id} onClick={() => void act(-habit.id, async () => { await api(`/api/habits/${habit.id}/entry`, 'PUT', { date: localDate(), completed: !habit.done_today }); if (!habit.done_today) { setBurst(habit.id); window.setTimeout(() => setBurst(b => b === habit.id ? null : b), 700) } })}>
-    {burst === habit.id && <HabitBurst />}<span className="habit-check">{habit.done_today && <Check size={14} />}</span><span className="habit-name">{habit.title}</span><span className="streak" title={t('Current streak', 'السلسلة الحالية')}><Flame size={14} />{habit.current_streak}</span>
+  const habitChips = habits.length > 0 && <div className="habit-list compact" aria-label={t('Habits today', 'عادات اليوم')}>{habits.slice(0, 8).map(habit => <button key={habit.id} className={`habit-chip ${habit.done_today !== queued.includes(habit.id) ? 'done' : ''} ${queued.includes(habit.id) ? 'queued' : ''} ${habit.at_risk ? 'risk' : ''}`} aria-pressed={habit.done_today !== queued.includes(habit.id)} disabled={busy === -habit.id} onClick={() => void logChip(habit)}>
+    {burst === habit.id && <HabitBurst />}<span className="habit-check">{habit.done_today !== queued.includes(habit.id) && <Check size={14} />}</span><span className="habit-name">{habit.title}</span><span className="streak" title={t('Current streak', 'السلسلة الحالية')}><Flame size={14} />{habit.current_streak}</span>
   </button>)}</div>
   const widgets: Record<WidgetId, ReactNode> = {
     today: <BriefingWidget data={today.data} />,

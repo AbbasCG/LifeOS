@@ -6,6 +6,7 @@ import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { localDate } from '../../lib/hooks'
 import { startFocus, POMODORO } from '../../lib/focus'
+import { logHabitOrQueue } from '../../lib/offline'
 import { doneNow, HABIT_SHEET, HABITS_CHANGED, type Habit } from '../../lib/quickActions'
 import { BottomSheet, EmptyNote } from '../visual'
 import { ErrorMessage } from '../ui/Shared'
@@ -64,14 +65,20 @@ export default function QuickActions() {
 
 /** Today's habits with one-tap ticks (tap again to undo); the habit a reminder pointed to comes first. */
 function HabitSheet({ highlight, onClose }: { highlight: number | null; onClose: () => void }) {
-  const t = useText()
+  const t = useText(), toast = useToast()
   const [habits, setHabits] = useState<Habit[] | null>(null), [busy, setBusy] = useState<number | null>(null), [error, setError] = useState('')
   const load = useCallback(() => api<{ data: Habit[] }>('/api/habits?per_page=100').then(r => setHabits(r.data)).catch(e => setError((e as Error).message)), [])
   useEffect(() => { void load() }, [load])
   async function toggle(habit: Habit) {
     setBusy(habit.id); setError('')
     try {
-      await api(`/api/habits/${habit.id}/entry`, 'PUT', { date: localDate(), completed: !doneNow(habit) })
+      const date = localDate(), completed = !doneNow(habit)
+      if (await logHabitOrQueue(habit, date, completed) === 'queued') {
+        // Kept on this device: show the tick now; it is sent from "Waiting to sync".
+        setHabits(list => list && list.map(h => h.id !== habit.id ? h : { ...h, entries: completed ? [...(h.entries ?? []), { date }] : (h.entries ?? []).filter(e => e.date !== date) }))
+        toast(t('Saved on this device. Send it from “Waiting to sync” when you’re online.', 'حُفظ على هذا الجهاز. أرسله من «بانتظار المزامنة» عند الاتصال.'))
+        return
+      }
       window.dispatchEvent(new Event(HABITS_CHANGED))
       await load()
     } catch (e) { setError((e as Error).message) } finally { setBusy(null) }

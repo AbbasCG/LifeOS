@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Flame, Plus, SlidersHorizontal, Sun, Sunrise, WifiOff, Heart } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useOnline } from '../../lib/pwa'
-import { api, type RecordItem } from '../../lib/api'
+import { createTaskOrQueue } from '../../lib/offline'
+import type { RecordItem } from '../../lib/api'
 import { parseCapture } from '../../lib/capture'
 import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
@@ -42,9 +43,10 @@ export default function QuickAdd() {
     if (!text.trim() || busy) return
     setBusy(true); setError('')
     try {
-      await api('/api/tasks', 'POST', task())
-      window.dispatchEvent(new Event(TASKS_CHANGED))
-      toast(t('Task added.', 'أُضيفت المهمة.'))
+      const result = await createTaskOrQueue(task())
+      // Kept on this device: lists are not reloaded, so what is on screen stays while offline.
+      if (result === 'created') window.dispatchEvent(new Event(TASKS_CHANGED))
+      toast(result === 'queued' ? t('Saved on this device. Send it from “Waiting to sync” when you’re online.', 'حُفظت على هذا الجهاز. أرسلها من «بانتظار المزامنة» عند الاتصال.') : t('Task added.', 'أُضيفت المهمة.'))
       close()
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
@@ -54,7 +56,7 @@ export default function QuickAdd() {
     {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} footer={<>
       <button type="button" className="quiet quick-habit" onClick={() => { close(); openHabitSheet() }}><Heart size={16} />{t('Log a habit', 'سجّل عادة')}</button>
       <button type="button" className="quiet" disabled={!text.trim()} onClick={() => { setDraft(task()); close() }}><SlidersHorizontal size={16} />{t('More details', 'تفاصيل أكثر')}</button>
-      <button type="submit" form="quick-add-form" className="primary" disabled={!text.trim() || busy || !online}><Plus size={17} />{t('Add task', 'إضافة المهمة')}</button>
+      <button type="submit" form="quick-add-form" className="primary" disabled={!text.trim() || busy}><Plus size={17} />{t('Add task', 'إضافة المهمة')}</button>
     </>}>
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
@@ -63,7 +65,7 @@ export default function QuickAdd() {
         </div>
         <div className="chip-row" role="radiogroup" aria-label={t('When', 'متى')}>{whens.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={when === value} aria-pressed={when === value} className="filter-chip" onClick={() => setWhen(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
         <div className="chip-row" role="radiogroup" aria-label={t('Priority', 'الأولوية')}>{priorities.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={priority === value} aria-pressed={priority === value} className={`filter-chip prio-chip-${value}`} onClick={() => setPriority(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
-        {!online && <p className="offline-note" role="status"><WifiOff size={14} aria-hidden="true" />{t('You’re offline. Nothing is saved until you reconnect.', 'أنت غير متصل. لن يُحفظ شيء حتى تعيد الاتصال.')}</p>}
+        {!online && <p className="offline-note" role="status"><WifiOff size={14} aria-hidden="true" />{t('You’re offline. The task is kept on this device until you send it.', 'أنت غير متصل. تُحفظ المهمة على هذا الجهاز حتى ترسلها.')}</p>}
         <ErrorMessage error={error} />
       </form>
     </BottomSheet>}

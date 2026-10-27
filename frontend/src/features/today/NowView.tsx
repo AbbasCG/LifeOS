@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, m } from 'motion/react'
 import { ArrowRight, Check, CheckCircle2, Clock, Coffee, Play, Plus, Sparkles, Timer } from 'lucide-react'
-import { api, type Briefing, type TodayData } from '../../lib/api'
+import type { Briefing, TodayData } from '../../lib/api'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
@@ -12,6 +12,7 @@ import { minutesLabel } from '../../lib/dates'
 import { isValidZone } from '../../lib/dial'
 import { DueChip, EmptyNote, KindIcon, PriorityMark, ProgressRing, RingStat } from '../../components/visual'
 import { openQuickAdd } from '../../lib/quickAdd'
+import { completeTaskOrQueue } from '../../lib/offline'
 import { Skeleton } from '../../components/ui/Shared'
 import { RecommendationCard } from '../intelligence/RecommendationCard'
 import type { Recommendation } from '../../lib/intelligence'
@@ -30,7 +31,7 @@ function useNow(intervalMs = 30_000) {
  * Below it, what comes next.
  */
 export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null; today: TodayData | null; onDone: () => void }) {
-  const t = useText(), { language } = useLanguage(), now = useNow(), focus = useStartFocus()
+  const t = useText(), { language } = useLanguage(), now = useNow(), focus = useStartFocus(), toast = useToast()
   const [completing, setCompleting] = useState(false)
   if (!briefing || !today) return <section className="now-card"><Skeleton height={150} /></section>
   const zone = today.timezone && isValidZone(today.timezone) ? today.timezone : undefined
@@ -41,9 +42,9 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
   const task: Task | undefined = briefing.focus[0]
   const minsUntil = next ? Math.max(1, Math.round((Date.parse(next.starts_at) - now) / 60000)) : 0
   const linkedTask = current ? briefing.agenda.find(a => String(a.id) === current.id)?.task_id : null
-  async function complete(id: number) {
+  async function complete(item: { id: number; title: string }) {
     setCompleting(true)
-    try { await api(`/api/tasks/${id}`, 'PATCH', { status: 'completed' }); onDone() } finally { setCompleting(false) }
+    try { if (await completeTaskOrQueue(item) === 'queued') toast(t('Saved on this device. Send it from “Waiting to sync” when you’re online.', 'حُفظ على هذا الجهاز. أرسله من «بانتظار المزامنة» عند الاتصال.')); onDone() } catch (e) { toast((e as Error).message, 'error') } finally { setCompleting(false) }
   }
   const progress = today.progress.overall
 
@@ -63,7 +64,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
         <div className="meta-row"><PriorityMark priority={task.priority} labelled /><DueChip due={task.due_at} /><span><Timer size={13} aria-hidden="true" />{minutesLabel(task.estimated_minutes, language === 'ar')}</span></div>
         <div className="now-actions">
           <button className="cta" disabled={focus.busy} onClick={() => void focus.go(task.id)}><Play size={20} />{t('Start focus', 'ابدأ التركيز')}</button>
-          <button className="quiet" disabled={completing} onClick={() => void complete(task.id)} aria-label={t(`Mark “${task.title}” done`, `إنجاز «${task.title}»`)}><Check size={18} />{t('Done', 'تم')}</button>
+          <button className="quiet" disabled={completing} onClick={() => void complete(task)} aria-label={t(`Mark “${task.title}” done`, `إنجاز «${task.title}»`)}><Check size={18} />{t('Done', 'تم')}</button>
           <Link className="quiet hide-phone" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
         </div>
       </> : <>
@@ -138,7 +139,7 @@ export function TopThree({ briefing, onChange }: { briefing: Briefing | null; on
   const items = briefing.focus.slice(0, 3)
   async function complete(task: Task) {
     setBusy(task.id); setDone(d => [...d, task.id])
-    try { await api(`/api/tasks/${task.id}`, 'PATCH', { status: 'completed' }); toast(t('Done. Nice work.', 'تم. أحسنت.')); window.setTimeout(onChange, 450) }
+    try { const result = await completeTaskOrQueue(task); toast(result === 'queued' ? t('Saved on this device. Send it from “Waiting to sync” when you’re online.', 'حُفظ على هذا الجهاز. أرسله من «بانتظار المزامنة» عند الاتصال.') : t('Done. Nice work.', 'تم. أحسنت.')); if (result === 'done') window.setTimeout(onChange, 450) }
     catch (e) { setDone(d => d.filter(x => x !== task.id)); toast((e as Error).message, 'error') } finally { setBusy(null) }
   }
   return <section className="panel top-three" aria-labelledby="top-title">
