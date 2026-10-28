@@ -7,7 +7,8 @@ import { test, expect } from './fixtures'
  * and Arabic, light and dark. Axe finds what can be found automatically (names, roles, contrast, focusable scroll
  * areas); the keyboard walk below covers what it cannot.
  */
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
+// V26: best-practice rules too (one main heading, heading order, allowed roles, landmarks).
+const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 const PAGES = ['/', '/tasks', '/calendar', '/today/plan', '/planning', '/focus', '/goals', '/habits', '/projects', '/categories', '/timeline', '/review', '/analytics', '/assistant',
   '/settings', '/settings/security', '/settings/integrations', '/settings/ai', '/settings/assistant', '/settings/notifications', '/settings/automations', '/settings/wellbeing']
 
@@ -122,11 +123,53 @@ test.describe('keyboard only', () => {
     expect(await page.locator(':focus').evaluate(el => getComputedStyle(el).outlineStyle)).not.toBe('none')
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL(/\/tasks$/)
+    // The new page is named in the tab title and announced.
+    await expect(page).toHaveTitle('Tasks · LifeOS')
+    const announcer = page.locator('[data-announcer]')
+    await expect(announcer).toHaveText('Tasks')
 
-    // Filter chips are one radio group: Space picks one.
-    await tabTo(page, "el.getAttribute('role') === 'radio' && el.textContent === 'Late'")
-    await page.keyboard.press('Space')
-    await expect(page.getByRole('radio', { name: 'Late' })).toHaveAttribute('aria-checked', 'true')
+    // Filter chips are one radio group with one Tab stop (the checked chip); arrows move and pick.
+    await tabTo(page, "el.getAttribute('role') === 'radio'")
+    await expect(page.getByRole('radio', { name: 'All open' })).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    const late = page.getByRole('radio', { name: 'Late' })
+    await expect(late).toBeFocused()
+    await expect(late).toHaveAttribute('aria-checked', 'true')
+    await expect(announcer).toHaveText(/^\d+ task\(s\)$/)
+    // Tab leaves the group instead of walking through every chip.
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('role'))).not.toBe('radio')
+  })
+
+  test('in Arabic, Left moves forward through a radio group', async ({ page, setLanguage }) => {
+    await setLanguage('ar')
+    await page.goto('/tasks')
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+    const all = page.getByRole('radio', { name: 'كل المفتوحة' })
+    await all.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect(page.getByRole('radio', { name: 'متأخرة' })).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('ArrowRight')
+    await expect(all).toHaveAttribute('aria-checked', 'true')
+    await setLanguage('en')
+  })
+
+  test('calendar blocks are walked with arrows, and Page Down moves to the next period', async ({ page, setLanguage }) => {
+    await setLanguage('en')
+    await page.goto('/calendar')
+    const blocks = page.locator('.grid-event')
+    await expect(blocks.first()).toBeVisible()
+    const heading = await page.getByRole('heading', { level: 1 }).textContent()
+    await blocks.first().focus()
+    const before = await page.evaluate(() => document.activeElement?.textContent)
+    // Down moves to another block (the next one that day, if any); Right to the nearest block on a later day.
+    await page.keyboard.press('ArrowRight')
+    const after = await page.evaluate(() => [document.activeElement?.classList.contains('grid-event'), document.activeElement?.textContent])
+    expect(after[0]).toBe(true)
+    expect(after[1]).not.toBe(before)
+    await page.keyboard.press('PageDown')
+    await expect(page.getByRole('heading', { level: 1 })).not.toHaveText(heading ?? '')
+    await expect(page.locator('[data-announcer]')).toHaveText((await page.getByRole('heading', { level: 1 }).textContent())!.replace(/\s+/g, ' ').trim())
   })
 })
 

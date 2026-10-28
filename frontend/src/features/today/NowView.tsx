@@ -120,9 +120,9 @@ export function TodayStrip({ today }: { today: TodayData | null }) {
       <span className="strip-stat"><Coffee size={16} aria-hidden="true" /><span>{t(`${minutesLabel(today.focus_time.free_minutes, false)} free`, `${minutesLabel(today.focus_time.free_minutes, true)} متاحة`)}</span></span>
       <Link className="icon-button strip-open" to="/calendar" aria-label={t('Open calendar', 'فتح التقويم')}><ArrowRight size={18} className="flip-rtl" /></Link>
     </header>
-    <div className="strip" role="list" aria-label={t('Today’s schedule', 'جدول اليوم')}>
+    <div className="strip" role="group" aria-label={t('Today’s schedule', 'جدول اليوم')}>
       {today.focus_time.slots.map(s => <span key={s.starts_at} className="strip-free" style={{ insetInlineStart: pos(Date.parse(s.starts_at)), width: width(Date.parse(s.starts_at), Date.parse(s.ends_at)) }} aria-hidden="true" />)}
-      {events.map(e => <Link role="listitem" key={e.id} to="/calendar" className={`strip-block tone-${tone(e)} ${Date.parse(e.ends_at) <= now ? 'past' : ''}`} style={{ insetInlineStart: pos(Date.parse(e.starts_at)), width: width(Date.parse(e.starts_at), Date.parse(e.ends_at)) }}
+      {events.map(e => <Link key={e.id} to="/calendar" className={`strip-block tone-${tone(e)} ${Date.parse(e.ends_at) <= now ? 'past' : ''}`} style={{ insetInlineStart: pos(Date.parse(e.starts_at)), width: width(Date.parse(e.starts_at), Date.parse(e.ends_at)) }}
         aria-label={`${e.title}, ${time(e.starts_at)}–${time(e.ends_at)}`} title={`${time(e.starts_at)} ${e.title}`}><KindIcon kind={e.kind} source={e.source} size={12} /></Link>)}
       {now >= start && now <= end && <span className="strip-now" style={{ insetInlineStart: pos(now) }} aria-hidden="true"><i /></span>}
     </div>

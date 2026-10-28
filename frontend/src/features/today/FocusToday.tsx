@@ -58,7 +58,8 @@ function GoalSheet({ goal, onClose, onSaved }: { goal: number | null; onClose: (
   }
   return <BottomSheet title={t('Daily focus goal', 'هدف التركيز اليومي')} onClose={onClose}>
     <p className="muted small">{t('A target to aim for, not a limit. Breaks don’t count.', 'هدف تسعى إليه وليس حداً. الاستراحات لا تُحتسب.')}</p>
-    <div className="chip-row" role="radiogroup" aria-label={t('Minutes per day', 'دقائق في اليوم')}>
+    {/* Picking a goal saves it, so arrows only move between goals; Enter or Space picks. */}
+    <div className="chip-row" role="radiogroup" data-arrow-select="false" aria-label={t('Minutes per day', 'دقائق في اليوم')}>
       {GOALS.map(m => <button key={m} type="button" role="radio" aria-checked={goal === m} className="filter-chip" disabled={busy} onClick={() => void save(m)}>{minutesLabel(m, language === 'ar')}</button>)}
     </div>
     {goal !== null && <button type="button" className="quiet" disabled={busy} onClick={() => void save(null)}>{t('No goal', 'بلا هدف')}</button>}

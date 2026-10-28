@@ -23,7 +23,7 @@ test('Today shows the next action at once, and focus starts with one tap', async
   const now = page.locator('.now-card')
   await expect(now.getByRole('heading').first()).toBeVisible({ timeout: 3000 })
   expect(Date.now() - started).toBeLessThan(3000)
-  await expect(page.getByRole('list', { name: 'Today’s schedule' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Today’s schedule' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Progress today' })).toBeVisible()
   try {
     await now.getByRole('button', { name: 'Start focus' }).first().click()

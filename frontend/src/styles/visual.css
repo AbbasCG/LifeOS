@@ -467,3 +467,7 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 /* Primary-tinted reason chips and struck-through "before" values in proposals stay at 4.5:1. */
 .reason-in_progress, .reason-due_soon { color: var(--color-primary-hover); }
 .proposal-time s { opacity: 1; color: var(--color-text-muted); }
+/* On phones the sign-in story is hidden from view but kept for screen readers, so the page keeps its main heading. */
+@media (max-width: 700px) {
+  .auth-story { display: block !important; position: absolute !important; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

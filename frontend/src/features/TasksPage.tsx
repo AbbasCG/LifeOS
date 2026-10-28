@@ -4,6 +4,7 @@ import { AnimatePresence, m } from 'motion/react'
 import { Bell, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Timer, Trash2 } from 'lucide-react'
 import { api, type RecordItem } from '../lib/api'
 import { useRecords } from '../lib/hooks'
+import { announce } from '../lib/announce'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
@@ -66,6 +67,13 @@ export default function TasksPage() {
   }
 
   const items = data.items.filter(i => filter === 'done' || !['completed', 'cancelled'].includes(String(i.status)) || done.includes(i.id))
+  // Changing the filter, search or priority re-reads the list; say how many tasks it now shows (not on first load).
+  const listKey = `${query}|${search}|${priority}`, announced = useRef(listKey), count = items.length
+  useEffect(() => {
+    if (data.loading || announced.current === listKey) return
+    announced.current = listKey
+    announce(t(`${count} task(s)`, `${count} مهمة`))
+  }, [data.loading, listKey, count, t])
   const groups: [Group, string][] = [['now', t('Now', 'الآن')], ['next', t('Next', 'التالي')], ['later', t('Later', 'لاحقاً')]]
   const byGroup = (g: Group) => items.filter(i => groupOf(i) === g).sort((a, b) => (PRIORITY_RANK[a.priority ?? 'medium'] ?? 2) - (PRIORITY_RANK[b.priority ?? 'medium'] ?? 2) || (a.due_at ?? '9').localeCompare(b.due_at ?? '9'))
   const filters: [Filter, string][] = [['open', t('All open', 'كل المفتوحة')], ['overdue', t('Late', 'متأخرة')], ['today', t('Today', 'اليوم')], ['week', t('7 days', '٧ أيام')], ['done', t('Done', 'منجزة')]]
