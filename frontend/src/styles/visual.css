@@ -108,7 +108,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .chip-row { display: flex; gap: var(--space-2); overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .chip-row::-webkit-scrollbar { display: none; }
 .filter-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border-radius: var(--radius-pill); border: 1px solid var(--hairline-strong, var(--color-border)); background: var(--surface-raised); color: var(--color-text); font-size: 13px; font-weight: 650; white-space: nowrap; }
-.filter-chip[aria-pressed="true"] { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.filter-chip[aria-pressed="true"], .filter-chip[aria-checked="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .filter-chip .count { font-variant-numeric: tabular-nums; opacity: 0.75; }
 
 @media (prefers-reduced-motion: reduce) { .sheet-inner { animation: none; } .quick-action, .cta { transition: none; } }
@@ -281,7 +281,8 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .agenda-item.conflict { border-color: color-mix(in srgb, var(--tone-urgent) 45%, transparent); }
 .agenda-item.conflict .agenda-marks svg:first-child { color: var(--tone-urgent); }
 .agenda-item.current { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent); }
-.agenda-item.past { opacity: 0.55; }
+.agenda-item.past { opacity: 1; }
+.agenda-item.past time, .agenda-item.past time * { color: var(--color-text-muted); }
 
 /* ── Tasks (V20) ──────────────────────────────────────────────────────────── */
 .tasks-page { gap: var(--space-3); max-width: 980px; }
@@ -402,7 +403,7 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .today-device button { display: inline-flex; align-items: center; gap: 6px; }
 .today-sections { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: 4px; }
 .today-sections li { display: flex; align-items: center; gap: var(--space-2); padding: 6px 8px; border-radius: 12px; background: var(--color-surface-muted, var(--color-surface)); }
-.today-sections li.is-hidden .today-section-name { opacity: .55; text-decoration: line-through; }
+.today-sections li.is-hidden .today-section-name { color: var(--color-text-muted); text-decoration: line-through; }
 .today-section-name { flex: 1; display: grid; gap: 2px; font-weight: 600; min-width: 0; }
 .today-section-name small { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
 
@@ -433,3 +434,36 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .focus-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14px; flex: 1; min-width: 180px; }
 .focus-facts li { display: flex; align-items: center; gap: 8px; }
 .focus-facts svg { color: var(--color-primary); flex-shrink: 0; }
+
+/* V25 accessibility: contrast fixes found by the automated axe checks (WCAG AA, 4.5:1 for text). */
+.danger { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); border-color: color-mix(in srgb, var(--color-danger) 25%, transparent); }
+.conflict-chip { color: var(--color-danger); }
+.group-count { opacity: 1; }
+.strike { opacity: 0.72; }
+.tl-item.done .tl-title strong { opacity: 0.8; }
+.tray-count { color: var(--color-primary-hover); }
+:root[data-theme="dark"] .count-badge { color: #2a0a12; }
+:root[data-theme="dark"] .priority-urgent { color: var(--color-danger); }
+:root[data-theme="dark"] .priority-high { color: var(--color-warning); }
+/* Scrollable lists take keyboard focus so they can be scrolled without a mouse; show it like any other control. */
+.goal-journey:focus-visible, .ai-activity:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; border-radius: 8px; }
+/* The settings tabs sit on the page's tinted glow, so their resting text is a step darker than muted. */
+:root:not([data-theme="dark"]) .settings-tabs a:not(.active) { color: #475063; }
+:root:not([data-theme="dark"]) .settings-tabs a.active { color: var(--color-primary-hover); }
+/* Dimmed items (planned integrations, paused rules) stay readable: dimmed by style, not by fading the text. */
+.integration-card.state-planned { opacity: 1; }
+.rule-list li.paused .rule-body { opacity: 1; }
+.rule-list li.paused .rule-body strong { color: var(--color-text-muted); }
+.error { color: var(--color-danger); }
+/* Done habits keep a readable streak; the orange stays for habits at risk. */
+.habit-chip.done .streak { color: var(--color-warning); }
+/* On phones, icon-only buttons keep their words for screen readers instead of dropping them. */
+@media (max-width: 700px) {
+  .search-trigger span, .cal-new span, .phone-sr { display: inline !important; position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* Status badges can sit on the page's moving ambient glow, so their tint is mixed into a solid surface. */
+.status-accepted, .status-completed { background: color-mix(in srgb, var(--color-success) 14%, var(--color-surface)); }
+.status-pending { background: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface)); }
+/* Primary-tinted reason chips and struck-through "before" values in proposals stay at 4.5:1. */
+.reason-in_progress, .reason-due_soon { color: var(--color-primary-hover); }
+.proposal-time s { opacity: 1; color: var(--color-text-muted); }

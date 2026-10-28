@@ -111,7 +111,7 @@ p { text-wrap: pretty; }
 [dir="rtl"] .stepper button { padding: 8px 8px 8px 14px; }
 .stepper button span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface-muted); font-size: 12px; }
 .stepper button.active { border-color: var(--color-primary); color: var(--color-text); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent); }
-.stepper button.active span { background: var(--color-primary); color: #fff; }
+.stepper button.active span { background: var(--color-primary); color: var(--color-on-primary); }
 .stepper button.done span { background: var(--color-success); color: #fff; }
 .review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .review-grid > .stats-grid, .review-grid > .wide { grid-column: 1 / -1; }
@@ -141,7 +141,7 @@ p { text-wrap: pretty; }
 .priority-picker button > span:last-child { display: grid; gap: 4px; }
 .priority-picker button.chosen { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent); }
 .pick { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--color-border); font-weight: 800; font-size: 13px; flex-shrink: 0; }
-.chosen .pick { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.chosen .pick { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .review-done { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 18px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface)); }
 .review-done > svg { color: var(--color-success); }
 .review-done > div { flex: 1; min-width: 200px; }
@@ -220,7 +220,7 @@ p { text-wrap: pretty; }
 .small-print { font-size: 12px; }
 
 /* Mobile shell, offline and install */
-.skip-link { position: absolute; inset-inline-start: 12px; top: -60px; z-index: 300; padding: 10px 14px; border-radius: 10px; background: var(--color-primary); color: #fff; font-weight: 600; }
+.skip-link { position: absolute; inset-inline-start: 12px; top: -60px; z-index: 300; padding: 10px 14px; border-radius: 10px; background: var(--color-primary); color: var(--color-on-primary); font-weight: 600; }
 .skip-link:focus { top: 12px; }
 .app-content > main:focus { outline: none; }
 .offline-banner { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; font-size: 13px; background: color-mix(in srgb, var(--color-warning) 16%, var(--color-surface)); color: var(--color-text); border-bottom: 1px solid color-mix(in srgb, var(--color-warning) 30%, var(--color-border)); text-align: center; }
@@ -252,7 +252,7 @@ p { text-wrap: pretty; }
 .recurrence-builder .form-grid { margin-top: 6px; }
 .weekday-toggle { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .weekday-toggle button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-weight: 650; font-size: 13px; transition: background var(--duration), color var(--duration); }
-.weekday-toggle button.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.weekday-toggle button.on { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .rule-summary { margin: 0; font-size: 13px; }
 .event-actions { gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .event-actions .toolbar { gap: 8px; }
@@ -411,7 +411,7 @@ progress::-moz-progress-bar { background: var(--bar, var(--color-primary)); bord
 .scale-options { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .scale-options label { position: relative; margin: 0; display: grid; place-items: center; height: 38px; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); cursor: pointer; font-weight: 600; transition: background .15s, border-color .15s; }
 .scale-options label:hover { border-color: var(--color-primary); }
-.scale-options label.selected { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.scale-options label.selected { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .scale-options input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
 .scale-options label:has(input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .scale-ends { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 11px; }

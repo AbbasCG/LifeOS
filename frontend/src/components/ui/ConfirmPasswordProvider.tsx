@@ -30,7 +30,7 @@ export function ConfirmPasswordProvider({ children }: { children: ReactNode }) {
       <form onSubmit={submit} className="confirm-password">
         <p className="muted"><ShieldCheck size={16} /> {t('For your security, enter your password to continue. You won’t be asked again for 15 minutes.', 'لأمانك، أدخل كلمة المرور للمتابعة. لن يُطلب منك ذلك مجدداً لمدة ١٥ دقيقة.')}</p>
         <ErrorMessage error={error} />
-        <label>{t('Password', 'كلمة المرور')}<input type="password" autoFocus required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+        <label>{t('Password', 'كلمة المرور')}<input type="password" data-autofocus required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
         <div className="toolbar"><button type="button" className="quiet" onClick={cancel}>{t('Cancel', 'إلغاء')}</button><button className="primary" disabled={busy || !password}>{busy ? t('Checking…', 'جارٍ التحقق…') : t('Confirm', 'تأكيد')}</button></div>
       </form>
     </Dialog>}

@@ -84,7 +84,8 @@ export function Expandable({ summary, icon, children, defaultOpen = false, class
  */
 export function BottomSheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null), t = useText(), id = useId()
-  useEffect(() => { const dialog = ref.current, previous = document.activeElement as HTMLElement | null; dialog?.showModal?.(); return () => { dialog?.close?.(); previous?.focus?.() } }, [])
+  // showModal() focuses the first control (the close button); a field marked data-autofocus takes focus instead.
+  useEffect(() => { const dialog = ref.current, previous = document.activeElement as HTMLElement | null; dialog?.showModal?.(); dialog?.querySelector<HTMLElement>('[data-autofocus]')?.focus(); return () => { dialog?.close?.(); previous?.focus?.() } }, [])
   return <dialog ref={ref} className="sheet" aria-labelledby={id} onCancel={e => { e.preventDefault(); onClose() }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
     <div className="sheet-inner">
       <span className="sheet-handle" aria-hidden="true" />

@@ -180,13 +180,13 @@ export default function CalendarPage() {
                 const top = (Math.max(s.getTime(), dayStart) - dayStart) / 3600000 * HOUR
                 const height = Math.max(22, (Math.min(en.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
                 const flexible = item.kind !== 'fixed' && item.editable, active = preview?.id === item.id, external = item.source !== 'lifeos'
-                return <article key={item.id} role="button" tabIndex={0} aria-label={`${item.title}, ${time(s)} – ${time(en)}${flexible ? '' : `, ${t('fixed', 'ثابت')}`}`} aria-describedby="calendar-keyboard-help"
+                return <article key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help"
                   className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
                   style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
                   onClick={() => { if (!suppressClick.current) setEditing(item) }} onKeyDown={e => onEventKey(e, item, day)}>
                   {item.recurring && <Repeat size={10} className="recurring-mark" aria-label={t('Repeats', 'متكرر')} />}{external && <Globe size={10} className="recurring-mark" aria-label={t('External calendar', 'تقويم خارجي')} />}{flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : !external && <Lock size={11} className="lock" aria-hidden="true" />}
-                  <strong><KindIcon kind={item.kind} source={item.source} size={11} />{item.title}</strong><small>{time(s)} – {time(en)}</small>
+                  <strong><KindIcon kind={item.kind} source={item.source} size={11} />{item.title}</strong><span className="sr-only">, </span><small>{time(s)} – {time(en)}</small>{!flexible && <span className="sr-only">, {t('fixed', 'ثابت')}</span>}
                   {flexible && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
                 </article>
               })}

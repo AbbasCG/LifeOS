@@ -2267,7 +2267,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (e8aa9f8) after PR
 
 # V24 — Focus on Today
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (40fc133) after PR #22 (V23) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (40fc133) after PR #22 (V23) was merged. Merged into `main` as PR #23.
 
 ## What changed
 - **New optional Today section "Focus"** in Customize Today (V22).
@@ -2309,3 +2309,70 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (40fc133) after PR
 - **One goal for every day;** there are no weekday or weekend goals.
 - **The best hour needs history;** it is hidden until there are completed sessions in the last 30 days.
 - **Streaks count completed or logged focus;** cancelled sessions don't count, and a day with only breaks is not a focus day.
+
+# V25 — Accessibility and speed
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d84d880) after PR #23 (V24) was merged.
+
+## What changed
+- **Faster Today on phones.** Pieces that are not on screen at first load on demand:
+  - the task details form and the dictation button (Quick add, search results);
+  - Today's optional and "More for today" parts: Intelligence briefing, the day dial, the widgets, the Focus section, and both customizers.
+- **Measured on the production build** (the entry chunk, the Today chunk and everything they import statically, i.e. the JavaScript needed to show Today):
+
+  | | Raw | Gzip |
+  |---|---|---|
+  | Before (main d84d880) | 504.5 kB | 167.9 kB |
+  | After | 431.1 kB | 144.3 kB |
+
+  That is about 14% less. The Today chunk alone went from 61.8 kB to 33.2 kB. CSS is unchanged in size.
+- **On-demand parts still work offline:**
+  - Quick add fetches its form and dictation button in the background once the page is idle, so the service worker has them before the connection drops;
+  - a part whose file cannot be fetched renders nothing instead of breaking the page (`lib/lazyPart.ts`).
+- **Automated accessibility checks** with axe (`@axe-core/playwright`, dev dependency only; WCAG 2.1 A and AA rules) on 22 pages, the sign-in page, and the Quick add and Customize Today sheets. They run in English and Arabic, light and dark, on desktop and phone.
+- **Fixes for what axe found:**
+  - **Contrast:**
+    - muted text `#718096` → `#5a6478` and primary `#6366f1` → `#5355d8` in light mode (4.5:1 on every light surface, tinted ones included);
+    - darker light-mode status colours (success `#065f46`, warning `#92400e`, danger `#be123c`);
+    - a `--color-on-primary` token (white in light, dark ink in dark), because white on the light dark-theme primary was 3:1;
+    - readable dimmed states (paused rules, planned integrations, done items, past agenda items, hidden sections, the "before" time in proposals), muted rather than faded;
+    - status badges mixed into a solid surface, so the moving ambient glow behind them can't lower their contrast;
+    - primary-tinted reason chips use the darker primary;
+    - the notification count, error text and priority badges in dark mode.
+  - **Names and roles:**
+    - radio chips no longer carry `aria-pressed` (not allowed on `role="radio"`); styling follows `aria-checked`;
+    - calendar blocks take their name from their visible title and time;
+    - "Review this month" is named "Review this month: <goal>";
+    - on phones, the search button and "Add task" keep their words for screen readers instead of dropping them.
+  - **Keyboard:**
+    - scrollable goal journeys and the AI activity log can take focus and be scrolled with the keyboard;
+    - sheets and dialogs now focus the field meant to be first (the Quick add text, the search box, the password confirmation, the event and task titles); before, `showModal()` sent focus to the close button.
+- No backend change, no new runtime dependency, and no change to features or data.
+
+## Testing
+- **Playwright:** `a11y.spec.ts`.
+  - axe on every main page plus the two sheets, for each language and colour scheme, on desktop and Pixel 7; and the sign-in page in both languages.
+  - **Keyboard-only walk (desktop):**
+    - the first Tab reaches the visible skip link, and Enter moves focus to the content;
+    - Quick add opens from the keyboard with focus in the text field, Escape closes it, and focus returns to the opener;
+    - Ctrl K opens and closes search;
+    - sidebar links are reached and followed with Enter;
+    - filter chips are picked with Space;
+    - the focus outline is visible.
+  - Reduced motion turns transitions off.
+- **Vitest:** the V18 goal-review expectations follow the new button name. Everything else passes unchanged.
+- **Results:**
+  - **Backend:** 294/294 (no backend change).
+  - **Frontend:** Vitest 158/158.
+  - **Playwright:** 77 passed and 1 skipped (the keyboard walk runs on desktop only).
+    - In the full run, only the axe checks for "Plan my day" (reason chips) and Copilot (struck-through times) failed; they were fixed with CSS only.
+    - `a11y.spec.ts` was then re-run in full: 13 passed and 1 skipped.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+- **Manual check** (EN desktop light, AR Pixel 7 dark): colours stay on brand, the muted text is still clearly secondary, and there is no overflow and no console errors.
+
+## Known limitations (V25)
+- **Automated checks find only part of accessibility issues** (roughly a third to a half). Screen-reader runs with VoiceOver and TalkBack in Arabic are not automated here.
+- **Pre-existing date issue (not changed here):** between midnight in the user's time zone and midnight in the browser's, "Plan my day" sends the browser's date, and the server rejects it as past (422). The intelligence and axe journeys hit this when run in that window.
+- **Filter chips** move with Tab and Space, not with the arrow keys of a native radio group.
+- **The main bundle still carries the React and router runtime and the shared layout,** which most pages need. Further splitting would trade first-load size for extra round trips.
+

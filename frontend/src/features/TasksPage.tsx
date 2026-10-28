@@ -77,12 +77,12 @@ export default function TasksPage() {
   return <section className="page tasks-page">
     <PageHead title={t('Tasks', 'المهام')} icon={CheckSquare} action={<>
       <button className="icon-button" aria-pressed={searching} aria-label={t('Search tasks', 'البحث في المهام')} onClick={() => { setSearching(v => !v); if (searching) setSearch('') }}><Search size={19} /></button>
-      <button className="primary" onClick={openQuickAdd}><Plus size={18} /><span className="hide-phone">{t('Add task', 'إضافة مهمة')}</span></button>
+      <button className="primary" onClick={openQuickAdd}><Plus size={18} /><span className="phone-sr">{t('Add task', 'إضافة مهمة')}</span></button>
     </>} />
     {searching && <input autoFocus className="task-search" type="search" value={search} onChange={e => setSearch(e.target.value)} aria-label={t('Search', 'بحث')} placeholder={t('Search tasks…', 'ابحث في المهام…')} />}
     <form className="inline-add" onSubmit={e => void addQuick(e)}><Plus size={18} aria-hidden="true" /><input value={quick} onChange={e => setQuick(e.target.value)} maxLength={200} aria-label={t('New task', 'مهمة جديدة')} placeholder={t('Add a task and press Enter', 'أضف مهمة واضغط Enter')} /></form>
     <div className="tasks-filters">
-      <div className="chip-row" role="radiogroup" aria-label={t('Show', 'عرض')}>{filters.map(([key, name]) => <button key={key} type="button" role="radio" aria-checked={filter === key} aria-pressed={filter === key} className="filter-chip" onClick={() => setFilter(key)}>{name}</button>)}</div>
+      <div className="chip-row" role="radiogroup" aria-label={t('Show', 'عرض')}>{filters.map(([key, name]) => <button key={key} type="button" role="radio" aria-checked={filter === key} className="filter-chip" onClick={() => setFilter(key)}>{name}</button>)}</div>
       <button type="button" className="icon-button" aria-expanded={moreOpen} aria-label={t('More options', 'خيارات أخرى')} onClick={() => setMoreOpen(v => !v)}><SlidersHorizontal size={18} /></button>
     </div>
     {moreOpen && <div className="tasks-more panel">

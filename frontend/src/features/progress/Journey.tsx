@@ -11,7 +11,7 @@ export function GoalJourney({ milestones, color }: { milestones: { title: string
   const next = milestones.findIndex(stone => !stone.completed)
   const done = milestones.filter(stone => stone.completed).length
   return <div className="goal-journey-wrap" style={{ ['--goal-color' as string]: color }}>
-    <ol className="goal-journey" aria-label={t(`Milestones: ${done} of ${milestones.length} done`, `المراحل: ${done} من ${milestones.length}`)}>
+    <ol className="goal-journey" tabIndex={0} aria-label={t(`Milestones: ${done} of ${milestones.length} done`, `المراحل: ${done} من ${milestones.length}`)}>
       {milestones.map((stone, i) => {
         const fill = stone.completed && milestones[i + 1]?.completed ? 1 : stone.completed ? 0.5 : 0
         return <li key={`${i}-${stone.title}`} className={stone.completed ? 'done' : i === next ? 'next' : ''}>
