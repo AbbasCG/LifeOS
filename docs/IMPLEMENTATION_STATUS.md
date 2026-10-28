@@ -2398,7 +2398,8 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR
   - Alt + arrows still move and resize flexible blocks.
 - **Structure, from axe's best-practice rules:**
   - each settings section has a main heading (hidden from view, read by screen readers);
-  - Copilot's "Week templates" heading no longer skips a level;
+  - Copilot's "Week templates" heading and the day groups in proposals no longer skip a level;
+  - on phones, the sign-in page keeps its main heading for screen readers (the story panel is hidden from view, not removed);
   - Today's day strip keeps its links as links (they had been turned into list items);
   - calendar blocks are `div`s with the button role (`article` cannot take it).
 - **Small fixes:**
@@ -2421,7 +2422,9 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR
 - **Results:**
   - **Backend:** 294/294 (no backend change).
   - **Frontend:** Vitest 165/165.
-  - **Playwright:** RESULT_E2E.
+  - **Playwright:** 79 passed and 3 skipped (the keyboard walks run on desktop only).
+    - The first full run had 9 failures, all from this change: two test selectors (the day strip is now a group; a settings section's name now also appears in the new hidden heading) and two headings that the best-practice rules caught.
+    - After the fixes, the affected specs were re-run in full: 27 passed and 3 skipped. The other 70 passed in the full run.
   - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
 
 ## Known limitations (V26)
