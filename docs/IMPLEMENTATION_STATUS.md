@@ -2434,7 +2434,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR
 
 # V27 — "Today" in the account's timezone
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (be54f01) after PR #25 (V26) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (be54f01) after PR #25 (V26) was merged. Merged into `main` as PR #26.
 
 ## The problem
 The server plans and validates days in the timezone saved in the account's settings (default UTC), while the browser used its own clock for "today". Between midnight in one zone and midnight in the other, the two disagree by a day:
@@ -2488,4 +2488,37 @@ Found by the V25 browser tests, which failed for about an hour a day when the de
 - **The calendar grid keeps the browser's time axis.** Its day labels follow the account's today, but event times are drawn in the browser's zone. For someone travelling, both can be right at once only if the two zones agree; showing the grid in the account's zone is a separate, larger change.
 - **Sign-in on a new device** uses the browser's day only until the first `/api/user` answer (the sign-in screen itself needs no date).
 - **Habit and check-in history** stored before this change is untouched; only what counts as "today" changes from now on.
+
+# V28 — Steadier browser tests
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (63c89d9) after PR #26 (V27) was merged.
+
+## The problem
+`energy-learning.spec.ts` failed intermittently in CI. It was marked "flaky" (passed on retry) in V26's run, and failed on both attempts on the phone in V27's run, which turned the check red until the job was re-run. It passed every time on a fast machine (12 of 12 repeats), so it looked like a CI-only accident.
+
+## What it was
+A test bug, found by reproducing it under CPU load (which failed every time) and printing what the server had stored.
+- While Copilot is answering, the page shows a "typing" indicator that is itself an assistant turn. The test counted assistant turns to know the follow-up "plan everything" had been answered, so the count was satisfied while the answer was still on its way.
+- The test then moved on and navigated to the next page, which interrupted the request before the server recorded the choice. The learned preferences had 5 choices instead of 6, so the "High/Low energy" lines never appeared.
+- It is the app server being single-threaded and a navigation dropping the queued request, not a defect in the learning feature: a request a user abandons is simply not recorded.
+
+## What changed (tests and CI only; no app code, no backend change)
+- **`energy-learning.spec.ts`:** each follow-up now waits for its own response, and for the typing indicator to disappear, before the next round.
+- **`playwright.config.ts`:** in CI, assertions wait up to 10 s instead of 5 s (the runners are slow and the app server is single-threaded). Local runs keep 5 s.
+- **`a11y.spec.ts`:** the axe checks were about half of CI's browser time. Desktop still checks all four language and colour combinations; the phone now checks two (English light, Arabic dark), which still covers both languages and both colour schemes on a phone.
+- A temporary diagnostic copy of the spec was used to find the cause and was removed.
+
+## Testing
+- **Reproduced:** under CPU load (a few busy loops), the old test failed in desktop and mobile repeats, with "essentials 3, balanced 2" stored.
+- **Fixed:** the same test passes 8 of 8 under the same load, and 12 of 12 without load.
+- **Whole suite under load, retries off:** 81 passed and 3 skipped, so no other test depends on timing the same way.
+- **Results:**
+  - **Backend:** unchanged (298/298).
+  - **Frontend:** Vitest unchanged (174/174).
+  - **Playwright:** 79 passed and 5 skipped (3 desktop-only keyboard walks, 2 phone axe combinations), with retries on, in 15.6 minutes.
+  - Also clean: the e2e typecheck and ESLint.
+
+## Known limitations (V28)
+- The app server in tests is PHP's built-in server, which handles one request at a time. A page that navigates while a request is queued drops that request, so a test must wait for any request whose effect it checks later.
+- The phone axe runs for English dark and Arabic light were dropped. They share the same stylesheet as desktop, which still checks them.
 

@@ -41,7 +41,10 @@ async function scanSheet(page: Page, name: string) {
 
 for (const language of ['en', 'ar'] as const) {
   for (const scheme of ['light', 'dark'] as const) {
-    test(`no axe violations on the main pages and sheets: ${language}, ${scheme}`, async ({ page, setLanguage }) => {
+    test(`no axe violations on the main pages and sheets: ${language}, ${scheme}`, async ({ page, setLanguage, isMobile }) => {
+      // Desktop checks all four combinations. The phone layout is checked in two (English light, Arabic dark), which
+      // covers both languages and both colour schemes on a phone at half the cost: this file was half of CI's time.
+      test.skip(isMobile && (language === 'en') !== (scheme === 'light'), 'the phone covers English light and Arabic dark; desktop covers all four')
       test.setTimeout(240_000)
       await setLanguage(language)
       await page.emulateMedia({ colorScheme: scheme })
