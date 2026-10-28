@@ -198,11 +198,11 @@ export default function CalendarPage() {
     {placing && <div className="banner placing" role="status"><MousePointerClick size={18} /><p>{t(`Tap a time slot to schedule “${placing.title}” (${placing.estimated_minutes} min).`, `اضغط على وقت لجدولة «${placing.title}» (${placing.estimated_minutes} د).`)}</p><button className="icon-button" aria-label={t('Cancel placing', 'إلغاء الجدولة')} onClick={() => setPlacing(null)}><X size={16} /></button></div>}
     <div className={`calendar-layout ${timed ? 'with-tray' : ''}`} onTouchStart={e => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }} onTouchEnd={e => swipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}>
       {timed ? <div className={`time-grid ${view} ${preview ? 'dragging' : ''} ${placing ? 'placing' : ''}`} style={{ ['--days' as string]: days.length }}>
-        <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === localDate(now) ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
+        <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === localDate() ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
         <div className="time-grid-body" ref={scroller}>
           <div className="time-gutter">{Array.from({ length: 24 }, (_, h) => <span key={h} style={{ top: h * HOUR }}>{h ? time(new Date(2026, 0, 1, h)) : ''}</span>)}</div>
           {days.map((day, dayIndex) => {
-            const isToday = localDate(day) === localDate(now), free = freeFor(day)
+            const isToday = localDate(day) === localDate(), free = freeFor(day)
             return <div key={localDate(day)} ref={el => { columns.current[dayIndex] = el }} className={`time-column ${isToday ? 'today' : ''}`} style={{ height: 24 * HOUR }}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropHint({ dayIndex, minutes: pointerMinutes(e) }) }}
               onDragLeave={() => setDropHint(null)}
@@ -236,7 +236,7 @@ export default function CalendarPage() {
         <p id="calendar-keyboard-help" className="sr-only">{t('Arrow keys move between blocks; Page Up and Page Down change the period. Press Enter to edit. Alt plus arrow keys move a flexible block by 15 minutes; add Shift to change its length.', 'الأسهم تنتقل بين الفترات، وPage Up وPage Down تغيّران الفترة الزمنية. اضغط Enter للتعديل. Alt مع الأسهم ينقل الفترة المرنة ١٥ دقيقة، ومع Shift يغيّر مدتها.')}</p>
       </div> : data.loading ? <Empty>{t('Loading…', 'جارٍ التحميل…')}</Empty> : view === 'agenda' ? <div className="agenda">{days.map(day => {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day), key = localDate(day)
-        const diff = Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${localDate(now)}T12:00`).getTime()) / 86400000)
+        const diff = Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${localDate()}T12:00`).getTime()) / 86400000)
         const dayName = diff === 0 ? t('Today', 'اليوم') : diff === 1 ? t('Tomorrow', 'غداً') : day.toLocaleDateString(language, { weekday: 'long' })
         return <section key={key} className={`agenda-day ${diff === 0 ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)} aria-label={`${dayName} ${day.toLocaleDateString(language, { day: 'numeric', month: 'long' })}`}>
           <header><span className="agenda-date"><strong>{day.getDate()}</strong><span>{dayName}</span></span>
@@ -254,7 +254,7 @@ export default function CalendarPage() {
         </section>
       })}{data.items.length === 0 && <Empty>{t('Nothing scheduled in this period.', 'لا شيء مجدول في هذه الفترة.')}</Empty>}</div> : <div className={`calendar-grid ${view}`}>{days.map(day => {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day)
-        return <section key={localDate(day)} className={`calendar-day ${localDate(day) === localDate(now) ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
+        return <section key={localDate(day)} className={`calendar-day ${localDate(day) === localDate() ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
           <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
           {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)}</small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
         </section>

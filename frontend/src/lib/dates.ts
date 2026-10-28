@@ -1,11 +1,10 @@
 import { localDate } from './hooks'
+import { shiftDay, weekdayOf } from './accountDay'
 
-/** Monday of the week containing `date` (local time). */
-export function mondayOf(date = new Date()) {
-  const d = new Date(date)
-  d.setHours(12, 0, 0, 0)
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return localDate(d)
+/** Monday of the week containing `date`; with none, of the account's current week (V27). */
+export function mondayOf(date?: Date) {
+  const day = date ? localDate(date) : localDate()
+  return shiftDay(day, -((weekdayOf(day) + 6) % 7))
 }
 
 export function addDays(day: string, amount: number) {

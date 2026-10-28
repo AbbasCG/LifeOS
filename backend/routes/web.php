@@ -53,7 +53,8 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::patch('copilot/templates/{id}', [CopilotController::class, 'renameTemplate'])->whereNumber('id');
         Route::delete('copilot/templates/{id}', [CopilotController::class, 'destroyTemplate'])->whereNumber('id');
         Route::post('copilot/messages', [CopilotController::class, 'message'])->middleware('throttle:assistant');
-        Route::get('user', fn (Request $r) => response()->json($r->user()));
+        // The timezone is part of the user's identity for the app: it decides what "today" means on every screen.
+        Route::get('user', fn (Request $r) => response()->json([...$r->user()->toArray(), 'timezone' => $r->user()->timezone()]));
         Route::post('logout', [AuthController::class, 'logout']);
         Route::patch('profile', [AuthController::class, 'profile']);
         Route::get('sessions', [SecurityController::class, 'sessions']);
