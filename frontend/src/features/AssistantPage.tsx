@@ -149,7 +149,7 @@ export default function AssistantPage() {
       </li>)}
     </ul>}
     <section className="template-list" aria-label={t('Week templates', 'قوالب الأسبوع')}>
-      <h3><LayoutTemplate size={14} />{t('Week templates', 'قوالب الأسبوع')}</h3>
+      <h2><LayoutTemplate size={14} />{t('Week templates', 'قوالب الأسبوع')}</h2>
       {templates.length === 0 ? <p className="muted small">{t('Save a plan with “Save as template” to reuse it.', 'احفظ خطة بزر «حفظ كقالب» لإعادة استخدامها.')}</p> : <ul>
         {templates.map(tp => <li key={tp.id}>
           <span className="template-name">{tp.name}<small className="muted">{t(`${tp.blocks.length} block(s) · ${tp.days} day(s)`, `${tp.blocks.length} فترة · ${tp.days} يوم`)}</small></span>

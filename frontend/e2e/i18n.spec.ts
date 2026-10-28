@@ -8,7 +8,7 @@ test('Arabic is right-to-left on the main screens and fits the viewport', async 
       await page.waitForLoadState('networkidle')
       await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
       await expect(page.locator('html')).toHaveAttribute('lang', 'ar')
-      if (heading) await expect(page.getByRole('heading', { name: heading })).toBeVisible()
+      if (heading) await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
       await noHorizontalOverflow(page)
     }
   } finally {

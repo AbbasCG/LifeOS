@@ -85,7 +85,7 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
       {clashes > 0 && <span className="chip tone-warn"><AlertTriangle size={12} aria-hidden="true" />{t(`${clashes} overlap(s)`, `${clashes} تداخل`)}</span>}
     </div>
     {groups.map(group => <div key={group.key} className="proposal-group">
-    {group.label && <h4 className="proposal-day">{group.label}<small className="muted">{group.actions.length}</small></h4>}
+    {group.label && <h3 className="proposal-day">{group.label}<small className="muted">{group.actions.length}</small></h3>}
     <ul className="proposal-actions">
       {group.actions.map(action => {
         const result = proposal.results?.find(r => r.action_id === action.id), done = Boolean(result) && proposal.status !== 'undone'

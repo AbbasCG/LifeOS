@@ -7,6 +7,7 @@ import EventForm from './EventForm'
 import { useRecords, localDate } from '../lib/hooks'
 import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
+import { announce } from '../lib/announce'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { minutesLabel } from '../lib/dates'
@@ -47,6 +48,13 @@ export default function CalendarPage() {
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(id) }, [])
   useEffect(() => { if (timed && scroller.current) scroller.current.scrollTop = 7 * HOUR }, [timed])
 
+  // A new period or view is announced by its heading, so keyboard and screen-reader users hear where they landed.
+  const period = `${view}|${date}`, shownPeriod = useRef(period)
+  useEffect(() => {
+    if (shownPeriod.current === period) return
+    shownPeriod.current = period
+    announce(document.querySelector('main h1')?.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+  }, [period])
   function shift(direction: number) { const d = new Date(`${date}T12:00`); if (view === 'month') d.setMonth(d.getMonth() + direction); else d.setDate(d.getDate() + direction * (view === 'day' ? 1 : 7)); setDate(localDate(d)) }
   /** Swipe sideways on a phone to go to the next or previous day/week/month (mirrored in Arabic). */
   function swipeEnd(x: number, y: number) {
@@ -115,12 +123,40 @@ export default function CalendarPage() {
   function cancelDrag() { drag.current = null; previewRef.current = null; setPreview(null) }
   function onEventKey(e: KeyboardEvent<HTMLElement>, item: CalendarOccurrence, day: Date) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(item); return }
+    if (!e.altKey && !e.ctrlKey && !e.metaKey && moveFocus(e)) return
     if (!e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return
     e.preventDefault()
     if (item.kind === 'fixed' || !item.editable) { toast(t('Fixed commitments are protected. Open the event to change its time.', 'الالتزامات الثابتة محمية. افتح الموعد لتغيير وقته.'), 'info'); return }
     const delta = e.key === 'ArrowUp' ? -15 : 15, s = new Date(item.starts_at!), en = new Date(item.ends_at!)
     const next = e.shiftKey ? resizePreview(s, en, day, delta) : movePreview(s, en, day, day, delta)
     void commit(item, next.start, next.end)
+  }
+  /**
+   * Plain arrows move between blocks without a mouse: up and down to the previous or next block of the day, left and
+   * right to the closest block on the neighbouring day (following reading direction); Page Up and Page Down change the
+   * period. Returns whether the key was handled.
+   */
+  function moveFocus(e: KeyboardEvent<HTMLElement>) {
+    if (e.key === 'PageUp' || e.key === 'PageDown') { e.preventDefault(); shift(e.key === 'PageUp' ? -1 : 1); return true }
+    if (e.shiftKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return false
+    const block = e.currentTarget, column = block.closest('.time-column')
+    const dayColumns = [...(block.closest('.time-grid')?.querySelectorAll<HTMLElement>('.time-column') ?? [])]
+    const blocks = (c: Element | null | undefined) => [...(c?.querySelectorAll<HTMLElement>('.grid-event') ?? [])].sort((a, b) => a.offsetTop - b.offsetTop)
+    let target: HTMLElement | undefined
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const day = blocks(column), i = day.indexOf(block)
+      target = day[i + (e.key === 'ArrowUp' ? -1 : 1)]
+    } else {
+      const rtl = getComputedStyle(block).direction === 'rtl'
+      const step = (e.key === 'ArrowRight') !== rtl ? 1 : -1
+      // Skip empty days until one has a block; pick the block nearest in time.
+      for (let i = dayColumns.indexOf(column as HTMLElement) + step; i >= 0 && i < dayColumns.length && !target; i += step) {
+        target = blocks(dayColumns[i]).sort((a, b) => Math.abs(a.offsetTop - block.offsetTop) - Math.abs(b.offsetTop - block.offsetTop))[0]
+      }
+    }
+    e.preventDefault()
+    target?.focus()
+    return true
   }
   function createTaskBlock(task: RecordItem, s: Date) {
     const length = Math.max(15, task.estimated_minutes || 30), e = new Date(s.getTime() + length * 60000)
@@ -180,7 +216,7 @@ export default function CalendarPage() {
                 const top = (Math.max(s.getTime(), dayStart) - dayStart) / 3600000 * HOUR
                 const height = Math.max(22, (Math.min(en.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
                 const flexible = item.kind !== 'fixed' && item.editable, active = preview?.id === item.id, external = item.source !== 'lifeos'
-                return <article key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help"
+                return <div key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help"
                   className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
                   style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
@@ -188,7 +224,7 @@ export default function CalendarPage() {
                   {item.recurring && <Repeat size={10} className="recurring-mark" aria-label={t('Repeats', 'متكرر')} />}{external && <Globe size={10} className="recurring-mark" aria-label={t('External calendar', 'تقويم خارجي')} />}{flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : !external && <Lock size={11} className="lock" aria-hidden="true" />}
                   <strong><KindIcon kind={item.kind} source={item.source} size={11} />{item.title}</strong><span className="sr-only">, </span><small>{time(s)} – {time(en)}</small>{!flexible && <span className="sr-only">, {t('fixed', 'ثابت')}</span>}
                   {flexible && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
-                </article>
+                </div>
               })}
               {preview && preview.dayIndex === dayIndex && <div className={`drag-ghost ${preview.conflict ? 'bad' : ''}`} style={{ top: minutesInto(day, preview.start) / 60 * HOUR, height: Math.max(22, (preview.end.getTime() - preview.start.getTime()) / 3600000 * HOUR - 2) }} aria-live="polite">
                 <strong>{time(preview.start)} – {time(preview.end)}</strong><small>{preview.conflict ? t(`Overlaps “${preview.conflict.title}”`, `يتداخل مع «${preview.conflict.title}»`) : minutesLabel(Math.round((preview.end.getTime() - preview.start.getTime()) / 60000), ar)}</small>
@@ -197,7 +233,7 @@ export default function CalendarPage() {
             </div>
           })}
         </div>
-        <p id="calendar-keyboard-help" className="sr-only">{t('Press Enter to edit. Alt plus arrow keys move a flexible block by 15 minutes; add Shift to change its length.', 'اضغط Enter للتعديل. Alt مع الأسهم ينقل الفترة المرنة ١٥ دقيقة، ومع Shift يغيّر مدتها.')}</p>
+        <p id="calendar-keyboard-help" className="sr-only">{t('Arrow keys move between blocks; Page Up and Page Down change the period. Press Enter to edit. Alt plus arrow keys move a flexible block by 15 minutes; add Shift to change its length.', 'الأسهم تنتقل بين الفترات، وPage Up وPage Down تغيّران الفترة الزمنية. اضغط Enter للتعديل. Alt مع الأسهم ينقل الفترة المرنة ١٥ دقيقة، ومع Shift يغيّر مدتها.')}</p>
       </div> : data.loading ? <Empty>{t('Loading…', 'جارٍ التحميل…')}</Empty> : view === 'agenda' ? <div className="agenda">{days.map(day => {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day), key = localDate(day)
         const diff = Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${localDate(now)}T12:00`).getTime()) / 86400000)

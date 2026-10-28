@@ -2312,7 +2312,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (40fc133) after PR
 
 # V25 — Accessibility and speed
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d84d880) after PR #23 (V24) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d84d880) after PR #23 (V24) was merged. Merged into `main` as PR #24.
 
 ## What changed
 - **Faster Today on phones.** Pieces that are not on screen at first load on demand:
@@ -2375,4 +2375,57 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d84d880) after PR
 - **Pre-existing date issue (not changed here):** between midnight in the user's time zone and midnight in the browser's, "Plan my day" sends the browser's date, and the server rejects it as past (422). The intelligence and axe journeys hit this when run in that window.
 - **Filter chips** move with Tab and Space, not with the arrow keys of a native radio group.
 - **The main bundle still carries the React and router runtime and the shared layout,** which most pages need. Further splitting would trade first-load size for extra round trips.
+
+# V26 — Screen readers and keyboard
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR #24 (V25) was merged.
+
+## What changed
+- **Radio groups work like native ones** (`lib/radioGroups.ts`, installed once in `App`). This covers all 14 button-based groups: task filters, Quick add when/priority, calendar views, timeline and planning ranges, the plan options, review decisions, AI digest frequency, Today device, analytics range and the focus goal.
+  - Each group is **one Tab stop**: the checked option, or the first enabled one.
+  - **Arrow keys** move to the next or previous option and pick it, wrapping around; **Home** and **End** jump to the ends; **disabled options are skipped**.
+  - **Left and Right follow reading direction,** so in Arabic Left moves forward.
+  - The **focus goal** group saves as soon as a goal is picked, so there arrows only move focus and Enter or Space picks (`data-arrow-select="false"`).
+  - Native `<input type="radio">` groups (the check-in scales) already behave this way and are left alone.
+- **Announcements** (`lib/announce.ts`): one polite live region, separate from toasts, for changes that have no toast.
+  - **Page changes:** each page change is announced, and the browser tab is titled after the page (`Tasks · LifeOS`; Today is "Today", not the date). The first page is only titled, because screen readers read it on load.
+  - **Task filters:** changing the filter, search or priority announces how many tasks the list now shows.
+  - **Calendar:** moving to another day, week or month announces the new period.
+- **Calendar by keyboard:**
+  - plain arrows move between blocks: Up and Down within a day; Left and Right to the nearest block on the neighbouring day with blocks, following reading direction;
+  - Page Up and Page Down change the period;
+  - the screen-reader help text describes the new keys;
+  - Alt + arrows still move and resize flexible blocks.
+- **Structure, from axe's best-practice rules:**
+  - each settings section has a main heading (hidden from view, read by screen readers);
+  - Copilot's "Week templates" heading no longer skips a level;
+  - Today's day strip keeps its links as links (they had been turned into list items);
+  - calendar blocks are `div`s with the button role (`article` cannot take it).
+- **Small fixes:**
+  - the account button is named "<name> · Settings" instead of just the initial;
+  - the skip link speaks the current language only.
+- No backend change and no new dependency.
+
+## Testing
+- **Vitest:** `v26.test.tsx` (7 tests).
+  - One Tab stop on the checked radio; arrows pick and wrap; Home/End.
+  - Right-to-left arrows; disabled options skipped.
+  - Focus-only groups; modified keys left alone.
+  - The live region repeats a repeated message.
+  - Pages are titled and announced, but not the first one.
+- **Playwright** (`a11y.spec.ts`):
+  - the axe checks now include the best-practice rules;
+  - the keyboard walk checks the title and announcement on page change, the one Tab stop and arrow selection in the task filters, and the count announcement;
+  - new: Left moves forward in Arabic;
+  - new: calendar blocks are walked with arrows, and Page Down moves to the next period and announces it.
+- **Results:**
+  - **Backend:** 294/294 (no backend change).
+  - **Frontend:** Vitest 165/165.
+  - **Playwright:** RESULT_E2E.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+
+## Known limitations (V26)
+- **No real screen-reader runs:** VoiceOver, TalkBack and NVDA, in Arabic and English, are still not run. These changes follow the ARIA patterns, but real readers can differ.
+- **English titles in the Arabic interface** (task names, events) are read with the Arabic voice; content language is not detected.
+- **The month and agenda views** use their own lists and are not part of the arrow navigation between time-grid blocks.
 
