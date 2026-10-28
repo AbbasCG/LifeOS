@@ -4,6 +4,7 @@ import { ArrowUpRight, Check, Flame, Lightbulb, AlertTriangle, PartyPopper, Targ
 import { api, type Briefing, type PlannedVsActual, type Suggestion } from '../lib/api'
 import { FULL_WIDTH, normalizeLayout, type DashboardLayout, type WidgetId } from '../lib/dashboard'
 import { mondayOf } from '../lib/dates'
+import { weekdayOf } from '../lib/accountDay'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useText } from '../lib/i18n'
@@ -54,7 +55,7 @@ function ReviewWidget() {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar'
   const { data } = useApi<PlannedVsActual>(`/api/plans/insights?from=${mondayOf()}&days=7`)
   const totals = data?.totals
-  const today = new Date().getDay()
+  const today = weekdayOf(localDate())
   return <section className="panel reveal review-widget">
     <header className="row"><h2>{t('This week’s plan', 'خطة هذا الأسبوع')}</h2><ClipboardCheck size={19} /></header>
     {!totals ? <Skeleton lines={2} /> : totals.planned_minutes === 0 ? <p className="muted">{t('No planned focus blocks this week yet.', 'لا توجد فترات تركيز مخططة هذا الأسبوع بعد.')}</p> : <>

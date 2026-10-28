@@ -2378,7 +2378,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d84d880) after PR
 
 # V26 — Screen readers and keyboard
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR #24 (V25) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR #24 (V25) was merged. Merged into `main` as PR #25.
 
 ## What changed
 - **Radio groups work like native ones** (`lib/radioGroups.ts`, installed once in `App`). This covers all 14 button-based groups: task filters, Quick add when/priority, calendar views, timeline and planning ranges, the plan options, review decisions, AI digest frequency, Today device, analytics range and the focus goal.
@@ -2431,4 +2431,61 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (8a0026c) after PR
 - **No real screen-reader runs:** VoiceOver, TalkBack and NVDA, in Arabic and English, are still not run. These changes follow the ARIA patterns, but real readers can differ.
 - **English titles in the Arabic interface** (task names, events) are read with the Arabic voice; content language is not detected.
 - **The month and agenda views** use their own lists and are not part of the arrow navigation between time-grid blocks.
+
+# V27 — "Today" in the account's timezone
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (be54f01) after PR #25 (V26) was merged.
+
+## The problem
+The server plans and validates days in the timezone saved in the account's settings (default UTC), while the browser used its own clock for "today". Between midnight in one zone and midnight in the other, the two disagree by a day:
+- "Plan my day" sent the browser's date and the server refused it with a 422 ("date must be after or equal to today");
+- habits logged for "today" could be refused, or accepted for a day that had not started where the user is;
+- quick-add due times ("today 17:00") used the browser's wall clock, not the account's;
+- the weekly review and the "This week's plan" card picked their week from the browser's weekday.
+
+Found by the V25 browser tests, which failed for about an hour a day when the demo account (Europe/Amsterdam) and the test browser (UTC) were on different dates.
+
+## What changed
+- **Backend:**
+  - `PUT /api/habits/{id}/entry` accepts dates up to the **user's** today (it compared against the server's UTC day).
+  - `GET /api/user` now includes `timezone` (the user's planning timezone, UTC when never chosen), so the app knows it before any page renders.
+- **Frontend** (`lib/accountDay.ts`):
+  - one source for "today in the account's timezone" (`accountDay`), with timezone-free day arithmetic (`shiftDay`, `weekdayOf`) and `accountInstant` (the instant at which the account's wall clock reads a given hour; correct across daylight-saving changes);
+  - `localDate()` **with no argument now means the account's today**, so every screen that sent or compared "today" is fixed at once (Plan my day and its minimum date, habits, check-ins, calendar "Today", timeline, analytics, planning, weekly review);
+  - `localDate(someDate)` is unchanged and keeps meaning that date's day in the browser, which the calendar grid still uses for its own time axis;
+  - quick-add "today / tomorrow / this week" puts 17:00 on the account's wall clock, and "this week" ends on the account's Sunday;
+  - the weekly review default week, the Monday of "this week" and the Today review card's weekday use the account's day;
+  - the zone is set when the user loads (`AuthContext`), refreshed from settings, and updated as soon as the timezone is saved in Settings;
+  - when the zone is missing or unknown to the browser, the browser's own day is used, as before.
+- No database change, no new dependency, no change to features.
+
+## Testing
+- **Backend:** `UserDayTest` (4 tests).
+  - A habit can be logged for the local today when the local day is ahead of UTC (Auckland), and tomorrow is refused.
+  - A habit cannot be logged for a day that has not started where the user is (Los Angeles).
+  - The day plan follows the user's day around midnight.
+  - `/api/user` carries the timezone, and falls back to UTC.
+  - The two habit tests fail without the fix.
+- **Vitest:** `v27.test.tsx` (9 tests).
+  - The account day differs from the browser's in both directions and falls back safely.
+  - `localDate()` follows the account while `localDate(date)` keeps the browser day.
+  - Day arithmetic is timezone-free (including across a DST change).
+  - The Monday of a week.
+  - Quick-add due dates on the account's wall clock, across DST, and "this week" on Sunday.
+- **Playwright:** `timezone.spec.ts`, desktop and mobile.
+  - The browser is in UTC and the account is put in a zone whose day differs right now (UTC+14 or UTC-11), which is the window that used to fail.
+  - Plan my day loads (200) with the account's date and minimum date.
+  - A habit is accepted for the account's today and refused for its tomorrow.
+  - The account's timezone is restored afterwards.
+  - `quick-actions.spec.ts` now reads the account's day from settings.
+- **Results:**
+  - **Backend:** 298/298 on SQLite and PostgreSQL 16; Pint passes.
+  - **Frontend:** Vitest 174/174.
+  - **Playwright:** 81 passed and 3 skipped (the keyboard walks run on desktop only).
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+
+## Known limitations (V27)
+- **The calendar grid keeps the browser's time axis.** Its day labels follow the account's today, but event times are drawn in the browser's zone. For someone travelling, both can be right at once only if the two zones agree; showing the grid in the account's zone is a separate, larger change.
+- **Sign-in on a new device** uses the browser's day only until the first `/api/user` answer (the sign-in screen itself needs no date).
+- **Habit and check-in history** stored before this change is untouched; only what counts as "today" changes from now on.
 

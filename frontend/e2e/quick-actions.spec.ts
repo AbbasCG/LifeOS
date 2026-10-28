@@ -24,7 +24,9 @@ async function english(page: Page, setLanguage: (l: 'en' | 'ar') => Promise<void
 test('a habit is logged from a notification button and from the habit sheet, with undo', async ({ page, setLanguage }) => {
   await english(page, setLanguage)
   const habit = (await call(page, 'POST', '/api/habits', { title: `E2E stretch ${Date.now()}`, remind_time: '07:30' })).data
-  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })
+  // Today is the account's day (its timezone), which the app now uses everywhere, not the browser's.
+  const zone = (await call(page, 'GET', '/api/settings')).timezone as string
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: zone })
   const loggedToday = async () => (((await call(page, 'GET', '/api/habits?per_page=100')).data.find((h: { id: number }) => h.id === habit.id)?.entries) ?? []).some((e: { date: string }) => e.date === today)
   try {
     // What the "Done" button on a habit reminder opens.

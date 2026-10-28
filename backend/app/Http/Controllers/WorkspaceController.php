@@ -187,7 +187,10 @@ class WorkspaceController extends Controller
     public function habitEntry(Request $request, int $id): JsonResponse
     {
         $habit = $this->owned($request, 'habits', $id);
-        $data = $request->validate(['date' => 'required|date_format:Y-m-d|before_or_equal:today', 'completed' => 'required|boolean']);
+        // "Today" is the user's day in their own timezone; the app's default timezone (UTC) would reject a habit logged
+        // early in the local day for anyone ahead of UTC.
+        $today = CarbonImmutable::now($request->user()->timezone())->toDateString();
+        $data = $request->validate(['date' => 'required|date_format:Y-m-d|before_or_equal:'.$today, 'completed' => 'required|boolean']);
         if ($data['completed']) {
             HabitEntry::firstOrCreate(['habit_id' => $habit->id, 'date' => $data['date']]);
         } else {

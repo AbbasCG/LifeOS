@@ -11,6 +11,7 @@ import { useToast } from '../lib/toast'
 import { addDays, minutesLabel, mondayOf } from '../lib/dates'
 import { useReasonLabel } from '../lib/labels'
 import { localDate } from '../lib/hooks'
+import { weekdayOf } from '../lib/accountDay'
 import { useStatusLabel } from './ResourcePage'
 import { PlannedActualBars } from './PlanningPage'
 import { EmptyState, ErrorMessage, Skeleton } from '../components/ui/Shared'
@@ -20,7 +21,7 @@ type Step = typeof STEPS[number]
 type Local = { reflection: WeeklyReviewData['review']['reflection']; decisions: Record<string, ReviewDecision>; priorities: number[] }
 
 export default function ReviewPage() {
-  const [week, setWeek] = useState(() => { const today = new Date(); return today.getDay() === 1 || today.getDay() === 2 ? addDays(mondayOf(), -7) : mondayOf() })
+  const [week, setWeek] = useState(() => { const weekday = weekdayOf(localDate()); return weekday === 1 || weekday === 2 ? addDays(mondayOf(), -7) : mondayOf() })
   const { data, error, loading, reload } = useApi<WeeklyReviewData>(`/api/reviews/${week}`)
   // Remount the workflow per loaded week so local edits always start from the saved review.
   return data && !loading ? <ReviewWorkflow key={`${week}-${data.review.status}`} week={week} setWeek={setWeek} data={data} reload={reload} /> : <section className="page"><ReviewHeader week={week} setWeek={setWeek} />{error ? <ErrorMessage error={error} /> : <Skeleton height={360} />}</section>
