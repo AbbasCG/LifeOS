@@ -35,7 +35,7 @@ describe('goal reviews', () => {
     localStorage.setItem('lifeos-language', 'en')
     const fetcher = stub(handler)
     render(wrap(<ProgressPanel resource="goals" />))
-    fireEvent.click(await screen.findByRole('button', { name: 'Review “Run a marathon” this month' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Review this month: Run a marathon' }))
     expect(await screen.findByTestId('where')).toHaveTextContent('/assistant?c=ab12ab12-0000-4000-8000-000000000018')
     const post = (fetcher.mock.calls as unknown as Call[]).find(c => c[0].endsWith('/api/goals/4/review'))!
     expect(post[1]?.method).toBe('POST')
@@ -46,6 +46,6 @@ describe('goal reviews', () => {
     localStorage.setItem('lifeos-language', 'ar')
     stub(handler)
     render(wrap(<ProgressPanel resource="goals" />))
-    expect(await screen.findByRole('button', { name: 'راجع «Run a marathon» لهذا الشهر' })).toHaveTextContent('مراجعة هذا الشهر')
+    expect(await screen.findByRole('button', { name: 'مراجعة هذا الشهر: Run a marathon' })).toHaveTextContent('مراجعة هذا الشهر')
   })
 })

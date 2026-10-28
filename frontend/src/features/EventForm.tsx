@@ -88,7 +88,7 @@ export default function EventForm({ item, tasks, onSaved, onClose }: { item: Dra
           <button type="button" role="radio" aria-checked={scope === 'series'} className={scope === 'series' ? 'active' : ''} onClick={() => setScope('series')}>{t('All events in the series', 'كل مواعيد السلسلة')}</button>
         </div>
       </fieldset>}
-      <label className="full">{t('Title', 'العنوان')}<input autoFocus required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} /></label>
+      <label className="full">{t('Title', 'العنوان')}<input data-autofocus required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label>{t('Start', 'البداية')}<input type="datetime-local" required value={start} onChange={e => setStart(e.target.value)} /></label>
       <label>{t('End', 'النهاية')}<input type="datetime-local" required value={end} onChange={e => setEnd(e.target.value)} /></label>
       <label>{t('Type', 'النوع')}<select value={kind} onChange={e => setKind(e.target.value)}><option value="fixed">{t('Fixed commitment', 'موعد ثابت')}</option><option value="flexible">{t('Flexible block', 'فترة مرنة')}</option></select></label>

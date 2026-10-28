@@ -5,12 +5,14 @@
   --color-surface: #ffffff;
   --color-surface-muted: #eef2f8;
   --color-text: #18243a;
-  --color-text-muted: #718096;
+  /* Muted text and the primary colour meet WCAG AA (4.5:1) on every light surface, tinted ones included. */
+  --color-text-muted: #5a6478;
   --color-border: #e2e8f0;
 
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
+  --color-primary: #5355d8;
+  --color-primary-hover: #4646c0;
   --color-accent: #06b6d4;
+  --color-on-primary: #ffffff;
 
   --shadow-card: 0 12px 40px rgba(30, 41, 59, 0.07);
 
@@ -31,6 +33,8 @@
   --color-primary: #818cf8;
   --color-primary-hover: #a5b4fc;
   --color-accent: #22d3ee;
+  /* The dark-theme primary is light, so text on it is dark. */
+  --color-on-primary: #0b1020;
 
   --shadow-card: 0 12px 40px rgba(0, 0, 0, 0.25);
 }

@@ -1,10 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ArrowUpRight, Check, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck, LayoutGrid, ListChecks } from 'lucide-react'
 import { api, type Briefing, type PlannedVsActual, type Suggestion } from '../lib/api'
 import { FULL_WIDTH, normalizeLayout, type DashboardLayout, type WidgetId } from '../lib/dashboard'
 import { mondayOf } from '../lib/dates'
-import DashboardCustomizer from './DashboardCustomizer'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useText } from '../lib/i18n'
@@ -19,12 +18,21 @@ import { HABITS_CHANGED, openHabitSheet } from '../lib/quickActions'
 import { logHabitOrQueue } from '../lib/offline'
 import { useToast } from '../lib/toast'
 import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySection } from '../lib/todayLayout'
-import { TodayCustomizer } from './today/TodayCustomizer'
-import { FocusToday } from './today/FocusToday'
 import { HabitBurst } from './progress/Journey'
-import { DayDial } from './today/DayDial'
-import { IntelligenceBriefing } from './intelligence/IntelligenceBriefing'
-import { BriefingWidget, CheckinWidget, DeadlinesWidget, FocusTimeWidget, ProgressWidget, QuickActionsWidget } from './today/TodayWidgets'
+
+import { lazyPart } from '../lib/lazyPart'
+
+// What is not on screen at first (widgets under "More for today", optional sections, the customizers) loads on
+// demand, so Today's own chunk stays small on phones.
+const DashboardCustomizer = lazyPart(() => import('./DashboardCustomizer').then(m => m.default))
+const TodayCustomizer = lazyPart(() => import('./today/TodayCustomizer').then(m => m.TodayCustomizer))
+const FocusToday = lazyPart(() => import('./today/FocusToday').then(m => m.FocusToday))
+const DayDial = lazyPart(() => import('./today/DayDial').then(m => m.DayDial))
+const IntelligenceBriefing = lazyPart(() => import('./intelligence/IntelligenceBriefing').then(m => m.IntelligenceBriefing))
+const widget = (name: 'BriefingWidget' | 'CheckinWidget' | 'DeadlinesWidget' | 'FocusTimeWidget' | 'ProgressWidget') => lazyPart(() => import('./today/TodayWidgets').then(m => m[name]))
+const BriefingWidget = widget('BriefingWidget'), CheckinWidget = widget('CheckinWidget'), DeadlinesWidget = widget('DeadlinesWidget')
+const FocusTimeWidget = widget('FocusTimeWidget'), ProgressWidget = widget('ProgressWidget')
+const QuickActionsWidget = lazyPart(() => import('./today/TodayWidgets').then(m => m.QuickActionsWidget))
 import type { TodayData } from '../lib/api'
 
 export type Overview={total_tasks:number;completed_tasks:number;completion_rate:number;overdue_tasks:number;focus_minutes:number;estimated_minutes:number;actual_minutes:number;days:{date:string;minutes:number}[]}
@@ -134,7 +142,7 @@ export default function Dashboard() {
     strip: <TodayStrip today={today.data} />,
     top3: <TopThree briefing={data} onChange={refresh} />,
     progress: <ProgressRow today={today.data} />,
-    focus: <FocusToday />,
+    focus: <Suspense fallback={<section className="panel"><Skeleton lines={2} /></section>}><FocusToday /></Suspense>,
     habits: habitChips && <section className="panel habits-today" aria-label={t('Habits today', 'عادات اليوم')}>{habitChips}<button type="button" className="quiet habit-all" onClick={openHabitSheet}><ListChecks size={15} aria-hidden="true" />{t('All habits', 'كل العادات')}</button></section>,
     copilot: <CopilotPick />,
     suggestions: data && data.suggestions.length > 0 && <div className="suggestions compact">{data.suggestions.slice(0, 2).map((s, i) => <SuggestionCard key={i} suggestion={s} index={i} />)}</div>,
@@ -162,7 +170,7 @@ export default function Dashboard() {
         {more.map(id => <div key={id} className={`widget widget-${id} ${FULL_WIDTH.includes(id) ? 'span-full' : ''}`}>{widgets[id]}</div>)}
       </div>
     </Expandable>
-    {customizingTop && <TodayCustomizer saved={settings.data?.today_layout ?? {}} device={device} onClose={() => setCustomizingTop(false)} onSaved={settings.reload} />}
-    {customizing && <DashboardCustomizer layout={layout} onClose={() => setCustomizing(false)} onSaved={settings.reload} />}
+    {customizingTop && <Suspense fallback={null}><TodayCustomizer saved={settings.data?.today_layout ?? {}} device={device} onClose={() => setCustomizingTop(false)} onSaved={settings.reload} /></Suspense>}
+    {customizing && <Suspense fallback={null}><DashboardCustomizer layout={layout} onClose={() => setCustomizing(false)} onSaved={settings.reload} /></Suspense>}
   </section>
 }

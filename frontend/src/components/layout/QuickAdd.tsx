@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { Suspense, useEffect, useState, type FormEvent } from 'react'
 import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Flame, Plus, SlidersHorizontal, Sun, Sunrise, WifiOff, Heart } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useOnline } from '../../lib/pwa'
@@ -8,11 +8,15 @@ import { parseCapture } from '../../lib/capture'
 import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { BottomSheet } from '../visual'
-import { VoiceButton } from '../../features/assistant/VoiceButton'
-import { RecordForm } from '../../features/ResourcePage'
 import { ErrorMessage } from '../ui/Shared'
 import { openHabitSheet } from '../../lib/quickActions'
 import { dueFor, QUICK_ADD, TASKS_CHANGED, type Priority, type When } from '../../lib/quickAdd'
+
+import { lazyPart, whenIdle } from '../../lib/lazyPart'
+
+// Loaded on demand, then fetched in the background once the page is idle so they also work offline.
+const VoiceButton = lazyPart(() => import('../../features/assistant/VoiceButton').then(m => m.VoiceButton))
+const RecordForm = lazyPart(() => import('../../features/ResourcePage').then(m => m.RecordForm))
 
 /**
  * Capture a task with one line: type (or dictate), optionally tap when and how important, press Enter. Natural phrases
@@ -23,6 +27,7 @@ export default function QuickAdd() {
   const [open, setOpen] = useState(false), [text, setText] = useState(''), [when, setWhen] = useState<When>('today'), [priority, setPriority] = useState<Priority>('medium')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [draft, setDraft] = useState<Partial<RecordItem> | null>(null)
   const online = useOnline(), [params, setParams] = useSearchParams()
+  useEffect(() => whenIdle(() => { VoiceButton.preload(); RecordForm.preload() }), [])
   useEffect(() => {
     const show = () => { setOpen(true); setError('') }
     window.addEventListener(QUICK_ADD, show)
@@ -60,15 +65,15 @@ export default function QuickAdd() {
     </>}>
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
-          <input autoFocus value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} />
-          <VoiceButton onText={said => setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200))} />
+          <input data-autofocus value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} />
+          <Suspense fallback={null}><VoiceButton onText={said => setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200))} /></Suspense>
         </div>
-        <div className="chip-row" role="radiogroup" aria-label={t('When', 'متى')}>{whens.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={when === value} aria-pressed={when === value} className="filter-chip" onClick={() => setWhen(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
-        <div className="chip-row" role="radiogroup" aria-label={t('Priority', 'الأولوية')}>{priorities.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={priority === value} aria-pressed={priority === value} className={`filter-chip prio-chip-${value}`} onClick={() => setPriority(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
+        <div className="chip-row" role="radiogroup" aria-label={t('When', 'متى')}>{whens.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={when === value} className="filter-chip" onClick={() => setWhen(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
+        <div className="chip-row" role="radiogroup" aria-label={t('Priority', 'الأولوية')}>{priorities.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={priority === value} className={`filter-chip prio-chip-${value}`} onClick={() => setPriority(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
         {!online && <p className="offline-note" role="status"><WifiOff size={14} aria-hidden="true" />{t('You’re offline. The task is kept on this device until you send it.', 'أنت غير متصل. تُحفظ المهمة على هذا الجهاز حتى ترسلها.')}</p>}
         <ErrorMessage error={error} />
       </form>
     </BottomSheet>}
-    {draft && <RecordForm resource="tasks" item={draft} onSave={() => window.dispatchEvent(new Event(TASKS_CHANGED))} onClose={() => setDraft(null)} />}
+    {draft && <Suspense fallback={null}><RecordForm resource="tasks" item={draft} onSave={() => window.dispatchEvent(new Event(TASKS_CHANGED))} onClose={() => setDraft(null)} /></Suspense>}
   </>
 }

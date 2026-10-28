@@ -16,7 +16,7 @@ test('a goal is reviewed for this month in Copilot, with a next step that waits 
   const goal = (await call(page, 'POST', '/api/goals', { title: 'E2E learn Spanish', target: 100, progress: 20, due_at: due, milestones: [{ title: 'Finish A1 course', completed: false }] })).data
   try {
     await page.reload()
-    await page.getByRole('button', { name: 'Review “E2E learn Spanish” this month' }).click()
+    await page.getByRole('button', { name: 'Review this month: E2E learn Spanish' }).click()
     await expect(page).toHaveURL(/\/assistant\?c=[0-9a-f-]{36}/)
     const reply = page.locator('.chat-turn.assistant')
     await expect(reply).toHaveCount(1)
