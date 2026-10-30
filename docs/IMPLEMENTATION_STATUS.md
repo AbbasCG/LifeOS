@@ -2612,7 +2612,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b494041) after PR
 
 # V32 — Audit of the remaining screens: touch targets
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d8e2ddf) after PR #30 (V31) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d8e2ddf) after PR #30 (V31) was merged. Merged into `main` as PR #31.
 
 ## The audit (Pixel 7, measured)
 Goals, Habits, Projects, Focus, Weekly review and Tasks were walked on a phone, counting taps and measuring every control.
@@ -2637,3 +2637,28 @@ Goals, Habits, Projects, Focus, Weekly review and Tasks were walked on a phone, 
 ## Known limitations (V32)
 - Habit day buttons are 38px wide (44px high) because seven of them share a phone's width; the Focus mode chips (34px high) were not changed.
 - Calendar event blocks in the Today strip stay small by design (they are a glanceable picture; each opens the calendar).
+
+# V33 — Phone touch targets, the rest
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7c03e6c) after PR #31 (V32) was merged.
+
+## The audit (Pixel 7, measured)
+V32 covered Tasks, Goals, Habits and Projects. This version measured the remaining pages (Focus, Calendar, Plan my day, Smart planning, Review, Timeline, Insights, Copilot, Settings, Categories) for controls under 40px:
+- **Segmented switches** (focus modes, calendar views and zone, planning ranges, insights ranges, AI settings): 34px high. On the Focus page the fourth mode, "Log time", was cut off at the edge and only reachable by scrolling sideways.
+- **Copilot:** rename and delete on each past conversation 28×28; suggestion chips 38px.
+- **Settings:** switches were only as big as the drawn toggle (22–24px high); plain checkboxes 17–18px.
+- Insights "What this means" 32px high.
+
+## What changed (CSS only, phone and touch layouts)
+- Segmented switch buttons are 44px high and share the row; when they do not fit they wrap to a second row instead of hiding off the edge.
+- Conversation rename and delete are 44×44, suggestion chips and "What this means" 44px high.
+- Settings switches keep their look and get a larger touch area; plain checkboxes are 24px.
+- Left alone on purpose: text links inside sentences (inline links are exempt from the size rule) and the notification grid's checkboxes, now 24px.
+
+## Testing
+- **Playwright:** `mobile-quick.spec.ts` gains a phone test: every focus mode is fully on screen and at least 44px high.
+- **Results:** backend unchanged (298/298 in V30); Vitest 192/192; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build clean; Playwright 89 passed, 7 skipped (12.9 min). Visual check on Pixel 7 (Focus, Copilot, AI settings; dark).
+
+## Known limitations (V33)
+- Standalone text links on the planning page (for example "Add block") stay at their text height.
+- The notification preferences grid keeps small checkboxes (24px) because it is a dense table.

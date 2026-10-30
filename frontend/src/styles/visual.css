@@ -509,3 +509,16 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
   .project-health li a:focus-visible { outline: none; }
   .project-health li:has(a:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
+
+/* V33: the rest of the phone's small controls reach 44px: segmented switches (focus modes, calendar views, ranges),
+   conversation rename/delete, suggestion chips, toggles (the touch area grows, the drawn switch does not) and plain checkboxes. */
+@media (pointer: coarse), (max-width: 760px) {
+  .segmented button, .segmented.small button { min-height: 44px; }
+  /* Nothing hides off the edge: a switch with more options than fit wraps to a second row. */
+  .segmented { flex-wrap: wrap; overflow-x: visible; }
+  .segmented button { flex: 1 1 auto; justify-content: center; }
+  .conversation-tools .icon-button { min-width: 44px; min-height: 44px; }
+  .prompt-chips .chip-button, .chart-explain summary { min-height: 44px; }
+  .switch input { inset: -11px -3px; width: calc(100% + 6px); height: calc(100% + 22px); }
+  main input[type="checkbox"]:not([role="switch"]) { width: 24px; height: 24px; }
+}
