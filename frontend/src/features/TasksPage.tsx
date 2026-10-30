@@ -10,7 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { DueChip, EmptyNote, PageHead, PriorityMark } from '../components/visual'
-import { TASKS_CHANGED, openQuickAdd } from '../lib/quickAdd'
+import { TASKS_CHANGED, dueFor, openQuickAdd, type When } from '../lib/quickAdd'
 import { RecordForm, useStatusLabel } from './ResourcePage'
 import { ConnectedTasksPanel } from './connected/ConnectedTasksPanel'
 import { useStartFocus } from '../lib/useStartFocus'
@@ -59,6 +59,19 @@ export default function TasksPage() {
       window.setTimeout(() => { setDone(d => d.filter(x => x !== task.id)); void data.reload() }, 500)
     } catch (e) { setDone(d => d.filter(x => x !== task.id)); toast((e as Error).message, 'error') }
   }
+  /** Move a task to another day, or clear its date, in one tap; Undo puts the old date back. */
+  async function reschedule(task: RecordItem, when: When) {
+    const before = task.due_at ?? null, next = dueFor(when)
+    await run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: next }))
+    const where = { today: t('today', 'اليوم'), tomorrow: t('tomorrow', 'غداً'), week: t('this week', 'هذا الأسبوع'), nextweek: t('next week', 'الأسبوع القادم'), none: t('no date', 'بلا موعد') }[when]
+    toast(t(`“${task.title}” moved to ${where}.`, `نُقلت «${task.title}» إلى ${where}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: before }), t('Restored.', 'أُعيد.')) })
+  }
+  async function setTaskPriority(task: RecordItem, next: string) {
+    if (task.priority === next) return
+    const before = task.priority ?? 'medium'
+    await run(() => api(`/api/tasks/${task.id}`, 'PATCH', { priority: next }))
+    toast(t(`“${task.title}” is now ${label(next).toLowerCase()}.`, `أصبحت أولوية «${task.title}» ${label(next)}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', { priority: before }), t('Restored.', 'أُعيد.')) })
+  }
   async function addQuick(e: FormEvent) {
     e.preventDefault()
     if (!quick.trim()) return
@@ -80,7 +93,7 @@ export default function TasksPage() {
 
   const row = (task: RecordItem) => <TaskRow key={task.id} task={task} done={done.includes(task.id) || task.status === 'completed'} expanded={open === task.id}
     onToggle={() => setOpen(open === task.id ? null : task.id)} onComplete={() => void complete(task)} onFocus={() => void focus.go(task.id)}
-    onEdit={() => setEditing(task)} onDelete={() => setDeleting(task)} statusLabel={label} language={language} />
+    onEdit={() => setEditing(task)} onDelete={() => setDeleting(task)} onReschedule={when => void reschedule(task, when)} onPriority={p => void setTaskPriority(task, p)} statusLabel={label} language={language} />
 
   return <section className="page tasks-page">
     <PageHead title={t('Tasks', 'المهام')} icon={CheckSquare} action={<>
@@ -117,7 +130,7 @@ export default function TasksPage() {
  * One task: tick to complete, play to focus, tap the title for details. On touch screens, swipe toward the end to
  * complete and toward the start to focus; the buttons do the same for everyone else.
  */
-function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, onDelete, statusLabel, language }: { task: RecordItem; done: boolean; expanded: boolean; onToggle: () => void; onComplete: () => void; onFocus: () => void; onEdit: () => void; onDelete: () => void; statusLabel: (s: string) => string; language: string }) {
+function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, onDelete, onReschedule, onPriority, statusLabel, language }: { task: RecordItem; done: boolean; expanded: boolean; onToggle: () => void; onComplete: () => void; onFocus: () => void; onEdit: () => void; onDelete: () => void; onReschedule: (when: When) => void; onPriority: (priority: string) => void; statusLabel: (s: string) => string; language: string }) {
   const t = useText(), rtl = language === 'ar'
   const [dx, setDx] = useState(0)
   const start = useRef<{ x: number; y: number; id: number } | null>(null)
@@ -150,6 +163,17 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, 
     {expanded && <div className="task-details">
       {task.notes ? <p>{String(task.notes)}</p> : null}
       {subtasks.length > 0 && <ul className="subtask-list">{subtasks.map((s, i) => <li key={i} className={s.completed ? 'done' : ''}>{s.completed ? '✓' : '○'} {s.title}</li>)}</ul>}
+      {!done && <>
+        <div className="task-quick" role="group" aria-label={t('Move to', 'نقل إلى')}>
+          <span className="muted small">{t('Move to', 'نقل إلى')}</span>
+          {([['today', t('Today', 'اليوم')], ['tomorrow', t('Tomorrow', 'غداً')], ['nextweek', t('Next week', 'الأسبوع القادم')], ['none', t('No date', 'بلا موعد')]] as [When, string][])
+            .map(([when, name]) => <button key={when} type="button" className="filter-chip" onClick={() => onReschedule(when)}>{name}</button>)}
+        </div>
+        <div className="task-quick" role="radiogroup" data-arrow-select="false" aria-label={t('Priority', 'الأولوية')}>
+          <span className="muted small">{t('Priority', 'الأولوية')}</span>
+          {['urgent', 'high', 'medium', 'low'].map(p => <button key={p} type="button" role="radio" aria-checked={(task.priority ?? 'medium') === p} className="filter-chip" onClick={() => onPriority(p)}>{statusLabel(p)}</button>)}
+        </div>
+      </>}
       <div className="toolbar"><span className="muted small">{statusLabel(String(task.status))}</span><button className="quiet" onClick={onEdit}><Pencil size={15} />{t('Edit', 'تعديل')}</button><button className="quiet danger-text" onClick={onDelete}><Trash2 size={15} />{t('Delete', 'حذف')}</button></div>
     </div>}
   </m.li>

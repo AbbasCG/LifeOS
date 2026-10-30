@@ -57,6 +57,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
         <div className="now-actions">
           <button className="cta" disabled={focus.busy} onClick={() => void focus.go(linkedTask ?? task?.id)}><Play size={20} />{t('Start focus', 'ابدأ التركيز')}</button>
           <Link className="quiet" to="/calendar">{t('Calendar', 'التقويم')}</Link>
+          <Link className="quiet" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
         </div>
       </> : task ? <>
         <p className="now-eyebrow">{t('Do now', 'ابدأ الآن')}</p>
@@ -65,7 +66,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
         <div className="now-actions">
           <button className="cta" disabled={focus.busy} onClick={() => void focus.go(task.id)}><Play size={20} />{t('Start focus', 'ابدأ التركيز')}</button>
           <button className="quiet" disabled={completing} onClick={() => void complete(task)} aria-label={t(`Mark “${task.title}” done`, `إنجاز «${task.title}»`)}><Check size={18} />{t('Done', 'تم')}</button>
-          <Link className="quiet hide-phone" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
+          <Link className="quiet" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
         </div>
       </> : <>
         <p className="now-eyebrow">{t('All clear', 'لا شيء عاجل')}</p>
@@ -73,6 +74,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
         <div className="now-actions">
           <button className="cta" onClick={openQuickAdd}><Plus size={20} />{t('Add a task', 'أضف مهمة')}</button>
           <button className="quiet" disabled={focus.busy} onClick={() => void focus.go(null)}><Play size={16} />{t('Free focus', 'تركيز حر')}</button>
+          <Link className="quiet" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
         </div>
       </>}
     </div>

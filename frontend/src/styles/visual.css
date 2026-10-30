@@ -308,7 +308,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .task-line .task-body { display: grid; gap: 4px; text-align: start; padding: 4px 0; min-height: 44px; align-content: center; }
 .task-chev { color: var(--color-text-muted); flex-shrink: 0; transition: transform var(--duration) var(--ease); }
 .task-chev.open { transform: rotate(180deg); }
-.swipe-hint { position: absolute; inset: 0; border-radius: 12px; opacity: 0; transition: opacity 120ms; }
+.swipe-hint { position: absolute; inset: 0; border-radius: 12px; opacity: 0; pointer-events: none; transition: opacity 120ms; }
 .swipe-hint.complete { opacity: 1; background: linear-gradient(90deg, color-mix(in srgb, var(--color-success) 22%, transparent), transparent 60%); }
 .swipe-hint.focus { opacity: 1; background: linear-gradient(270deg, color-mix(in srgb, var(--color-primary) 22%, transparent), transparent 60%); }
 [dir="rtl"] .swipe-hint.complete { background: linear-gradient(270deg, color-mix(in srgb, var(--color-success) 22%, transparent), transparent 60%); }
@@ -476,3 +476,9 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .cal-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--color-text-muted); }
 .cal-zone strong { color: var(--color-text); font-weight: 650; }
 .cal-zone small { flex-basis: 100%; }
+
+/* V30: one-tap "move to" and priority inside an opened task (two taps from the list instead of five). */
+.task-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.task-quick > .small { flex-basis: 100%; }
+.task-quick .filter-chip { min-height: 40px; }
+.task-quick .filter-chip[aria-checked="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
