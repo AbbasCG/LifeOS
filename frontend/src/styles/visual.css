@@ -491,3 +491,21 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .quick-add-input .voice-status { flex-basis: 100%; margin: 0; }
 .quick-add-input .voice-status:empty { display: none; }
 @media (prefers-reduced-motion: reduce) { .quick-add-input .voice-button.listening { animation: none; } }
+
+/* V32: touch targets on Goals, Habits, Projects and Tasks reach 44px on a phone, without changing how anything looks
+   (the round tick keeps its size and gets a larger hit area; buttons that sit side by side grow for real). */
+@media (pointer: coarse), (max-width: 760px) {
+  .tick { position: relative; }
+  .tick::after { content: ''; position: absolute; inset: -5px; }
+  .goal-adjust .icon-button, .record-actions .icon-button { min-width: 44px; min-height: 44px; }
+  .habit-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .habit-days button { width: auto; min-width: 0; height: 44px; }
+  .next-action, .record-main .metadata a, .record-main > .text-button { min-height: 44px; }
+  .record-main .metadata a { display: inline-flex; align-items: center; }
+  .health-why > summary, .filter-chip { min-height: 44px; }
+  /* A project in "Project health" opens from anywhere on its card: the name's link covers the row. */
+  .project-health li { position: relative; }
+  .project-health li a::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+  .project-health li a:focus-visible { outline: none; }
+  .project-health li:has(a:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+}
