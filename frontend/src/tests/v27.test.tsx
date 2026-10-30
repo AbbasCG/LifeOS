@@ -49,10 +49,25 @@ describe('today in the account timezone', () => {
 describe('quick add due dates in the account timezone', () => {
   it('puts 17:00 on the account’s wall clock, not the browser’s', () => {
     setAccountZone('Europe/Amsterdam')
-    // 22:30 UTC on 9 March 2027 is 23:30 in Amsterdam: still the 9th there (UTC+1 in March, before DST).
-    const now = new Date('2027-03-09T22:30:00Z')
+    // 08:30 UTC on 9 March 2027 is 09:30 in Amsterdam (UTC+1 in March, before DST): 17:00 there is 16:00 UTC.
+    const now = new Date('2027-03-09T08:30:00Z')
     expect(dueFor('today', now)).toBe('2027-03-09T16:00:00.000Z')
     expect(dueFor('tomorrow', now)).toBe('2027-03-10T16:00:00.000Z')
+  })
+
+  it('means tonight (23:00) once 17:00 has passed, in the account’s zone', () => {
+    setAccountZone('Europe/Amsterdam')
+    // 17:30 UTC is 18:30 in Amsterdam: today's 17:00 is behind us, so "today" is 23:00 there (22:00 UTC).
+    expect(dueFor('today', new Date('2027-03-09T17:30:00Z'))).toBe('2027-03-09T22:00:00.000Z')
+    // Tomorrow is unaffected.
+    expect(dueFor('tomorrow', new Date('2027-03-09T17:30:00Z'))).toBe('2027-03-10T16:00:00.000Z')
+  })
+
+  it('finds the coming Monday for "next week", from any weekday', () => {
+    setAccountZone('UTC')
+    expect(dueFor('nextweek', new Date('2027-03-10T09:00:00Z'))).toBe('2027-03-15T17:00:00.000Z')   // Wednesday
+    expect(dueFor('nextweek', new Date('2027-03-14T09:00:00Z'))).toBe('2027-03-15T17:00:00.000Z')   // Sunday
+    expect(dueFor('nextweek', new Date('2027-03-15T09:00:00Z'))).toBe('2027-03-22T17:00:00.000Z')   // Monday itself
   })
 
   it('uses the account’s day when it is already tomorrow there', () => {

@@ -2524,7 +2524,7 @@ A test bug, found by reproducing it under CPU load (which failed every time) and
 
 # V29 — Calendar in the account's timezone
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (a307982) after PR #27 (V28) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (a307982) after PR #27 (V28) was merged. Merged into `main` as PR #28.
 
 ## The problem
 V27 made "today" follow the account's timezone everywhere, but left one known gap: the calendar grid still drew every event in the **browser's** timezone. For someone whose device is in another zone than the one in their settings (travelling, a laptop left on another clock), Today, the planner and the server said one thing while the calendar showed event times an hour or more off.
@@ -2559,3 +2559,34 @@ V27 made "today" follow the account's timezone everywhere, but left one known ga
 - **An hour repeated by a daylight-saving change** cannot be told apart once drawn in a shifted zone; untouched events keep their exact original times, and only an event you edit inside that repeated hour could be saved an hour off.
 - **Other places that format times** in the browser's zone (for example the planning page's draft times) are not changed here.
 
+
+# V30 — Mobile in 1–4 taps
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ffa943c) after PR #28 (V29) was merged.
+
+## The audit (Pixel 7, measured)
+| Task | Taps before | Taps after |
+|---|---|---|
+| Add a task by typing or by voice | 3 | 3 (the mic is in Quick add and Copilot; speech itself is NOT VERIFIED, since a headless browser has no microphone) |
+| Complete the top task / start focus / log a habit | 1 | 1 |
+| Ask Copilot, search | 3 | 3 |
+| Add a calendar event | 4 | 4 |
+| Plan my day | 2 (hidden under "More for today" on phones) | 1 |
+| Move a task to today, tomorrow, next week or no date | 5+ (open the editor, change the date, save) | 3 (Tasks, open the task, tap the date) |
+| Change a task's priority | 5+ | 3 |
+
+## What changed
+- **Move to, in place:** an open task row shows "Today / Tomorrow / Next week / No date" and a Priority group. One tap saves, and the toast offers Undo that restores the previous value.
+- **Dates:** the new due time is 17:00 in the account's timezone; "Today" after 17:00 means 23:00 tonight rather than a time that has passed; "Next week" is the coming Monday.
+- **Plan my day** is now visible on the phone's Now card in all three states (task, event, all clear).
+- **Fix found by the e2e:** the invisible swipe overlay on a task row intercepted taps on the buttons inside it (`pointer-events: none`).
+- No backend change, no new dependency. Nothing is written except by the user's own tap.
+
+## Testing
+- **Vitest:** `v30.test.tsx` (3 tests: move to tomorrow with Undo, next week and no date, priority); `v27.test.tsx` extended for "tonight" and "next week".
+- **Playwright:** `mobile-quick.spec.ts`, desktop and phone (two-tap move with Undo, priority, no date, Plan my day in one tap).
+
+## Known limitations (V30)
+- Scheduling a task into a calendar time slot on a phone still takes several taps; the daily check-in still lives under "More for today". Both are candidates for a later version.
+- Voice input is NOT VERIFIED on real hardware.
+- **Results:** backend 298/298 (no backend change); Vitest 187/187; Playwright 85 passed, 5 skipped (13.0 min); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build clean.
