@@ -15,13 +15,15 @@ const known = (name: string) => { try { new Intl.DateTimeFormat('en', { timeZone
 export function setAccountZone(name?: string | null) { zone = name && known(name) ? name : undefined }
 export const accountZone = () => zone
 
-function parts(at: Date, timeZone?: string) {
+/** Wall-clock parts of an instant in a timezone (the browser's own when none is given). */
+export function zonedParts(at: Date, timeZone?: string) {
   const out: Record<string, number> = {}
   for (const p of new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(at)) {
     if (p.type !== 'literal') out[p.type] = Number(p.value)
   }
   return out
 }
+const parts = zonedParts
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** YYYY-MM-DD of an instant, in the account's timezone (the browser's when unknown). */
@@ -43,16 +45,27 @@ export function weekdayOf(day: string): number {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
 }
 
-/** The instant (ISO, UTC) at which the wall clock in the account's timezone reads `hour:00` on `day`. */
-export function accountInstant(day: string, hour: number): string {
-  const [y, m, d] = day.split('-').map(Number)
-  const wanted = Date.UTC(y, m - 1, d, hour)
-  if (!zone) return new Date(y, m - 1, d, hour).toISOString()
+/** The instant at which the wall clock in `timeZone` reads this date and time (the browser's own zone when none is given). */
+export function wallClockToInstant(y: number, m: number, d: number, h: number, mi: number, sec: number, timeZone?: string): Date {
+  if (!timeZone) return new Date(y, m - 1, d, h, mi, sec)
+  const wanted = Date.UTC(y, m - 1, d, h, mi, sec)
   // Start from the wanted time read as UTC, then correct by the zone's offset at that moment (twice, for DST edges).
   let guess = wanted
   for (let i = 0; i < 2; i++) {
-    const p = parts(new Date(guess), zone)
+    const p = zonedParts(new Date(guess), timeZone)
     guess += wanted - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second)
   }
-  return new Date(guess).toISOString()
+  return new Date(guess)
+}
+
+/** The instant (ISO, UTC) at which the wall clock in the account's timezone reads `hour:00` on `day`. */
+export function accountInstant(day: string, hour: number): string {
+  const [y, m, d] = day.split('-').map(Number)
+  return wallClockToInstant(y, m, d, hour, 0, 0, zone).toISOString()
+}
+
+/** Offset from UTC, in minutes, of a timezone at an instant (the browser's own when none is given). */
+export function offsetMinutes(at: Date, timeZone?: string): number {
+  const p = zonedParts(at, timeZone)
+  return Math.round((Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(at.getTime() / 1000) * 1000) / 60000)
 }

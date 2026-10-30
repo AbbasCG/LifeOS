@@ -471,3 +471,8 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 @media (max-width: 700px) {
   .auth-story { display: block !important; position: absolute !important; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
+
+/* V29: which timezone the calendar is drawn in, shown only when the account's and the device's differ. */
+.cal-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--color-text-muted); }
+.cal-zone strong { color: var(--color-text); font-weight: 650; }
+.cal-zone small { flex-basis: 100%; }

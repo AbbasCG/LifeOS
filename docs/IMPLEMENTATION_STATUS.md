@@ -2491,7 +2491,7 @@ Found by the V25 browser tests, which failed for about an hour a day when the de
 
 # V28 — Steadier browser tests
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (63c89d9) after PR #26 (V27) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (63c89d9) after PR #26 (V27) was merged. Merged into `main` as PR #27.
 
 ## The problem
 `energy-learning.spec.ts` failed intermittently in CI. It was marked "flaky" (passed on retry) in V26's run, and failed on both attempts on the phone in V27's run, which turned the check red until the job was re-run. It passed every time on a fast machine (12 of 12 repeats), so it looked like a CI-only accident.
@@ -2521,4 +2521,41 @@ A test bug, found by reproducing it under CPU load (which failed every time) and
 ## Known limitations (V28)
 - The app server in tests is PHP's built-in server, which handles one request at a time. A page that navigates while a request is queued drops that request, so a test must wait for any request whose effect it checks later.
 - The phone axe runs for English dark and Arabic light were dropped. They share the same stylesheet as desktop, which still checks them.
+
+# V29 — Calendar in the account's timezone
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (a307982) after PR #27 (V28) was merged.
+
+## The problem
+V27 made "today" follow the account's timezone everywhere, but left one known gap: the calendar grid still drew every event in the **browser's** timezone. For someone whose device is in another zone than the one in their settings (travelling, a laptop left on another clock), Today, the planner and the server said one thing while the calendar showed event times an hour or more off.
+
+## What changed (frontend only; no backend change)
+- **The calendar is drawn in the account's timezone by default,** the same zone Today, the day plan, the timeline and the server use. Day columns, the "today" highlight, the now-line, time labels, agenda and month views, and drag, resize and keyboard moves all follow it.
+- **A switch appears only when it matters:** when the account's zone and the device's really differ (now or in half a year), a line under the heading says "Times shown in Amsterdam (GMT+1)" with two choices: **My account** and **This device**. The choice is remembered on this device.
+  - In **This device** mode, free-time bands are hidden, because the server works them out per day of the account's timezone (a note says so).
+  - When the zones don't differ, nothing is shown and nothing changes.
+- **Creating and editing agree with what is drawn:** the event form shows and edits times in that zone, a new event stores that zone as its own, time blocks made from tasks and moved blocks are saved as the right instants, and Undo restores the exact originals.
+- **How it works** (`lib/zoneShift.ts`, `lib/accountDay.ts`, `lib/useCalendarZone.ts`): the grid's arithmetic works on the browser's local time, so each instant is shifted to a Date whose local wall clock reads what the wall clock reads in the chosen zone, and shifted back before anything is sent. The helper `wallClockToInstant` finds the instant a wall clock reads in a zone and is correct across daylight-saving changes.
+
+## Testing
+- **Vitest:** `v29.test.tsx` (8 tests).
+  - Wall clock to instant across daylight saving, for zones ahead of and behind UTC and a half-hour zone.
+  - A zone's offset at an instant.
+  - The shift is identity without a zone, draws the chosen zone's wall clock, and converts back exactly.
+  - A drag of 30 minutes lands 30 minutes later in real time, and the spring daylight-saving change is handled.
+  - The switch is offered only when zones differ.
+- **Playwright:** `calendar-zone.spec.ts`, desktop and mobile. The browser is in UTC and the account in a zone far from it.
+  - The agenda shows an event at 10:00 in the account's zone.
+  - Switching to "This device" shows the UTC time and the free-time note.
+  - Switching back, an event typed as 15:30 in the form is stored as 15:30 in the account's zone.
+- **Results:**
+  - **Backend:** 298/298 on PostgreSQL 16 (no backend change).
+  - **Frontend:** Vitest 182/182.
+  - **Playwright:** 81 passed and 5 skipped (3 desktop-only keyboard walks, 2 phone axe combinations), with retries on, in 13.6 minutes.
+  - Also clean: `tsc -b`, the e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build.
+
+## Known limitations (V29)
+- **Free-time bands are only drawn in the account's timezone,** since the server computes them per day of that zone.
+- **An hour repeated by a daylight-saving change** cannot be told apart once drawn in a shifted zone; untouched events keep their exact original times, and only an event you edit inside that repeated hour could be saved an hour off.
+- **Other places that format times** in the browser's zone (for example the planning page's draft times) are not changed here.
 
