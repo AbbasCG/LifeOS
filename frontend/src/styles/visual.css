@@ -482,3 +482,12 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .task-quick > .small { flex-basis: 100%; }
 .task-quick .filter-chip { min-height: 40px; }
 .task-quick .filter-chip[aria-checked="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
+
+/* Quick add: the field, the microphone and what it hears (V31). */
+.quick-add-input { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.quick-add-input input { flex: 1 1 0; min-width: 0; }
+.quick-add-input .voice-button { min-width: 48px; min-height: 48px; padding: 0; display: inline-grid; place-items: center; border-radius: 14px; }
+.quick-add-input .voice-button.listening { color: var(--color-danger, #dc2626); border-color: currentColor; animation: voice-pulse 1.4s ease-in-out infinite; }
+.quick-add-input .voice-status { flex-basis: 100%; margin: 0; }
+.quick-add-input .voice-status:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .quick-add-input .voice-button.listening { animation: none; } }

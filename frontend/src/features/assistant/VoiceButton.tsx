@@ -10,9 +10,9 @@ import { dictate, hasVoiceConsent, setVoiceConsent, speechLanguage, speechSuppor
  * and send; nothing is ever sent by voice alone. The first use on a device explains that the browser may send the
  * audio to its own speech service, and asks for consent.
  */
-export function VoiceButton({ disabled, onText }: { disabled?: boolean; onText: (text: string) => void }) {
+export function VoiceButton({ disabled, onText, autoStart }: { disabled?: boolean; onText: (text: string) => void; autoStart?: boolean }) {
   const t = useText(), { language } = useLanguage()
-  const [listening, setListening] = useState(false), [interim, setInterim] = useState(''), [error, setError] = useState<DictationError | null>(null), [asking, setAsking] = useState(false)
+  const [listening, setListening] = useState(false), [interim, setInterim] = useState(''), [error, setError] = useState<DictationError | null>(null), [asking, setAsking] = useState(() => !!autoStart && speechSupported() && !hasVoiceConsent())
   const stop = useRef<(() => void) | null>(null)
   // Stop listening when the page goes away or the composer is disabled (e.g. while a message is being sent).
   useEffect(() => () => stop.current?.(), [])
@@ -23,6 +23,14 @@ export function VoiceButton({ disabled, onText }: { disabled?: boolean; onText: 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [listening])
+  // Opened from "Add by voice": start listening at once when the user already agreed on this device, otherwise ask first.
+  const started = useRef(false)
+  useEffect(() => {
+    if (!autoStart || started.current || !speechSupported()) return
+    started.current = true
+    if (hasVoiceConsent()) start()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart])
   if (!speechSupported()) return null
 
   function start() {
