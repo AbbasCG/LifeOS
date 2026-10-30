@@ -72,3 +72,34 @@ test('voice input can be switched off for the account in the AI Control Center (
     await setLanguage('en')
   }
 })
+
+test('"Add a task by voice" opens Quick add listening; the phrase sets the chips and nothing is saved until Add', async ({ page, setLanguage }) => {
+  await page.addInitScript(() => {
+    class SayTask {
+      lang = ''; continuous = false; interimResults = false; maxAlternatives = 1
+      onresult: ((e: unknown) => void) | null = null; onerror: ((e: unknown) => void) | null = null; onend: (() => void) | null = null
+      start() { setTimeout(() => { this.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: 'E2E voice task tomorrow urgent' }], { isFinal: true })] }); this.onend?.() }, 300) }
+      stop() { this.onend?.() }
+      abort() { this.onend?.() }
+    }
+    Object.assign(window, { SpeechRecognition: SayTask, webkitSpeechRecognition: SayTask })
+    localStorage.setItem('lifeos-voice-consent', 'yes')
+  })
+  await setLanguage('en')
+  await page.goto('/')
+  await page.getByRole('banner').getByRole('button', { name: 'Add a task by voice' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Quick add' })
+  await expect(sheet.getByRole('textbox', { name: 'Task' })).toHaveValue('E2E voice task tomorrow urgent')
+  await expect(sheet.getByRole('radio', { name: 'Tomorrow' })).toHaveAttribute('aria-checked', 'true')
+  await expect(sheet.getByRole('radio', { name: 'Urgent' })).toHaveAttribute('aria-checked', 'true')
+  const saved = page.waitForResponse(r => r.url().endsWith('/api/tasks') && r.request().method() === 'POST')
+  await sheet.getByRole('button', { name: 'Add task' }).click()
+  const response = await saved
+  expect(response.status()).toBe(201)
+  const task = (await response.json()).data as { id: number; priority: string }
+  expect(task.priority).toBe('urgent')
+  await page.evaluate(async id => {
+    const token = decodeURIComponent(document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '')
+    await fetch(`/api/tasks/${id}`, { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json', 'X-XSRF-TOKEN': token } })
+  }, task.id)
+})

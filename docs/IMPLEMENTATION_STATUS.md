@@ -2562,7 +2562,7 @@ V27 made "today" follow the account's timezone everywhere, but left one known ga
 
 # V30 — Mobile in 1–4 taps
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ffa943c) after PR #28 (V29) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ffa943c) after PR #28 (V29) was merged. Merged into `main` as PR #29.
 
 ## The audit (Pixel 7, measured)
 | Task | Taps before | Taps after |
@@ -2590,3 +2590,22 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ffa943c) after PR
 - Scheduling a task into a calendar time slot on a phone still takes several taps; the daily check-in still lives under "More for today". Both are candidates for a later version.
 - Voice input is NOT VERIFIED on real hardware.
 - **Results:** backend 298/298 (no backend change); Vitest 187/187; Playwright 85 passed, 5 skipped (13.0 min); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build clean.
+
+# V31 — Voice that saves taps
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b494041) after PR #29 (V30) was merged.
+
+## What changed
+- **"Add a task by voice"** (microphone in the top bar, shown only where the browser has speech recognition): opens Quick add already listening, so a task is two taps (microphone, Add). The first time on a device the existing consent dialog is shown first; nothing is heard before that.
+- **Spoken phrases set the chips:** after dictation, "tomorrow", "next week", "this week", "today" (and Arabic غداً، بكرة، الأسبوع القادم، هذا الأسبوع، اليوم) set "When", and "urgent", "important", "low priority" (عاجل، مهم، منخفضة…) set "Priority". The chips are visible and can be changed; the text is never rewritten; typed text is never parsed this way.
+- **Account switch respected in Quick add:** the AI Control Center switch for voice input previously only hid the microphone in Copilot; Quick add now checks it when it opens.
+- Nothing is saved by voice alone: the user taps Add. No backend change, no new dependency, no audio is received or stored by LifeOS.
+
+## Testing
+- **Vitest:** `v31.test.tsx` (5 tests: English and Arabic phrase reading, opens listening and fills the chips without saving, consent first, account switch off).
+- **Playwright:** `voice.spec.ts` gains the Quick add by voice journey (desktop and phone) with a stand-in recogniser.
+- **Results:** backend unchanged (298/298 in V30); Vitest 192/192; Playwright 87 passed, 5 skipped (13.0 min); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build clean. Visual check on Pixel 7 (English light, Arabic dark).
+
+## Known limitations (V31)
+- **Real speech recognition is NOT VERIFIED:** a headless browser has no microphone, so the tests use a stand-in that "hears" a fixed phrase. What is verified is LifeOS's part (consent, chips, nothing saved by itself, account switch).
+- Phrase reading is keyword-based (English and Arabic) and ignores dialect words it does not know; the chips can always be changed by hand.

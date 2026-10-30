@@ -3,14 +3,14 @@ import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Flame, Plus, SlidersHorizo
 import { useSearchParams } from 'react-router'
 import { useOnline } from '../../lib/pwa'
 import { createTaskOrQueue } from '../../lib/offline'
-import type { RecordItem } from '../../lib/api'
+import { api, type RecordItem } from '../../lib/api'
 import { parseCapture } from '../../lib/capture'
 import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { BottomSheet } from '../visual'
 import { ErrorMessage } from '../ui/Shared'
 import { openHabitSheet } from '../../lib/quickActions'
-import { dueFor, QUICK_ADD, TASKS_CHANGED, type Priority, type When } from '../../lib/quickAdd'
+import { dueFor, QUICK_ADD, spokenHints, TASKS_CHANGED, type Priority, type When } from '../../lib/quickAdd'
 
 import { lazyPart, whenIdle } from '../../lib/lazyPart'
 
@@ -25,16 +25,24 @@ const RecordForm = lazyPart(() => import('../../features/ResourcePage').then(m =
 export default function QuickAdd() {
   const t = useText(), toast = useToast()
   const [open, setOpen] = useState(false), [text, setText] = useState(''), [when, setWhen] = useState<When>('today'), [priority, setPriority] = useState<Priority>('medium')
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [draft, setDraft] = useState<Partial<RecordItem> | null>(null)
+  const [busy, setBusy] = useState(false), [voice, setVoice] = useState(false), [error, setError] = useState(''), [draft, setDraft] = useState<Partial<RecordItem> | null>(null)
   const online = useOnline(), [params, setParams] = useSearchParams()
   useEffect(() => whenIdle(() => { VoiceButton.preload(); RecordForm.preload() }), [])
   useEffect(() => {
-    const show = () => { setOpen(true); setError('') }
+    const show = (e: Event) => { setOpen(true); setError(''); setVoice((e as CustomEvent<{ voice?: boolean } | undefined>).detail?.voice === true) }
     window.addEventListener(QUICK_ADD, show)
     return () => window.removeEventListener(QUICK_ADD, show)
   }, [])
   // The installed app's "Add task" shortcut opens /?add=task; closing the sheet clears it.
   const shown = open || params.get('add') === 'task'
+  // The account can switch dictation off (AI Control Center); checked when the sheet opens, and allowed until known.
+  const [voiceAllowed, setVoiceAllowed] = useState(true)
+  useEffect(() => {
+    if (!shown) return
+    let live = true
+    api<{ voice_allowed?: boolean }>('/api/assistant/status').then(s => { if (live) setVoiceAllowed(s.voice_allowed !== false) }).catch(() => {})
+    return () => { live = false }
+  }, [shown])
   function task(): Partial<RecordItem> {
     const parsed = parseCapture(text)
     return { ...parsed, status: 'todo', priority, due_at: parsed.due_at ?? dueFor(when) }
@@ -42,7 +50,7 @@ export default function QuickAdd() {
   function close() {
     setOpen(false)
     if (params.get('add')) setParams(p => { p.delete('add'); return p }, { replace: true })
-    setText(''); setWhen('today'); setPriority('medium') }
+    setText(''); setWhen('today'); setPriority('medium'); setVoice(false) }
   async function save(e?: FormEvent) {
     e?.preventDefault()
     if (!text.trim() || busy) return
@@ -66,7 +74,7 @@ export default function QuickAdd() {
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
           <input data-autofocus value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} />
-          <Suspense fallback={null}><VoiceButton onText={said => setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200))} /></Suspense>
+          {voiceAllowed && <Suspense fallback={null}><VoiceButton autoStart={voice} onText={said => { setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200)); const hints = spokenHints(said); if (hints.when) setWhen(hints.when); if (hints.priority) setPriority(hints.priority) }} /></Suspense>}
         </div>
         <div className="chip-row" role="radiogroup" aria-label={t('When', 'متى')}>{whens.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={when === value} className="filter-chip" onClick={() => setWhen(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
         <div className="chip-row" role="radiogroup" aria-label={t('Priority', 'الأولوية')}>{priorities.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={priority === value} className={`filter-chip prio-chip-${value}`} onClick={() => setPriority(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
