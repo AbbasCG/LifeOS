@@ -88,3 +88,16 @@ test('on a phone a whole project card opens it, and the round tick can be hit ju
     await call(page, 'DELETE', `/api/tasks/${id}`)
   }
 })
+
+test('on a phone every focus mode is on screen and at least 44px high', async ({ page, setLanguage, isMobile }) => {
+  test.skip(!isMobile, 'touch target sizes are for the phone layout')
+  await setLanguage('en')
+  await page.goto('/focus')
+  const viewport = page.viewportSize()!
+  for (const name of ['Pomodoro', 'Deep work', 'Custom', 'Log time']) {
+    const box = (await page.getByRole('tab', { name }).boundingBox())!
+    expect(box.height, name).toBeGreaterThanOrEqual(44)
+    expect(box.x, name).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width, name).toBeLessThanOrEqual(viewport.width)
+  }
+})
