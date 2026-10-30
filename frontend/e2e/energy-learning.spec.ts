@@ -37,7 +37,12 @@ test('week versions are learned separately for low- and high-energy days', async
     for (let i = 0; i < 3; i++) {
       await expect((await plan()).getByRole('button', { name: 'Everything, by priority' })).toBeVisible()
       await composer.fill('plan everything')
+      // The follow-up must finish before the next round navigates away (an interrupted request is never recorded).
+      // The "typing" placeholder is itself an assistant turn, so a turn count alone is satisfied too early.
+      const answered = page.waitForResponse(r => r.url().includes('/api/copilot/messages') && r.request().method() === 'POST')
       await composer.press('Enter')
+      expect((await answered).ok()).toBe(true)
+      await expect(page.locator('.typing-stage')).toHaveCount(0)
       await expect(page.locator('.chat-turn.assistant')).toHaveCount(2)
     }
 
