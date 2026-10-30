@@ -58,3 +58,33 @@ test('Plan my day is one tap from Today, on a phone too', async ({ page, setLang
   await plan.click()
   await expect(page).toHaveURL(/\/today\/plan/)
 })
+
+test('on a phone a whole project card opens it, and the round tick can be hit just outside its edge', async ({ page, setLanguage, isMobile }) => {
+  test.skip(!isMobile, 'touch target sizes are for the phone layout')
+  await setLanguage('en')
+  await page.goto('/projects')
+  const card = page.locator('.project-health li').first()
+  await expect(card).toBeVisible()
+  const name = (await card.locator('a').first().textContent())!.trim()
+  const box = (await card.boundingBox())!
+  // The right-hand end of the card, far from the name's text.
+  await card.click({ position: { x: box.width - 12, y: box.height / 2 } })
+  await expect(page).toHaveURL(/\/projects\/\d+/)
+  await expect(page.getByRole('heading', { name }).first()).toBeVisible()
+
+  await page.goto('/')
+  const title = `E2E tick ${Date.now()}`
+  const made = await call(page, 'POST', '/api/tasks', { title, status: 'todo', priority: 'urgent', due_at: new Date(Date.now() + 3600_000).toISOString() })
+  const id = made.body.data.id as number
+  try {
+    await page.goto('/tasks')
+    const tick = page.getByRole('button', { name: `Complete “${title}”` })
+    await expect(tick).toBeVisible()
+    const t = (await tick.boundingBox())!
+    // 4px outside the drawn circle is still the same button on a phone.
+    await page.touchscreen.tap(t.x - 4, t.y + t.height / 2)
+    await expect.poll(async () => (await call(page, 'GET', `/api/tasks/${id}`)).body.data.status).toBe('completed')
+  } finally {
+    await call(page, 'DELETE', `/api/tasks/${id}`)
+  }
+})

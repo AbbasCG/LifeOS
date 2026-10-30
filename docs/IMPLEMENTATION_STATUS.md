@@ -2593,7 +2593,7 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (ffa943c) after PR
 
 # V31 — Voice that saves taps
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b494041) after PR #29 (V30) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b494041) after PR #29 (V30) was merged. Merged into `main` as PR #30.
 
 ## What changed
 - **"Add a task by voice"** (microphone in the top bar, shown only where the browser has speech recognition): opens Quick add already listening, so a task is two taps (microphone, Add). The first time on a device the existing consent dialog is shown first; nothing is heard before that.
@@ -2609,3 +2609,31 @@ Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (b494041) after PR
 ## Known limitations (V31)
 - **Real speech recognition is NOT VERIFIED:** a headless browser has no microphone, so the tests use a stand-in that "hears" a fixed phrase. What is verified is LifeOS's part (consent, chips, nothing saved by itself, account switch).
 - Phrase reading is keyword-based (English and Arabic) and ignores dialect words it does not know; the chips can always be changed by hand.
+
+# V32 — Audit of the remaining screens: touch targets
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (d8e2ddf) after PR #30 (V31) was merged.
+
+## The audit (Pixel 7, measured)
+Goals, Habits, Projects, Focus, Weekly review and Tasks were walked on a phone, counting taps and measuring every control.
+- **Taps are already low:** log a habit 1, open a goal's next task 1, add progress to a goal 1, start focus 1; creating a goal or habit is Create, fill in, Save (3).
+- **The problem was size, not count.** Controls under 44px on the phone before this version:
+  - Tasks: the round tick that completes a task, 34×34, the most-used control in the app.
+  - Goals: progress minus and plus 32×32, Edit and Delete 34×38, "Next:" links 20px high, "Why?" 36px.
+  - Habits: the seven day buttons 30×40, the ones that log a habit.
+  - Projects: the project name link 24px high and "Open project" 17px high; the "Project health" card itself did not open the project.
+
+## What changed (CSS only, phone and touch layouts)
+- **Tick:** keeps its drawn size and gets a 44px hit area.
+- **Real size 44px:** goal progress buttons, Edit and Delete, filter chips, "Why?", "Next:" and "Open project" links.
+- **Habit days** fill the row (7 equal columns, 44px high).
+- **Project health:** the whole card opens the project (the name's link is stretched over it; keyboard focus still shows a ring on the card).
+- No behaviour, backend or dependency change.
+
+## Testing
+- **Playwright:** `mobile-quick.spec.ts` gains a phone test: tapping the far end of a project card opens it, and a tap 4px outside the tick's edge still completes the task.
+- **Results:** backend unchanged (298/298 in V30); Vitest 192/192; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build clean; Playwright 88 passed, 6 skipped (12.8 min).
+
+## Known limitations (V32)
+- Habit day buttons are 38px wide (44px high) because seven of them share a phone's width; the Focus mode chips (34px high) were not changed.
+- Calendar event blocks in the Today strip stay small by design (they are a glanceable picture; each opens the calendar).
