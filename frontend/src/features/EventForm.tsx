@@ -8,12 +8,15 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage } from '../components/ui/Shared'
 import { sourceName } from '../lib/sources'
+import { makeShift, type ZoneShift } from '../lib/zoneShift'
 
 type Draft = Partial<CalendarOccurrence> & { starts_at?: string; ends_at?: string }
 type Scope = 'occurrence' | 'series'
 const REMINDERS = [null, 0, 5, 10, 15, 30, 60, 120, 1440]
 
-export default function EventForm({ item, tasks, onSaved, onClose }: { item: Draft; tasks: RecordItem[]; onSaved: () => void; onClose: () => void }) {
+/** `shift` says which timezone the times are drawn in (see lib/zoneShift): the form shows and edits them there. */
+const NO_SHIFT = makeShift(undefined)
+export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onClose }: { item: Draft; tasks: RecordItem[]; shift?: ZoneShift; onSaved: () => void; onClose: () => void }) {
   const t = useText(), { language } = useLanguage(), toast = useToast()
   const isNew = !item.event_id, external = item.source && item.source !== 'lifeos'
   const [scope, setScope] = useState<Scope>(item.recurring ? 'occurrence' : 'series')
@@ -44,10 +47,10 @@ export default function EventForm({ item, tasks, onSaved, onClose }: { item: Dra
   const fixedLocked = !isNew && item.kind === 'fixed' && kind === 'fixed' && timesChanged
 
   function payload(ignoreConflicts: boolean) {
-    let s = new Date(start), e = new Date(end)
+    let s = shift.realDate(new Date(start)), e = shift.realDate(new Date(end))
     if (editingSeries && series && item.occurrence_start) {
       // Apply the change made to this occurrence to the whole series by the same offset.
-      const shiftStart = s.getTime() - new Date(item.starts_at!).getTime(), shiftEnd = e.getTime() - new Date(item.ends_at!).getTime()
+      const shiftStart = new Date(start).getTime() - new Date(item.starts_at!).getTime(), shiftEnd = new Date(end).getTime() - new Date(item.ends_at!).getTime()
       s = new Date(new Date(series.starts_at).getTime() + shiftStart); e = new Date(new Date(series.ends_at).getTime() + shiftEnd)
     }
     const body: Record<string, unknown> = { title, description: description || null, kind, starts_at: s.toISOString(), ends_at: e.toISOString(), task_id: taskId ? Number(taskId) : null, remind_minutes: remind === '' ? null : Number(remind) }
@@ -55,7 +58,7 @@ export default function EventForm({ item, tasks, onSaved, onClose }: { item: Dra
     if (!isNew && item.recurring && scope === 'occurrence') { body.scope = 'occurrence'; body.occurrence_start = item.occurrence_start; delete body.task_id; delete body.remind_minutes }
     if (confirmFixed) body.confirm_fixed = true
     if (ignoreConflicts) body.ignore_conflicts = true
-    if (isNew) body.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (isNew) body.timezone = shift.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
     return body
   }
   async function submit(e: FormEvent | null, ignoreConflicts = false) {
