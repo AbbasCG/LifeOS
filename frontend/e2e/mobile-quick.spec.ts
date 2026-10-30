@@ -80,7 +80,16 @@ test('on a phone a whole project card opens it, and the round tick can be hit ju
     await page.goto('/tasks')
     const tick = page.getByRole('button', { name: `Complete “${title}”` })
     await expect(tick).toBeVisible()
-    const t = (await tick.boundingBox())!
+    // Coordinates are only meaningful once the list has stopped moving (rows animate in and re-sort).
+    await tick.scrollIntoViewIfNeeded()
+    let t = (await tick.boundingBox())!
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(150)
+      const next = (await tick.boundingBox())!
+      const still = Math.abs(next.x - t.x) < 0.5 && Math.abs(next.y - t.y) < 0.5
+      t = next
+      if (still) break
+    }
     // 4px outside the drawn circle is still the same button on a phone.
     await page.touchscreen.tap(t.x - 4, t.y + t.height / 2)
     await expect.poll(async () => (await call(page, 'GET', `/api/tasks/${id}`)).body.data.status).toBe('completed')
@@ -99,5 +108,29 @@ test('on a phone every focus mode is on screen and at least 44px high', async ({
     expect(box.height, name).toBeGreaterThanOrEqual(44)
     expect(box.x, name).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width, name).toBeLessThanOrEqual(viewport.width)
+  }
+})
+
+test('Today asks for energy with one tap, saves only that, and then gets out of the way', async ({ page, setLanguage }) => {
+  await setLanguage('en')
+  await page.goto('/')
+  const day = (await call(page, 'GET', '/api/today')).body.date as string
+  const before = await call(page, 'GET', `/api/checkins`)
+  const saved = before.body.today as { energy: number | null; mood: number | null; stress: number | null; workload: number | null; sleep_minutes: number | null; reflection: string | null } | null
+  await call(page, 'DELETE', `/api/checkins/${day}`)
+  try {
+    await page.goto('/')
+    const group = page.getByRole('group', { name: 'Energy today, 1 to 5' })
+    await expect(group).toBeVisible()
+    const saveCall = page.waitForResponse(r => r.url().includes(`/api/checkins/${day}`) && r.request().method() === 'PUT')
+    await group.getByRole('button', { name: '4 Good' }).click()
+    expect((await saveCall).status()).toBe(201)
+    expect((await call(page, 'GET', '/api/checkins')).body.today.energy).toBe(4)
+    // Answered: the quick card is gone from Today.
+    await expect(group).toHaveCount(0)
+  } finally {
+    // Put back what the demo account had.
+    await call(page, 'DELETE', `/api/checkins/${day}`)
+    if (saved) await call(page, 'PUT', `/api/checkins/${day}`, { energy: saved.energy, mood: saved.mood, stress: saved.stress, workload: saved.workload, sleep_minutes: saved.sleep_minutes, reflection: saved.reflection })
   }
 })

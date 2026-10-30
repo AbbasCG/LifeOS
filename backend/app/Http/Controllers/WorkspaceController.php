@@ -35,7 +35,7 @@ class WorkspaceController extends Controller
     public const DASHBOARD_WIDGETS = ['today', 'intelligence', 'suggestions', 'stats', 'progress', 'next_moves', 'agenda', 'focus_time', 'checkin', 'deadlines', 'habits', 'goals', 'actions', 'focus', 'weekly', 'review'];
 
     /** Sections of the top of Today (V22; "focus" since V24). "now" can be moved but never hidden. */
-    public const TODAY_SECTIONS = ['now', 'strip', 'top3', 'progress', 'focus', 'habits', 'copilot', 'suggestions'];
+    public const TODAY_SECTIONS = ['now', 'checkin', 'strip', 'top3', 'progress', 'focus', 'habits', 'copilot', 'suggestions'];
 
     public const MODELS = ['tasks' => Task::class, 'projects' => Project::class, 'categories' => Category::class, 'events' => CalendarEvent::class, 'goals' => Goal::class, 'habits' => Habit::class];
 

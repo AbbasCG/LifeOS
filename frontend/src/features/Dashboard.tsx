@@ -18,6 +18,7 @@ import { TASKS_CHANGED } from '../lib/quickAdd'
 import { HABITS_CHANGED, openHabitSheet } from '../lib/quickActions'
 import { logHabitOrQueue } from '../lib/offline'
 import { useToast } from '../lib/toast'
+import { QuickCheckin } from './today/QuickCheckin'
 import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySection } from '../lib/todayLayout'
 import { HabitBurst } from './progress/Journey'
 
@@ -140,6 +141,7 @@ export default function Dashboard() {
   const top = normalizeToday(settings.data?.today_layout?.[device])
   const sections: Record<TodaySection, ReactNode> = {
     now: <NowCard briefing={data} today={today.data} onDone={refresh} />,
+    checkin: today.data?.energy.enabled && today.data.energy.checkin?.energy == null && <QuickCheckin today={today.data} onSaved={refresh} />,
     strip: <TodayStrip today={today.data} />,
     top3: <TopThree briefing={data} onChange={refresh} />,
     progress: <ProgressRow today={today.data} />,

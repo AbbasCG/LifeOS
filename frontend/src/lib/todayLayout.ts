@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 /** The sections at the top of Today (V22), in their default order. "now" can be moved but never hidden. */
-export const TODAY_SECTIONS = ['now', 'strip', 'top3', 'progress', 'focus', 'habits', 'copilot', 'suggestions'] as const
+export const TODAY_SECTIONS = ['now', 'checkin', 'strip', 'top3', 'progress', 'focus', 'habits', 'copilot', 'suggestions'] as const
 export type TodaySection = typeof TODAY_SECTIONS[number]
 export type Device = 'phone' | 'desktop'
 export type SectionLayout = { order: TodaySection[]; hidden: TodaySection[] }
