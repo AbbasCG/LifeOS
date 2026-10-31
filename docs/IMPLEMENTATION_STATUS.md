@@ -2693,7 +2693,7 @@ The daily check-in lived under "More for today": open the drawer (1), four ratin
 
 # V35 — Phone performance: measured first
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73ff812) after PR #33 (V34) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73ff812) after PR #33 (V34) was merged. Merged into `main` as PR #34.
 
 ## How it was measured
 Pixel 7 profile, Chromium with a slow 4G connection (1.6 Mbit/s down, 150 ms latency) and a 4× slower CPU, a signed-in session, a cold cache, the median of 7 runs, against the production build.
@@ -2719,3 +2719,28 @@ Pixel 7 profile, Chromium with a slow 4G connection (1.6 Mbit/s down, 150 ms lat
 ## Known limitations (V35)
 - The numbers come from an emulated phone on a development machine, not from real devices or networks; use them to compare versions, not as a promise.
 - A much faster first visit would need a different approach (for example rendering the first screen on the server), which is a larger change than this version.
+
+# V36 — Swiping a task, with alternatives
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (be11122) after PR #34 (V35) was merged.
+
+## The audit
+On a task row, swiping toward the end completes it and toward the start starts focus. What already existed: the ✓ and ▶ buttons on every row do the same (keyboard, screen reader and mouse users never needed the swipe), Undo follows a completion, and the swipe follows the reading direction in Arabic. What was missing:
+- **Colour only:** the swipe showed a green or blue tint and nothing else, which does not tell everyone what it will do.
+- **A misleading tint:** the colour appeared after 20px, but nothing happened on release below 80px, so a half swipe felt broken.
+- **A completed task** still showed the "complete" tint when swiped.
+- **No way to learn it:** nothing said the swipe exists.
+
+## What changed
+- **Words and icons:** while swiping, the revealed edge shows ✓ "Complete" or ▶ "Focus"; past the point where letting go acts, it reads "Release" in bold on a stronger tint. The row is opaque while it moves so the label never overlaps the title. Arabic: إنجاز / تركيز / اترك.
+- **Done tasks** no longer show the complete hint.
+- **One-time tip** on touch screens above the list: "swipe a task toward the end to complete it, toward the start to focus. The ✓ and ▶ buttons do the same." One tap on "Got it" dismisses it for good (kept on this device).
+- Nothing is saved by a short swipe; a completion still shows the Undo toast. No new dependency; no backend change.
+
+## Testing
+- **Playwright (phone):** real touch swipes through the browser's touch input, in English and Arabic: the label says "Release" mid-gesture, releasing completes the task (the Arabic swipe goes the other way); a 40px swipe does nothing; the tip shows once, "Got it" removes it and it stays gone after a reload.
+- **Results:** backend unchanged (299/299 in V34); Vitest 198/198; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; Playwright 94 passed, 10 skipped (15.8 min). Visual check on Pixel 7 (light and dark).
+
+## Known limitations (V36)
+- The swipe is for touch only; mouse and keyboard use the buttons, as before.
+- Swiping is available on the Tasks list only, not on Today's Top 3.

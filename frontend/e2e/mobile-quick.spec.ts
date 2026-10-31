@@ -134,3 +134,69 @@ test('Today asks for energy with one tap, saves only that, and then gets out of 
     if (saved) await call(page, 'PUT', `/api/checkins/${day}`, { energy: saved.energy, mood: saved.mood, stress: saved.stress, workload: saved.workload, sleep_minutes: saved.sleep_minutes, reflection: saved.reflection })
   }
 })
+
+/** A real touch swipe over a row, through the browser's own touch input (it raises the same pointer events a finger does). */
+async function swipe(page: Page, from: { x: number; y: number }, dx: number, hold?: () => Promise<void>) {
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x, y: from.y }] })
+  for (let step = 1; step <= 8; step++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x + (dx * step) / 8, y: from.y }] })
+  if (hold) await hold()
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+}
+
+for (const [language, dx, word, ready] of [['en', 110, 'Complete', 'Release'], ['ar', -110, 'إنجاز', 'اترك']] as const) {
+  test(`swiping a task toward the end says what it will do, and completes it on release (${language})`, async ({ page, setLanguage, isMobile }) => {
+    test.skip(!isMobile, 'a touch gesture')
+    await setLanguage(language)
+    await page.goto('/')
+    const title = `E2E swipe ${Date.now()}`
+    const made = await call(page, 'POST', '/api/tasks', { title, status: 'todo', priority: 'urgent', due_at: new Date(Date.now() + 3600_000).toISOString() })
+    const id = made.body.data.id as number
+    try {
+      await page.goto('/tasks')
+      const row = page.locator('.task-item', { hasText: title })
+      await expect(row).toBeVisible()
+      await row.scrollIntoViewIfNeeded()
+      // Let the list stop moving, then swipe over the row's text.
+      await page.waitForTimeout(600)
+      const box = (await row.locator('.task-body').boundingBox())!
+      await swipe(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, dx, async () => {
+        // Mid-gesture: the label is words, not only colour, and it changes once letting go would act.
+        await expect(row.locator('.swipe-label')).toContainText(ready)
+      })
+      await expect.poll(async () => (await call(page, 'GET', `/api/tasks/${id}`)).body.data.status).toBe('completed')
+      expect(word.length).toBeGreaterThan(0)
+    } finally {
+      await call(page, 'DELETE', `/api/tasks/${id}`)
+    }
+  })
+}
+
+test('a short swipe does nothing, and the one-time tip about swiping can be dismissed for good', async ({ page, setLanguage, isMobile }) => {
+  test.skip(!isMobile, 'a touch gesture')
+  await setLanguage('en')
+  await page.goto('/')
+  await page.evaluate(() => localStorage.removeItem('lifeos-swipe-tip'))
+  const title = `E2E short swipe ${Date.now()}`
+  const made = await call(page, 'POST', '/api/tasks', { title, status: 'todo', priority: 'urgent', due_at: new Date(Date.now() + 3600_000).toISOString() })
+  const id = made.body.data.id as number
+  try {
+    await page.goto('/tasks')
+    const tip = page.getByRole('note').filter({ hasText: 'swipe a task' })
+    await expect(tip).toBeVisible()
+    await tip.getByRole('button', { name: 'Got it' }).click()
+    await expect(tip).toHaveCount(0)
+    await page.reload()
+    await expect(page.locator('.task-item', { hasText: title })).toBeVisible()
+    await expect(page.getByRole('note').filter({ hasText: 'swipe a task' })).toHaveCount(0)
+
+    const row = page.locator('.task-item', { hasText: title })
+    await page.waitForTimeout(600)
+    const box = (await row.locator('.task-body').boundingBox())!
+    await swipe(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, 40)
+    await page.waitForTimeout(800)
+    expect((await call(page, 'GET', `/api/tasks/${id}`)).body.data.status).not.toBe('completed')
+  } finally {
+    await call(page, 'DELETE', `/api/tasks/${id}`)
+  }
+})

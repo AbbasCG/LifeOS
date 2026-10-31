@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import { AnimatePresence, m } from 'motion/react'
-import { Bell, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Timer, Trash2 } from 'lucide-react'
+import { Bell, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Timer, Trash2 } from 'lucide-react'
 import { api, type RecordItem } from '../lib/api'
 import { useRecords } from '../lib/hooks'
 import { announce } from '../lib/announce'
@@ -101,6 +101,7 @@ export default function TasksPage() {
       <button className="primary" onClick={openQuickAdd}><Plus size={18} /><span className="phone-sr">{t('Add task', 'إضافة مهمة')}</span></button>
     </>} />
     {searching && <input autoFocus className="task-search" type="search" value={search} onChange={e => setSearch(e.target.value)} aria-label={t('Search', 'بحث')} placeholder={t('Search tasks…', 'ابحث في المهام…')} />}
+    <SwipeTip />
     <form className="inline-add" onSubmit={e => void addQuick(e)}><Plus size={18} aria-hidden="true" /><input value={quick} onChange={e => setQuick(e.target.value)} maxLength={200} aria-label={t('New task', 'مهمة جديدة')} placeholder={t('Add a task and press Enter', 'أضف مهمة واضغط Enter')} /></form>
     <div className="tasks-filters">
       <div className="chip-row" role="radiogroup" aria-label={t('Show', 'عرض')}>{filters.map(([key, name]) => <button key={key} type="button" role="radio" aria-checked={filter === key} className="filter-chip" onClick={() => setFilter(key)}>{name}</button>)}</div>
@@ -134,6 +135,10 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, 
   const t = useText(), rtl = language === 'ar'
   const [dx, setDx] = useState(0)
   const start = useRef<{ x: number; y: number; id: number } | null>(null)
+  // Words and icons, not only colour: what the swipe will do, and when letting go would do it (past 80px).
+  const forward = rtl ? -dx : dx
+  const mode: 'complete' | 'focus' | '' = forward > 24 && !done ? 'complete' : forward < -24 ? 'focus' : ''
+  const ready = Math.abs(forward) > 80 && (mode === 'focus' || mode === 'complete')
   const subtasks = (task.subtasks as { title: string; completed: boolean }[] | undefined) ?? []
   function down(e: ReactPointerEvent) { if (e.pointerType !== 'touch') return; start.current = { x: e.clientX, y: e.clientY, id: e.pointerId } }
   function move(e: ReactPointerEvent) {
@@ -150,8 +155,11 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, 
     start.current = null; setDx(0)
   }
   return <m.li layout exit={{ opacity: 0, height: 0 }} className={`task-item swipeable ${done ? 'is-done' : ''} ${expanded ? 'expanded' : ''}`}>
-    <span className={`swipe-hint ${(rtl ? -dx : dx) > 20 ? 'complete' : (rtl ? -dx : dx) < -20 ? 'focus' : ''}`} aria-hidden="true" />
-    <div className="task-line" style={{ transform: dx ? `translateX(${dx}px)` : undefined }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { start.current = null; setDx(0) }}>
+    <span className={`swipe-hint ${mode} ${ready ? 'ready' : ''}`} aria-hidden="true">
+      {mode === 'complete' && <span className="swipe-label start"><Check size={16} />{ready ? t('Release', 'اترك') : t('Complete', 'إنجاز')}</span>}
+      {mode === 'focus' && <span className="swipe-label end"><Play size={16} />{ready ? t('Release', 'اترك') : t('Focus', 'تركيز')}</span>}
+    </span>
+    <div className={`task-line${dx ? ' dragging' : ''}`} style={{ transform: dx ? `translateX(${dx}px)` : undefined }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { start.current = null; setDx(0) }}>
       <button type="button" className="tick" disabled={done} onClick={onComplete} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><CheckIcon /></button>
       <button type="button" className="task-body text-button" aria-expanded={expanded} onClick={onToggle}>
         <strong>{task.title}</strong>
@@ -195,3 +203,17 @@ function Board({ items, label, onMove, onEdit }: { items: RecordItem[]; label: (
   </section>)}</div>
 }
 
+
+const SWIPE_TIP = 'lifeos-swipe-tip'
+/** Said once on touch screens: the swipe exists, and the buttons on every row do the same. Dismissed for good with one tap. */
+function SwipeTip() {
+  const t = useText()
+  const [shown, setShown] = useState(() => {
+    try { return !!window.matchMedia?.('(pointer: coarse)').matches && localStorage.getItem(SWIPE_TIP) !== '1' } catch { return false }
+  })
+  if (!shown) return null
+  return <p className="swipe-tip muted small" role="note">
+    <span>{t('Tip: swipe a task toward the end to complete it, toward the start to focus. The ✓ and ▶ buttons do the same.', 'نصيحة: اسحب المهمة نحو النهاية لإنجازها، ونحو البداية للتركيز. زرّا ✓ و▶ يفعلان الشيء نفسه.')}</span>
+    <button type="button" className="quiet" onClick={() => { try { localStorage.setItem(SWIPE_TIP, '1') } catch { /* asked again next time */ } setShown(false) }}>{t('Got it', 'فهمت')}</button>
+  </p>
+}
