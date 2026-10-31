@@ -19,6 +19,7 @@ import { HABITS_CHANGED, openHabitSheet } from '../lib/quickActions'
 import { logHabitOrQueue } from '../lib/offline'
 import { useToast } from '../lib/toast'
 import { QuickCheckin } from './today/QuickCheckin'
+import { InstallBanner } from '../components/InstallApp'
 import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySection } from '../lib/todayLayout'
 import { HabitBurst } from './progress/Journey'
 
@@ -165,6 +166,7 @@ export default function Dashboard() {
     </header>
     <ErrorMessage error={error || briefing.error || overview.error || today.error} />
     <div className="today-top">{place(top.order.filter(id => !top.hidden.includes(id)))}</div>
+    <InstallBanner />
     <Expandable className="today-more" icon={<LayoutGrid size={18} aria-hidden="true" />} summary={t('More for today', 'المزيد لليوم')}>
       <div className="row"><span className="muted small">{t('Briefing, deadlines, goals, check-in and more.', 'الإحاطة والمواعيد والأهداف والتسجيل وغيرها.')}</span>
         <button className="icon-button" aria-label={t('Customize dashboard', 'تخصيص لوحة المعلومات')} title={t('Customize dashboard', 'تخصيص لوحة المعلومات')} onClick={() => setCustomizing(true)}><SlidersHorizontal size={19} /></button></div>
