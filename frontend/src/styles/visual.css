@@ -308,15 +308,15 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .task-line .task-body { display: grid; gap: 4px; text-align: start; padding: 4px 0; min-height: 44px; align-content: center; }
 .task-chev { color: var(--color-text-muted); flex-shrink: 0; transition: transform var(--duration) var(--ease); }
 .task-chev.open { transform: rotate(180deg); }
-.swipe-hint { position: absolute; inset: 0; border-radius: 12px; opacity: 0; pointer-events: none; transition: opacity 120ms; }
-.swipe-hint.complete { opacity: 1; background: linear-gradient(90deg, color-mix(in srgb, var(--color-success) 22%, transparent), transparent 60%); }
-.swipe-hint.complete.ready { background: linear-gradient(90deg, color-mix(in srgb, var(--color-success) 38%, transparent), transparent 75%); }
-.swipe-hint.focus { opacity: 1; background: linear-gradient(270deg, color-mix(in srgb, var(--color-primary) 22%, transparent), transparent 60%); }
-.swipe-hint.focus.ready { background: linear-gradient(270deg, color-mix(in srgb, var(--color-primary) 38%, transparent), transparent 75%); }
-[dir="rtl"] .swipe-hint.complete.ready { background: linear-gradient(270deg, color-mix(in srgb, var(--color-success) 38%, transparent), transparent 75%); }
-[dir="rtl"] .swipe-hint.focus.ready { background: linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 38%, transparent), transparent 75%); }
-[dir="rtl"] .swipe-hint.complete { background: linear-gradient(270deg, color-mix(in srgb, var(--color-success) 22%, transparent), transparent 60%); }
-[dir="rtl"] .swipe-hint.focus { background: linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 22%, transparent), transparent 60%); }
+.swipe-hint { position: absolute; inset: 0; border-radius: 12px; opacity: 0; pointer-events: none; transition: opacity 120ms; --swipe: var(--color-success); --swipe-mix: 22%; }
+.swipe-hint.on { opacity: 1; }
+.swipe-hint.tone-primary { --swipe: var(--color-primary); }
+.swipe-hint.tone-warning { --swipe: var(--color-warning, #d97706); }
+.swipe-hint.tone-danger { --swipe: var(--color-danger, #dc2626); }
+.swipe-hint.ready { --swipe-mix: 38%; }
+/* Swiping to the right reveals the left edge, and the other way round, whatever the reading direction. */
+.swipe-hint.right { background: linear-gradient(90deg, color-mix(in srgb, var(--swipe) var(--swipe-mix), transparent), transparent 70%); }
+.swipe-hint.left { background: linear-gradient(270deg, color-mix(in srgb, var(--swipe) var(--swipe-mix), transparent), transparent 70%); }
 .task-details { display: grid; gap: var(--space-2); padding: 0 0 var(--space-3) 46px; font-size: 14px; }
 [dir="rtl"] .task-details { padding: 0 46px var(--space-3) 0; }
 .task-details p { color: var(--color-text-muted); white-space: pre-wrap; }
@@ -542,8 +542,6 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 
 /* Swipe on a task row (V36): the label says what the swipe will do; it is bolder once letting go would do it. */
 .swipe-label { position: absolute; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 6px; padding-inline: 14px; font-size: 13px; font-weight: 600; color: var(--color-text); }
-.swipe-label.start { inset-inline-start: 0; }
-.swipe-label.end { inset-inline-end: 0; }
 .swipe-hint.ready .swipe-label { font-weight: 800; }
 .swipe-tip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 var(--space-3, 12px); padding: 10px 12px; border-radius: 12px; background: var(--color-surface-muted); }
 .swipe-tip .quiet { flex-shrink: 0; min-height: 44px; }
@@ -559,3 +557,14 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .install-steps { list-style: none; margin: 0 0 var(--space-3, 12px); padding: 0; display: grid; gap: 12px; }
 .install-steps li { display: flex; align-items: flex-start; gap: 12px; }
 .install-steps li svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primary); }
+
+.swipe-label.at-left { left: 0; }
+.swipe-label.at-right { right: 0; }
+
+/* Swipe actions in Settings (V38). */
+.swipe-settings { display: grid; gap: var(--space-3, 12px); }
+.swipe-settings h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 17px; }
+.swipe-fields { display: grid; gap: 12px; }
+.swipe-fields label { display: grid; gap: 6px; font-weight: 600; }
+.swipe-fields select { min-height: 48px; }
+@media (min-width: 701px) { .swipe-fields { grid-template-columns: 1fr 1fr; } }

@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import { AnimatePresence, m } from 'motion/react'
-import { Bell, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Timer, Trash2 } from 'lucide-react'
+import { Bell, CalendarClock, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Timer, Trash2, type LucideIcon } from 'lucide-react'
 import { api, type RecordItem } from '../lib/api'
 import { useRecords } from '../lib/hooks'
 import { announce } from '../lib/announce'
 import { useText } from '../lib/i18n'
-import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { DueChip, EmptyNote, PageHead, PriorityMark } from '../components/visual'
@@ -15,6 +14,7 @@ import { RecordForm, useStatusLabel } from './ResourcePage'
 import { ConnectedTasksPanel } from './connected/ConnectedTasksPanel'
 import { useStartFocus } from '../lib/useStartFocus'
 import { completeTaskOrQueue } from '../lib/offline'
+import { swipeTone, swipeWords, useSwipeActions, type SwipeAction, type SwipeSides } from '../lib/swipeActions'
 
 type Filter = 'open' | 'overdue' | 'today' | 'week' | 'done'
 type Group = 'now' | 'next' | 'later'
@@ -35,7 +35,7 @@ function groupOf(task: RecordItem, now = Date.now()): Group {
  * focus, a swipe does either on a phone. Details open in place; filters are chips; everything else is under "More".
  */
 export default function TasksPage() {
-  const t = useText(), { language } = useLanguage(), label = useStatusLabel(), toast = useToast(), focus = useStartFocus()
+  const t = useText(), label = useStatusLabel(), toast = useToast(), focus = useStartFocus()
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<Filter>(() => (['overdue', 'today', 'week'].includes(params.get('due') ?? '') ? params.get('due') as Filter : 'open'))
   const [search, setSearch] = useState(''), [searching, setSearching] = useState(false), [view, setView] = useState<'list' | 'board'>('list'), [moreOpen, setMoreOpen] = useState(false)
@@ -91,9 +91,17 @@ export default function TasksPage() {
   const byGroup = (g: Group) => items.filter(i => groupOf(i) === g).sort((a, b) => (PRIORITY_RANK[a.priority ?? 'medium'] ?? 2) - (PRIORITY_RANK[b.priority ?? 'medium'] ?? 2) || (a.due_at ?? '9').localeCompare(b.due_at ?? '9'))
   const filters: [Filter, string][] = [['open', t('All open', 'كل المفتوحة')], ['overdue', t('Late', 'متأخرة')], ['today', t('Today', 'اليوم')], ['week', t('7 days', '٧ أيام')], ['done', t('Done', 'منجزة')]]
 
+  const swipe = useSwipeActions()
+  /** What a swipe does: the same actions as the buttons, so a snooze offers Undo and a delete still asks first. */
+  function runSwipe(task: RecordItem, action: SwipeAction) {
+    if (action === 'complete') void complete(task)
+    else if (action === 'focus') void focus.go(task.id)
+    else if (action === 'tomorrow' || action === 'nextweek') void reschedule(task, action)
+    else if (action === 'delete') setDeleting(task)
+  }
   const row = (task: RecordItem) => <TaskRow key={task.id} task={task} done={done.includes(task.id) || task.status === 'completed'} expanded={open === task.id}
-    onToggle={() => setOpen(open === task.id ? null : task.id)} onComplete={() => void complete(task)} onFocus={() => void focus.go(task.id)}
-    onEdit={() => setEditing(task)} onDelete={() => setDeleting(task)} onReschedule={when => void reschedule(task, when)} onPriority={p => void setTaskPriority(task, p)} statusLabel={label} language={language} />
+    onToggle={() => setOpen(open === task.id ? null : task.id)} onComplete={() => void complete(task)} onFocus={() => void focus.go(task.id)} swipe={swipe} onSwipe={a => runSwipe(task, a)}
+    onEdit={() => setEditing(task)} onDelete={() => setDeleting(task)} onReschedule={when => void reschedule(task, when)} onPriority={p => void setTaskPriority(task, p)} statusLabel={label} />
 
   return <section className="page tasks-page">
     <PageHead title={t('Tasks', 'المهام')} icon={CheckSquare} action={<>
@@ -131,14 +139,18 @@ export default function TasksPage() {
  * One task: tick to complete, play to focus, tap the title for details. On touch screens, swipe toward the end to
  * complete and toward the start to focus; the buttons do the same for everyone else.
  */
-function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, onDelete, onReschedule, onPriority, statusLabel, language }: { task: RecordItem; done: boolean; expanded: boolean; onToggle: () => void; onComplete: () => void; onFocus: () => void; onEdit: () => void; onDelete: () => void; onReschedule: (when: When) => void; onPriority: (priority: string) => void; statusLabel: (s: string) => string; language: string }) {
-  const t = useText(), rtl = language === 'ar'
+function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, onSwipe, onEdit, onDelete, onReschedule, onPriority, statusLabel }: { task: RecordItem; done: boolean; expanded: boolean; onToggle: () => void; onComplete: () => void; onFocus: () => void; swipe: SwipeSides; onSwipe: (action: SwipeAction) => void; onEdit: () => void; onDelete: () => void; onReschedule: (when: When) => void; onPriority: (priority: string) => void; statusLabel: (s: string) => string }) {
+  const t = useText()
   const [dx, setDx] = useState(0)
   const start = useRef<{ x: number; y: number; id: number } | null>(null)
+  // The swipe follows the finger, not the reading direction: to the right does the "right" action, to the left the "left" one.
+  const words = swipeWords(t), icons: Record<SwipeAction, LucideIcon | null> = { complete: Check, tomorrow: CalendarClock, nextweek: CalendarClock, focus: Play, delete: Trash2, none: null }
+  const side: 'right' | 'left' | '' = dx > 24 ? 'right' : dx < -24 ? 'left' : ''
+  const action: SwipeAction = side ? swipe[side] : 'none'
+  // A completed task cannot be completed again, and "nothing" shows nothing.
+  const live = side !== '' && action !== 'none' && !(done && action === 'complete')
   // Words and icons, not only colour: what the swipe will do, and when letting go would do it (past 80px).
-  const forward = rtl ? -dx : dx
-  const mode: 'complete' | 'focus' | '' = forward > 24 && !done ? 'complete' : forward < -24 ? 'focus' : ''
-  const ready = Math.abs(forward) > 80 && (mode === 'focus' || mode === 'complete')
+  const ready = live && Math.abs(dx) > 80
   const subtasks = (task.subtasks as { title: string; completed: boolean }[] | undefined) ?? []
   function down(e: ReactPointerEvent) { if (e.pointerType !== 'touch') return; start.current = { x: e.clientX, y: e.clientY, id: e.pointerId } }
   function move(e: ReactPointerEvent) {
@@ -149,15 +161,15 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, onEdit, 
     setDx(Math.max(-120, Math.min(120, x)))
   }
   function up() {
-    const forward = rtl ? -dx : dx
-    if (forward > 80 && !done) onComplete()
-    else if (forward < -80) onFocus()
+    const to: 'right' | 'left' | '' = dx > 80 ? 'right' : dx < -80 ? 'left' : ''
+    const chosen = to ? swipe[to] : 'none'
+    if (chosen !== 'none' && !(done && chosen === 'complete')) onSwipe(chosen)
     start.current = null; setDx(0)
   }
+  const SwipeIcon = icons[action]
   return <m.li layout exit={{ opacity: 0, height: 0 }} className={`task-item swipeable ${done ? 'is-done' : ''} ${expanded ? 'expanded' : ''}`}>
-    <span className={`swipe-hint ${mode} ${ready ? 'ready' : ''}`} aria-hidden="true">
-      {mode === 'complete' && <span className="swipe-label start"><Check size={16} />{ready ? t('Release', 'اترك') : t('Complete', 'إنجاز')}</span>}
-      {mode === 'focus' && <span className="swipe-label end"><Play size={16} />{ready ? t('Release', 'اترك') : t('Focus', 'تركيز')}</span>}
+    <span className={`swipe-hint ${live ? `on ${side} tone-${swipeTone(action)}` : ''} ${ready ? 'ready' : ''}`} aria-hidden="true">
+      {live && <span className={`swipe-label at-${side === 'right' ? 'left' : 'right'}`}>{SwipeIcon && <SwipeIcon size={16} />}{ready ? t('Release', 'اترك') : words[action].short}</span>}
     </span>
     <div className={`task-line${dx ? ' dragging' : ''}`} style={{ transform: dx ? `translateX(${dx}px)` : undefined }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { start.current = null; setDx(0) }}>
       <button type="button" className="tick" disabled={done} onClick={onComplete} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><CheckIcon /></button>
@@ -213,7 +225,7 @@ function SwipeTip() {
   })
   if (!shown) return null
   return <p className="swipe-tip muted small" role="note">
-    <span>{t('Tip: swipe a task toward the end to complete it, toward the start to focus. The ✓ and ▶ buttons do the same.', 'نصيحة: اسحب المهمة نحو النهاية لإنجازها، ونحو البداية للتركيز. زرّا ✓ و▶ يفعلان الشيء نفسه.')}</span>
+    <span>{t('Tip: swipe a task right or left for quick actions. You choose what each does in Settings.', 'نصيحة: اسحب المهمة لليمين أو لليسار لإجراءات سريعة. تختار ما يفعله كل اتجاه من الإعدادات.')}</span>
     <button type="button" className="quiet" onClick={() => { try { localStorage.setItem(SWIPE_TIP, '1') } catch { /* asked again next time */ } setShown(false) }}>{t('Got it', 'فهمت')}</button>
   </p>
 }

@@ -28,7 +28,7 @@ describe('install from the browser prompt', () => {
   it('shows an install button only once the browser offers one, and installs with one tap', async () => {
     render(wrap(<InstallCard />))
     expect(screen.queryByRole('button', { name: 'Install app' })).toBeNull()
-    expect(screen.getByText(/did not offer an install button/)).toBeInTheDocument()
+    expect(screen.getByText(/No install button here/)).toBeInTheDocument()
     const { prompt, event } = offerInstall()
     expect(event.defaultPrevented).toBe(true)
     fireEvent.click(await screen.findByRole('button', { name: 'Install app' }))

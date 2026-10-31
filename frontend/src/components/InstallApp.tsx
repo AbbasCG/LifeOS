@@ -40,10 +40,10 @@ export function InstallCard() {
     {installer.installed
       ? <p className="success inline" role="status"><CheckCircle2 size={15} aria-hidden="true" />{t('LifeOS is installed on this device.', 'LifeOS مثبّت على هذا الجهاز.')}</p>
       : <>
-        <p className="muted">{t('Open LifeOS from your home screen like any app: full screen, its own icon, and the app opens even when you are offline.', 'افتح LifeOS من الشاشة الرئيسية مثل أي تطبيق: بملء الشاشة وبأيقونته الخاصة، ويُفتح التطبيق حتى دون اتصال.')}</p>
+        <p className="muted">{t('Open LifeOS from your home screen, full screen, even offline.', 'افتح LifeOS من الشاشة الرئيسية بملء الشاشة، حتى دون اتصال.')}</p>
         {available
           ? <div className="toolbar"><button type="button" className="primary" onClick={() => void go()}><Download size={16} aria-hidden="true" />{installer.canInstall ? t('Install app', 'تثبيت التطبيق') : t('How to install', 'كيف أثبّته')}</button></div>
-          : <p className="muted small">{t('This browser did not offer an install button. If it supports installing, look for “Install app” or “Add to Home screen” in its menu.', 'لم يعرض هذا المتصفح زر تثبيت. إن كان يدعم التثبيت فابحث عن «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية» في قائمته.')}</p>}
+          : <p className="muted small">{t('No install button here. Try “Install app” or “Add to Home screen” in your browser’s menu.', 'لا يوجد زر تثبيت هنا. جرّب «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية» من قائمة المتصفح.')}</p>}
       </>}
     {steps && <AppleSteps onClose={closeSteps} />}
   </section>

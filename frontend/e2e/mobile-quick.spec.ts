@@ -144,8 +144,8 @@ async function swipe(page: Page, from: { x: number; y: number }, dx: number, hol
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
 }
 
-for (const [language, dx, word, ready] of [['en', 110, 'Complete', 'Release'], ['ar', -110, 'إنجاز', 'اترك']] as const) {
-  test(`swiping a task toward the end says what it will do, and completes it on release (${language})`, async ({ page, setLanguage, isMobile }) => {
+for (const [language, dx, word, ready] of [['en', 110, 'Complete', 'Release'], ['ar', 110, 'إنجاز', 'اترك']] as const) {
+  test(`swiping a task right says what it will do, and completes it on release (${language}: the swipe follows the finger, not the reading direction)`, async ({ page, setLanguage, isMobile }) => {
     test.skip(!isMobile, 'a touch gesture')
     await setLanguage(language)
     await page.goto('/')
@@ -198,5 +198,77 @@ test('a short swipe does nothing, and the one-time tip about swiping can be dism
     expect((await call(page, 'GET', `/api/tasks/${id}`)).body.data.status).not.toBe('completed')
   } finally {
     await call(page, 'DELETE', `/api/tasks/${id}`)
+  }
+})
+
+async function swipeRow(page: Page, title: string, dx: number, hold?: () => Promise<void>) {
+  const row = page.locator('.task-item', { hasText: title })
+  await expect(row).toBeVisible()
+  await row.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(600)
+  const box = (await row.locator('.task-body').boundingBox())!
+  await swipe(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, dx, hold)
+  return row
+}
+const swipeTask = async (page: Page, due: number) => {
+  const made = await call(page, 'POST', '/api/tasks', { title: `E2E swipe actions ${Date.now()}`, status: 'todo', priority: 'urgent', due_at: new Date(Date.now() + due).toISOString() })
+  return { id: made.body.data.id as number, title: made.body.data.title as string }
+}
+
+test('swiping left snoozes a task to tomorrow with Undo, the way an email app does', async ({ page, setLanguage, isMobile }) => {
+  test.skip(!isMobile, 'a touch gesture')
+  await setLanguage('en')
+  await page.goto('/')
+  await page.evaluate(() => { localStorage.removeItem('lifeos-swipe-actions'); localStorage.setItem('lifeos-swipe-tip', '1') })
+  const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
+  const { id, title } = await swipeTask(page, 3600_000)
+  const dueOf = async () => (await call(page, 'GET', `/api/tasks/${id}`)).body.data.due_at as string
+  const before = await dueOf()
+  try {
+    await page.goto('/tasks')
+    await swipeRow(page, title, -110, async () => { await expect(page.locator('.task-item', { hasText: title }).locator('.swipe-label')).toContainText('Release') })
+    const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString('en-CA', { timeZone: zone })
+    await expect.poll(async () => new Date(await dueOf()).toLocaleDateString('en-CA', { timeZone: zone })).toBe(tomorrow)
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await dueOf()).slice(0, 16)).toBe(before.slice(0, 16))
+  } finally {
+    await call(page, 'DELETE', `/api/tasks/${id}`)
+  }
+})
+
+test('each swipe can be set in Settings; delete asks first, and Reset brings the usual swipes back', async ({ page, setLanguage, isMobile }) => {
+  test.skip(!isMobile, 'a touch gesture')
+  await setLanguage('en')
+  await page.goto('/settings')
+  await page.evaluate(() => { localStorage.removeItem('lifeos-swipe-actions'); localStorage.setItem('lifeos-swipe-tip', '1') })
+  await page.reload()
+  const card = page.getByRole('region', { name: 'Swipe actions' })
+  await expect(card.getByLabel('Swipe right')).toHaveValue('complete')
+  await expect(card.getByLabel('Swipe left')).toHaveValue('tomorrow')
+  await card.getByLabel('Swipe right').selectOption('delete')
+  await card.getByLabel('Swipe left').selectOption('complete')
+  await page.reload()
+  await expect(card.getByLabel('Swipe right')).toHaveValue('delete')
+
+  const { id, title } = await swipeTask(page, 3600_000)
+  try {
+    await page.goto('/tasks')
+    // Right now deletes, but asks first; saying no keeps the task.
+    await swipeRow(page, title, 110)
+    const ask = page.getByRole('dialog', { name: 'Delete this task?' })
+    await expect(ask).toBeVisible()
+    await ask.getByRole('button', { name: 'Cancel' }).click()
+    expect((await call(page, 'GET', `/api/tasks/${id}`)).status).toBe(200)
+    // Left now completes.
+    await swipeRow(page, title, -110)
+    await expect.poll(async () => (await call(page, 'GET', `/api/tasks/${id}`)).body.data.status).toBe('completed')
+
+    await page.goto('/settings')
+    await card.getByRole('button', { name: 'Reset' }).click()
+    await expect(card.getByLabel('Swipe right')).toHaveValue('complete')
+    await expect(card.getByLabel('Swipe left')).toHaveValue('tomorrow')
+  } finally {
+    await call(page, 'DELETE', `/api/tasks/${id}`)
+    await page.evaluate(() => localStorage.removeItem('lifeos-swipe-actions'))
   }
 })
