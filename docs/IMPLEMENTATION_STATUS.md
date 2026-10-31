@@ -2640,7 +2640,7 @@ Goals, Habits, Projects, Focus, Weekly review and Tasks were walked on a phone, 
 
 # V33 — Phone touch targets, the rest
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7c03e6c) after PR #31 (V32) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (7c03e6c) after PR #31 (V32) was merged. Merged into `main` as PR #32.
 
 ## The audit (Pixel 7, measured)
 V32 covered Tasks, Goals, Habits and Projects. This version measured the remaining pages (Focus, Calendar, Plan my day, Smart planning, Review, Timeline, Insights, Copilot, Settings, Categories) for controls under 40px:
@@ -2662,3 +2662,31 @@ V32 covered Tasks, Goals, Habits and Projects. This version measured the remaini
 ## Known limitations (V33)
 - Standalone text links on the planning page (for example "Add block") stay at their text height.
 - The notification preferences grid keeps small checkboxes (24px) because it is a dense table.
+
+# V34 — Daily check-in, one tap away
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (808cb63) after PR #32 (V33) was merged.
+
+## The audit (Pixel 7)
+The daily check-in lived under "More for today": open the drawer (1), four ratings (4), Save (1) = 6 taps, and it was never on the main Today screen.
+
+## What changed
+- **Quick check-in on Today:** a slim card under the Now card, "How's your energy today?", with five buttons (Drained, Low, Okay, Good, Great). One tap saves today's energy; the toast says where to add more. "More" opens the full check-in (mood, stress, workload, sleep, reflection) in a dialog.
+- **Safe by design:** the tap sends only `energy`, so a mood, sleep or reflection already saved for the day is kept (covered by a backend test). The card shows only while today has no energy answer and check-ins are on in the account; once answered it disappears. The full check-in stays under "More for today" and can still change the value.
+- **Customizable like the rest of Today:** it is a new "Quick check-in" section in Customize Today (order and show/hide, per device). Layouts saved earlier get it appended at the end, so nobody's saved order is rearranged; new and default layouts show it right under the Now card. The server accepts the new section name (`WorkspaceController::TODAY_SECTIONS`).
+- Nothing is written without a tap; no new dependency; no private data is added.
+
+## Testing
+- **Backend:** `TodayLayoutTest` gains a case for the new section and for saving only energy over an existing check-in; 299/299 on SQLite and on PostgreSQL 16.
+- **Vitest:** `v34.test.tsx` (2 tests: the PUT body is only the energy for the account's day; five levels and "More" opens the full check-in); `v22.test.tsx` expectations updated for the new section; 194/194.
+- **Playwright:** `mobile-quick.spec.ts` gains the one-tap check-in journey (clears today's check-in, taps, checks it was saved and the card is gone, then restores what the demo account had).
+- **Existing tests this version touched:**
+  - `today-layout.spec.ts` moves Top 3 up three times (the new section sits between the Now card and the day strip).
+  - The keyboard-walk test's Tab limit went from 60 to 120, because Today has more tab stops and the walk starts after the main region.
+  - The at-risk habit streak was orange on white (3.55:1); on the light theme it is now a darker orange (axe `color-contrast`).
+  - The tick hit-area test waits for the list to stop animating before it taps by coordinates (it flaked once in the full run; 3 repeats clean).
+- **Results:** backend 299/299 on SQLite and PostgreSQL 16; Vitest 194/194; Playwright 90 passed, 7 skipped in the full run (the one flaky test above was then fixed and repeated 3 times clean); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning) and build clean. Visual check on Pixel 7 (English light, Arabic dark).
+
+## Known limitations (V34)
+- Only energy can be set in one tap; mood, stress, workload and sleep still use the full check-in ("More").
+- The card does not appear for accounts that turned check-ins off (AI Control Center / wellbeing settings).

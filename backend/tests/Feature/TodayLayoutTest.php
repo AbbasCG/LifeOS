@@ -26,6 +26,21 @@ class TodayLayoutTest extends TestCase
         $this->getJson('/api/settings')->assertJsonPath('today_layout', ['desktop' => $layout['desktop']]);
     }
 
+    public function test_the_quick_check_in_section_can_be_placed_and_hidden_and_saving_only_energy_keeps_the_rest(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $layout = ['phone' => ['order' => ['now', 'checkin', 'strip'], 'hidden' => ['checkin']]];
+        $this->putJson('/api/settings', ['today_layout' => $layout])->assertOk()->assertJsonPath('today_layout.phone.hidden', ['checkin']);
+
+        // The one-tap check-in sends only the energy; what was already saved for the day stays.
+        $day = now($user->timezone())->toDateString();
+        $this->putJson("/api/checkins/{$day}", ['mood' => 4, 'sleep_minutes' => 420, 'reflection' => 'Slept well'])->assertCreated();
+        $this->putJson("/api/checkins/{$day}", ['energy' => 5])->assertOk()
+            ->assertJsonPath('energy', 5)->assertJsonPath('mood', 4)->assertJsonPath('sleep_minutes', 420)->assertJsonPath('reflection', 'Slept well');
+    }
+
     public function test_the_now_card_cannot_be_hidden_and_sections_are_validated(): void
     {
         $user = User::factory()->create();

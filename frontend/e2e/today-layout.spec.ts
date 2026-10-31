@@ -22,8 +22,8 @@ test('Today is customized for this device: reorder, hide into "More", and reset'
     // Opens on the device in use.
     await expect(sheet.getByRole('radio', { name: info.project.name === 'mobile' ? /Phone/ : /Computer/ })).toHaveAttribute('aria-checked', 'true')
     await expect(sheet.getByRole('button', { name: 'Hide Now card' })).toHaveCount(0)
-    await sheet.getByRole('button', { name: 'Move Top 3 up' }).click()
-    await sheet.getByRole('button', { name: 'Move Top 3 up' }).click()
+    // Now card, quick check-in and day strip come before Top 3 by default.
+    for (let i = 0; i < 3; i++) await sheet.getByRole('button', { name: 'Move Top 3 up' }).click()
     await sheet.getByRole('button', { name: 'Hide Day strip' }).click()
     await sheet.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByText('Today updated.')).toBeVisible()

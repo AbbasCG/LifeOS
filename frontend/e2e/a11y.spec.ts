@@ -81,7 +81,7 @@ test.describe('keyboard only', () => {
   test.skip(({ isMobile }) => isMobile, 'a hardware keyboard walk; phones are covered by the axe checks above')
 
   /** Presses Tab until the focused element matches, like a keyboard user would; fails if it is never reached. */
-  async function tabTo(page: Page, matches: string, limit = 60) {
+  async function tabTo(page: Page, matches: string, limit = 120) {
     for (let i = 0; i < limit; i++) {
       await page.keyboard.press('Tab')
       if (await page.evaluate(`(el => ${matches})(document.activeElement)`)) return

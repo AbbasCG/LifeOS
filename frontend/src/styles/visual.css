@@ -145,7 +145,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .now-eyebrow.live { color: var(--tone-urgent); }
 .pulse { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 0 currentColor; animation: pulse 1.8s ease-out infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
-.now-title { display: flex; align-items: center; gap: 10px; font-size: clamp(22px, 3vw, 32px); line-height: 1.2; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.now-title { display: flex; align-items: center; gap: 10px; font-size: clamp(22px, 3vw, 32px); line-height: 1.2; letter-spacing: -0.025em; overflow-wrap: normal; }
 .now-title .kind-icon { color: var(--color-primary); }
 .now-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: 4px; }
 .now-actions .quiet { min-height: 52px; border-radius: 16px; padding-inline: 18px; }
@@ -211,7 +211,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .task-item { display: flex; align-items: center; gap: var(--space-3); padding: 10px 0; border-bottom: 1px solid var(--hairline, var(--color-border)); min-width: 0; transition: opacity 300ms var(--ease); }
 .task-item:last-child { border-bottom: 0; }
 .task-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.task-body strong { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.task-body strong { font-size: 15px; font-weight: 650; overflow-wrap: normal; }
 .tick { flex-shrink: 0; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--hairline-strong, var(--color-border)); background: transparent; color: transparent; transition: all var(--duration) var(--ease); }
 .tick:hover { border-color: var(--color-success); color: var(--color-success); }
 .task-item.is-done .tick, .tick.checked { background: var(--color-success); border-color: var(--color-success); color: #fff; animation: tick-pop 380ms var(--ease); }
@@ -339,7 +339,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 /* ── Goals, projects, habits (V20) ─────────────────────────────────────────── */
 .health-top { display: flex; align-items: center; gap: var(--space-3); }
 .health-title { display: grid; gap: 4px; justify-items: start; min-width: 0; }
-.health-title strong { font-size: 15px; overflow-wrap: anywhere; }
+.health-title strong { font-size: 15px; overflow-wrap: normal; }
 .health-why { border: 0; background: transparent; }
 .health-why > summary { min-height: 36px; padding: 0 4px; font-size: 13px; color: var(--color-text-muted); }
 .health-why .expandable-body { padding: 0 4px 4px; }
@@ -391,7 +391,7 @@ details.chart-explain span { display: block; line-height: 1.5; }
 .habit-sheet li { display: flex; align-items: center; gap: var(--space-3); padding: 8px 4px; border-radius: 12px; }
 .habit-sheet li.highlight { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .habit-sheet-title { display: grid; gap: 2px; flex: 1; min-width: 0; }
-.habit-sheet-title strong { overflow-wrap: anywhere; }
+.habit-sheet-title strong { overflow-wrap: normal; }
 .habit-sheet .tick.done { background: var(--color-success); border-color: var(--color-success); color: #fff; }
 .habit-all { margin-top: var(--space-2); min-height: 36px; }
 .notification-quick { min-height: 36px; padding-inline: 12px; font-weight: 650; }
@@ -417,7 +417,7 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .sync-list li.state-conflict { border: 1px solid color-mix(in srgb, var(--color-warning, #b45309) 45%, transparent); }
 .sync-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); flex-shrink: 0; }
 .sync-body { flex: 1; display: grid; gap: 4px; min-width: 0; }
-.sync-body strong { overflow-wrap: anywhere; }
+.sync-body strong { overflow-wrap: normal; }
 .sync-conflict { display: inline-flex; align-items: center; gap: 4px; color: var(--color-warning, #b45309); font-weight: 600; }
 .sync-body .quiet { justify-self: start; min-height: 34px; }
 .sync-note { margin-inline-end: auto; align-self: center; }
@@ -522,3 +522,16 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
   .switch input { inset: -11px -3px; width: calc(100% + 6px); height: calc(100% + 22px); }
   main input[type="checkbox"]:not([role="switch"]) { width: 24px; height: 24px; }
 }
+
+/* Quick check-in on Today (V34): five big buttons, one tap saves today's energy. */
+.quick-checkin { display: grid; gap: var(--space-3, 12px); }
+.quick-checkin-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.quick-checkin-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.quick-checkin-scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.quick-checkin-scale button { min-height: 56px; display: grid; place-items: center; gap: 2px; padding: 6px 4px; border-radius: 14px; border: 1px solid var(--hairline-strong, var(--color-border)); background: var(--color-surface-muted); color: var(--color-text); }
+.quick-checkin-scale button strong { font-size: 18px; line-height: 1; }
+.quick-checkin-scale button small { font-size: 11px; color: var(--color-text-muted); line-height: 1.1; text-align: center; overflow-wrap: normal; }
+.quick-checkin-scale button:hover:not(:disabled), .quick-checkin-scale button:focus-visible { border-color: var(--color-primary); }
+
+/* A habit that is at risk shows its streak in orange; on the light theme it needs a darker orange to read (4.5:1). */
+[data-theme="light"] .habit-chip.risk .streak { color: #c2410c; }
