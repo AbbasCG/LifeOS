@@ -2665,7 +2665,7 @@ V32 covered Tasks, Goals, Habits and Projects. This version measured the remaini
 
 # V34 — Daily check-in, one tap away
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (808cb63) after PR #32 (V33) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (808cb63) after PR #32 (V33) was merged. Merged into `main` as PR #33.
 
 ## The audit (Pixel 7)
 The daily check-in lived under "More for today": open the drawer (1), four ratings (4), Save (1) = 6 taps, and it was never on the main Today screen.
@@ -2690,3 +2690,32 @@ The daily check-in lived under "More for today": open the drawer (1), four ratin
 ## Known limitations (V34)
 - Only energy can be set in one tap; mood, stress, workload and sleep still use the full check-in ("More").
 - The card does not appear for accounts that turned check-ins off (AI Control Center / wellbeing settings).
+
+# V35 — Phone performance: measured first
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (73ff812) after PR #33 (V34) was merged.
+
+## How it was measured
+Pixel 7 profile, Chromium with a slow 4G connection (1.6 Mbit/s down, 150 ms latency) and a 4× slower CPU, a signed-in session, a cold cache, the median of 7 runs, against the production build.
+
+| Page | First paint | Largest paint | Content visible | Everything settled | Requests |
+|---|---|---|---|---|---|
+| Today | 1.5 s | 3.1 s | 2.7 s | 4.3 s | 52 |
+| Tasks | 1.5 s | 3.3 s | 2.5 s | 3.8 s | 36 |
+
+- **A second visit is fast:** reloading with the installed app's service worker, the content shows in about 1.2 s and only about 22 KB crosses the network (the data requests), because the app files come from the device.
+- **What every first visit downloads:** the entry script (106 KB gzipped, of which React and its router are most of it; the app's own code is about a sixth) and the stylesheet (37 KB gzipped). Every page, chart library and sheet beyond that is loaded only when it opens (87 lazy chunks).
+
+## What was tried and what was kept
+- **Kept: identical reads at the same moment share one request** (`lib/api.ts`). Today asked for the account settings twice at once; now it asks once. Each caller gets its own copy of the answer, nothing is cached after the answer arrives, writes are never shared, and a failure is shared and retried by the next read. Four unit tests.
+- **Kept: a first-load size budget.** `npm run check:size` fails the React job in CI when the entry script passes 125 KB or the stylesheet passes 45 KB gzipped (today 105.6 KB and 36.9 KB), so the first load cannot grow unnoticed.
+- **Tried and dropped: starting the page's script at launch,** in parallel with the session check. On this connection it did not help (content visible 2.7 s before, 3.0 s after): the link is the limit, and the early download competes with the stylesheet and fonts. It was reverted, so nothing in the app changed for it.
+- **Looked at and left alone:** the main script is dominated by React itself and the router; the fonts already use `font-display: swap`; the Arabic font file is downloaded on an English page only when Arabic text is on screen (the demo account has some).
+
+## Testing
+- **Vitest:** `v35.test.ts` (4 tests); 198/198.
+- **Results:** backend unchanged (299/299 in V34); `tsc -b`, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; Playwright 91 passed, 7 skipped (15.1 min).
+
+## Known limitations (V35)
+- The numbers come from an emulated phone on a development machine, not from real devices or networks; use them to compare versions, not as a promise.
+- A much faster first visit would need a different approach (for example rendering the first screen on the server), which is a larger change than this version.

@@ -97,6 +97,8 @@ jobs:
         run: npm run build
         env:
           LIFEOS_BUILD_ID: ${{ github.sha }}
+      - name: First-load size budget
+        run: npm run check:size
       - name: Dependency audit (production dependencies)
         run: npm audit --omit=dev --audit-level=high
 
