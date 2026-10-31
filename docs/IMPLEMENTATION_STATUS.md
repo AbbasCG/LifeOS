@@ -2747,7 +2747,7 @@ On a task row, swiping toward the end completes it and toward the start starts f
 
 # V37 — Install LifeOS from the site itself
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (07aae00) after PR #35 (V36) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (07aae00) after PR #35 (V36) was merged. Merged into `main` as PR #36.
 
 ## The request
 Offer installing LifeOS on a phone as a web app, from the site itself.
@@ -2775,3 +2775,45 @@ The web app manifest (name, icons, maskable icon, shortcuts, `standalone`), the 
 - **The real install is NOT VERIFIED on a device.** A headless browser cannot install an app, so the tests hand the page the event a browser would send. What is verified is LifeOS's part: where the offer appears, that nothing happens before a tap, and that the browser's prompt is the thing that is called. Please try it on a real phone (Chrome on Android, Safari on iPhone) and tell me what you see.
 - The browser decides when it offers its prompt (it needs the manifest and the service worker, and the visit not to have dismissed it recently), so the button can be missing at first on Android even though the menu entry exists.
 - On iPhone, Apple's steps come from Safari's Share sheet; wording and button names there are Apple's and may differ by iOS version.
+
+# V38 — Swipe actions you choose, like an email app
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (c313d3c) after PR #36 (V37) was merged.
+
+## The request
+A simple phone app with little to read; snooze, delete or done by swiping like email, to the right or the left; and the ability to choose what each swipe does.
+
+## How simple is the phone now (measured, Pixel 7, English)
+Words and buttons on the first screen of each page:
+
+| Page | Words | Buttons |
+|---|---|---|
+| Focus | 19 | 7 |
+| Today | 44 | 11 |
+| Calendar | 53 | 18 |
+| Projects | 63 | 6 |
+| Goals | 67 | 7 |
+| Settings | 67 | 9 |
+| Tasks | 72 | 21 |
+| Habits | 48 | 22 |
+| Copilot | 122 | 42 |
+
+Today and Focus are light. Tasks, Habits and above all Copilot (42 buttons: conversation tools, suggestion chips, the composer) are still dense; Copilot is the next candidate to simplify. The texts added in V36 and V37 were shortened in this version.
+
+## What changed
+- **Swipe follows the finger, not the reading direction.** A swipe to the right does the "right" action and to the left the "left" action, in English and Arabic alike (as email apps do). Before, in Arabic the directions were mirrored.
+- **Choose each swipe in Settings → Swipe actions:** Complete, Snooze to tomorrow, Snooze to next week, Start focus, Delete (asks first), or Nothing. Defaults: right = Complete, left = Snooze to tomorrow (Start focus stays on the row's ▶ button and can be chosen).
+- **While swiping**, the revealed edge shows an icon and a word (Done, Tomorrow, Next week, Focus, Delete) on a colour for the action (green, amber, blue, red), and "Release" once letting go would act. A swipe on a done task does not offer Complete.
+- **Safe by design:** a snooze moves the due date at 17:00 in the account's timezone and offers Undo; Delete never deletes on release: it opens the usual "Delete this task?" confirmation; a short swipe does nothing; completion still offers Undo. These are the same actions the row's buttons run.
+- **Kept on this device** (browser storage), not on the account: a gesture belongs to the phone in your hand, and no backend change was needed. A reset button brings back the defaults. Anything unreadable falls back to the defaults.
+- The one-time tip now reads "Tip: swipe a task right or left for quick actions. You choose what each does in Settings."
+
+## Testing
+- **Vitest:** `v38.test.tsx` (5 tests: defaults, unknown values made safe, tones, the Settings card saves and resets, and every action is offered); 209/209.
+- **Playwright (phone, real touch swipes):** right completes in English and Arabic; left snoozes to tomorrow with the "Release" cue and Undo restores the date; setting right to Delete and left to Complete in Settings (kept after a reload): the right swipe asks first and Cancel keeps the task, the left swipe completes it; Reset restores the defaults.
+- **Results:** backend unchanged (299/299 in V34); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; Playwright 101 passed, 13 skipped (20.3 min). Visual check on Pixel 7.
+
+## Known limitations (V38)
+- Swipe actions are on the Tasks list only (not Today's Top 3 or other lists), and are per device.
+- Touch only; mouse and keyboard use the buttons and the row's details, as before.
+- A snooze moves the due date; a task with no date gets tomorrow 17:00.
