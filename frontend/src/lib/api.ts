@@ -5,7 +5,21 @@ export class ApiError extends Error {
   constructor(status: number, message: string, errors: Record<string, string[]> = {}) { super(message); this.status = status; this.errors = errors }
 }
 const base = import.meta.env.VITE_API_BASE_URL || ''
-export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+/**
+ * Identical GET requests made at the same moment (two parts of a page asking for the same settings) share one request;
+ * each caller gets its own copy of the answer. Nothing is kept after the answer arrives, so later reads are always fresh.
+ */
+const inFlight = new Map<string, Promise<unknown>>()
+export function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  if (method !== 'GET' || body !== undefined) return send<T>(path, method, body)
+  let pending = inFlight.get(path) as Promise<T> | undefined
+  if (!pending) {
+    pending = send<T>(path, method, body).finally(() => inFlight.delete(path))
+    inFlight.set(path, pending)
+  }
+  return pending.then(data => (data !== null && typeof data === 'object' ? structuredClone(data) : data))
+}
+async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
   const token = document.cookie.split('; ').find(v => v.startsWith('XSRF-TOKEN='))?.split('=').slice(1).join('=')
   let response: Response
   try {
