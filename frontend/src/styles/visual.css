@@ -548,3 +548,14 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .swipe-tip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 var(--space-3, 12px); padding: 10px 12px; border-radius: 12px; background: var(--color-surface-muted); }
 .swipe-tip .quiet { flex-shrink: 0; min-height: 44px; }
 .task-line.dragging { background: var(--color-surface); border-radius: 12px; }
+
+/* Install the app (V37): the Settings card, the phone banner on Today, and the iPhone steps. */
+.install-card { display: grid; gap: var(--space-3, 12px); }
+.install-card h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 17px; }
+.install-banner { display: flex; align-items: center; gap: 12px; margin-block: var(--space-3, 12px); }
+.install-banner > div { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.install-banner > .lucide { flex-shrink: 0; color: var(--color-primary); }
+.install-banner .primary { flex-shrink: 0; min-height: 44px; }
+.install-steps { list-style: none; margin: 0 0 var(--space-3, 12px); padding: 0; display: grid; gap: 12px; }
+.install-steps li { display: flex; align-items: flex-start; gap: 12px; }
+.install-steps li svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primary); }

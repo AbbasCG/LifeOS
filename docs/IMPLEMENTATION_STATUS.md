@@ -2722,7 +2722,7 @@ Pixel 7 profile, Chromium with a slow 4G connection (1.6 Mbit/s down, 150 ms lat
 
 # V36 — Swiping a task, with alternatives
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (be11122) after PR #34 (V35) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (be11122) after PR #34 (V35) was merged. Merged into `main` as PR #35.
 
 ## The audit
 On a task row, swiping toward the end completes it and toward the start starts focus. What already existed: the ✓ and ▶ buttons on every row do the same (keyboard, screen reader and mouse users never needed the swipe), Undo follows a completion, and the swipe follows the reading direction in Arabic. What was missing:
@@ -2744,3 +2744,34 @@ On a task row, swiping toward the end completes it and toward the start starts f
 ## Known limitations (V36)
 - The swipe is for touch only; mouse and keyboard use the buttons, as before.
 - Swiping is available on the Tasks list only, not on Today's Top 3.
+
+# V37 — Install LifeOS from the site itself
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (07aae00) after PR #35 (V36) was merged.
+
+## The request
+Offer installing LifeOS on a phone as a web app, from the site itself.
+
+## What already existed
+The web app manifest (name, icons, maskable icon, shortcuts, `standalone`), the service worker with the offline page, and one "Install app" button in the side menu that appeared only where the browser had handed over its install prompt. On a phone that button sat inside the menu drawer, and on iPhone and iPad it never appeared at all, because Safari has no install prompt.
+
+## What changed
+- **Settings → "Install the app"** (top of General): says where this device stands.
+  - Installed: "LifeOS is installed on this device."
+  - Chrome or Edge offered the prompt: one **Install app** button that calls the browser's own prompt.
+  - iPhone or iPad: **How to install** opens the three Share-sheet steps (Share, Add to Home Screen, Add), in English and Arabic.
+  - Any other browser: a plain note to look for "Install app" or "Add to Home screen" in its menu. Nothing is promised.
+- **A banner on Today, on touch screens only,** in a browser tab, and only where installing can work (the browser offered its prompt, or it is an iPhone or iPad): "Add LifeOS to your home screen", with **Install** (or **How**) and an X. The X hides it for good on this device; Settings keeps the option.
+- **Nothing installs without a tap.** The browser's prompt is captured when the app loads and handed to whichever screen asks, however late it opens (before, a screen that opened after the event never got it). The side-menu button keeps working from the same source.
+- **Side fix:** the shared dialog had no accessible name for screen readers; its heading now names it, which helps every dialog in the app.
+- No backend change, no new dependency.
+
+## Testing
+- **Vitest:** `v37.test.tsx` (6 tests: the button appears only once the browser offers the prompt and one tap calls it; a screen opened later still gets it; the installed state; the iPhone steps; the banner is for touch screens only and "Not now" hides it for good, also after a reload).
+- **Playwright:** `install.spec.ts`, using the event Chrome would send (made by hand): Settings button calls the prompt; on a phone the banner appears once the browser offers it, installs through the prompt, and "Not now" hides it after reloads; an iPhone user agent gets the Share-sheet steps in English and Arabic.
+- **Results:** backend unchanged (299/299 in V34); Vitest 204/204; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; Playwright 99 passed, 11 skipped (19.4 min). Visual check on Pixel 7.
+
+## Known limitations (V37)
+- **The real install is NOT VERIFIED on a device.** A headless browser cannot install an app, so the tests hand the page the event a browser would send. What is verified is LifeOS's part: where the offer appears, that nothing happens before a tap, and that the browser's prompt is the thing that is called. Please try it on a real phone (Chrome on Android, Safari on iPhone) and tell me what you see.
+- The browser decides when it offers its prompt (it needs the manifest and the service worker, and the visit not to have dismissed it recently), so the button can be missing at first on Android even though the menu entry exists.
+- On iPhone, Apple's steps come from Safari's Share sheet; wording and button names there are Apple's and may differ by iOS version.

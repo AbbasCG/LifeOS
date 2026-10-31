@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 
 declare const __BUILD_ID__: string
 
@@ -37,15 +37,44 @@ export function useOnline() {
   return online
 }
 
-/** The browser's deferred install prompt, when the app is installable and not yet installed. */
+// The browser offers the install prompt once, early, so it is captured here when this file loads and handed to whichever
+// screen asks (Settings, the Today banner, the menu), however late it mounts.
+let deferred: InstallEvent | null = null, installedNow = false, version = 0
+const listeners = new Set<() => void>()
+const changed = () => { version++; listeners.forEach(l => l()) }
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e as InstallEvent; changed() })
+  window.addEventListener('appinstalled', () => { deferred = null; installedNow = true; changed() })
+}
+/** Forgets what was offered or installed; for tests, which share one page. */
+export function resetInstallState() { deferred = null; installedNow = false; changed() }
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l) } }
+
+/** Running as an installed app (home-screen icon) rather than in a browser tab. */
+export const isInstalledApp = () => typeof window !== 'undefined' && (installedNow || !!window.matchMedia?.('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true)
+/** iPhone and iPad: Safari has no install prompt; the app is added from the Share sheet instead. */
+export const isAppleTouch = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+
+/**
+ * What can be done to install LifeOS from this browser:
+ * - `canInstall`: the browser handed over its install prompt (Chrome and Edge on Android and desktop): one tap installs.
+ * - `apple`: iPhone or iPad, where the user adds it from the Share sheet (steps are shown).
+ * - neither: the browser may still offer "Install app" or "Add to Home screen" in its own menu; nothing is promised.
+ */
 export function useInstallPrompt() {
-  const [event, setEvent] = useState<InstallEvent | null>(null)
-  const [installed, setInstalled] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)').matches)
-  useEffect(() => {
-    const capture = (e: Event) => { e.preventDefault(); setEvent(e as InstallEvent) }
-    const done = () => { setInstalled(true); setEvent(null) }
-    window.addEventListener('beforeinstallprompt', capture); window.addEventListener('appinstalled', done)
-    return () => { window.removeEventListener('beforeinstallprompt', capture); window.removeEventListener('appinstalled', done) }
-  }, [])
-  return { canInstall: !!event && !installed, installed, install: async () => { if (!event) return false; await event.prompt(); const choice = await event.userChoice; setEvent(null); return choice.outcome === 'accepted' } }
+  useSyncExternalStore(subscribe, () => version, () => 0)
+  const installed = isInstalledApp()
+  return {
+    installed,
+    canInstall: !!deferred && !installed,
+    apple: isAppleTouch() && !installed,
+    install: async () => {
+      const event = deferred
+      if (!event) return false
+      await event.prompt()
+      const choice = await event.userChoice
+      deferred = null; changed()
+      return choice.outcome === 'accepted'
+    },
+  }
 }
