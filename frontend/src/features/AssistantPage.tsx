@@ -178,7 +178,7 @@ export default function AssistantPage() {
         {/* One line by default; who answers and what it may read is one tap away. */}
         <Expandable className="privacy-note" icon={<ShieldCheck size={16} aria-hidden="true" />} summary={status && status.active.provider !== 'local'
           ? t(`${status.active.label} · suggests only, you approve`, `${status.active.label} · يقترح فقط وأنت توافق`)
-          : t('Private, on this server · suggests only, you approve', 'خاص على هذا الخادم · يقترح فقط وأنت توافق')}>
+          : t('Private · suggests only, you approve', 'خاص · يقترح فقط وأنت توافق')}>
           <p>{status && status.active.provider !== 'local'
             ? t(`Answers come from ${status.active.label}. It receives your request, a few earlier turns and only the data the question needs (as allowed in the AI Control Center). It can only suggest changes — you approve each one.`, `تأتي الإجابات من ${status.active.label}. يتلقى طلبك وبعض الرسائل السابقة والبيانات التي يحتاجها السؤال فقط (حسب إعدادات مركز التحكم). يقترح التغييرات دون تنفيذها — أنت توافق على كل تغيير.`)
             : t('A private local assistant answers using your data on this server. It never changes anything without your confirmation.', 'يجيب مساعد محلي خاص باستخدام بياناتك على هذا الخادم، ولا يغيّر شيئاً دون تأكيدك.')}{' '}<Link to="/settings/assistant">{t('Assistant settings', 'إعدادات المساعد')}</Link></p>
@@ -193,7 +193,7 @@ export default function AssistantPage() {
         {linkedProposal && <div className="linked-proposal"><p className="muted">{t('Suggested by your automations', 'مقترح من الأتمتة')}</p><p>{linkedProposal.summary}</p><ProposalCard proposal={linkedProposal} /></div>}
         <div className="chat-log" aria-live="polite" aria-busy={busy}>
           {messages.length === 0 && context.some(c => !prompts.includes(c)) && <div className="context-chips" aria-label={t('Suggested for right now', 'مقترح الآن')}>{context.filter(c => !prompts.includes(c)).map(c => <button key={c} className="chip-button" disabled={busy} onClick={() => setMessage(c)}><Sparkles size={13} />{c}</button>)}</div>}
-          {messages.length === 0 && <div className="chat-empty"><span className="orb"><Sparkles size={26} /></span><h2>{t('How can I help today?', 'كيف يمكنني مساعدتك اليوم؟')}</h2><p className="muted">{t('Tap a suggestion below or type.', 'اختر اقتراحاً بالأسفل أو اكتب.')}</p></div>}
+          {messages.length === 0 && <div className="chat-empty"><span className="orb"><Sparkles size={26} /></span><h2>{t('How can I help today?', 'كيف يمكنني مساعدتك اليوم؟')}</h2><p className="muted">{t('Tap an idea or type.', 'اختر فكرة أو اكتب.')}</p></div>}
           {messages.map(m => <div key={m.id} className={`chat-turn ${m.role} reveal`}>
             <span className="chat-avatar" aria-hidden="true">{m.role === 'user' ? <UserIcon size={15} /> : <Bot size={15} />}</span>
             <div className="chat-bubble">

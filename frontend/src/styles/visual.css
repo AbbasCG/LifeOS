@@ -568,3 +568,8 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .swipe-fields label { display: grid; gap: 6px; font-weight: 600; }
 .swipe-fields select { min-height: 48px; }
 @media (min-width: 701px) { .swipe-fields { grid-template-columns: 1fr 1fr; } }
+
+/* Copilot on a phone (V39): three ideas are enough to start; the rest are on larger screens. Typing and the microphone are always there. */
+@media (max-width: 700px) {
+  .prompt-chips .chip-button:nth-child(n+4) { display: none; }
+}

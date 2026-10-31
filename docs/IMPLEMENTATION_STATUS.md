@@ -2778,7 +2778,7 @@ The web app manifest (name, icons, maskable icon, shortcuts, `standalone`), the 
 
 # V38 — Swipe actions you choose, like an email app
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (c313d3c) after PR #36 (V37) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (c313d3c) after PR #36 (V37) was merged. Merged into `main` as PR #37.
 
 ## The request
 A simple phone app with little to read; snooze, delete or done by swiping like email, to the right or the left; and the ability to choose what each swipe does.
@@ -2817,3 +2817,37 @@ Today and Focus are light. Tasks, Habits and above all Copilot (42 buttons: conv
 - Swipe actions are on the Tasks list only (not Today's Top 3 or other lists), and are per device.
 - Touch only; mouse and keyboard use the buttons and the row's details, as before.
 - A snooze moves the due date; a task with no date gets tomorrow 17:00.
+
+# V39 — Copilot lighter on a phone (and a correction)
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (bfd0dad) after PR #37 (V38) was merged.
+
+## A correction first
+The V38 table said Copilot had 122 words and 42 buttons on its first screen. **That was wrong:** the measuring script also counted the conversation-history drawer, which sits off-screen to the side. Measured again, counting only what is inside the screen (Pixel 7, English):
+
+| Page | Words | Buttons |
+|---|---|---|
+| Focus | 19 | 7 |
+| Copilot | 49 | 7 |
+| Today | 44 | 11 |
+| Calendar | 53 | 18 |
+| Settings | 56 | 5 |
+| Projects | 63 | 6 |
+| Tasks | 66 | 21 |
+| Goals | 67 | 7 |
+| Habits | 48 | 22 |
+
+So Copilot was already light; the busy first screens are **Tasks (21 buttons), Habits (22) and Calendar (18)**. They are the next candidates; this version does the small Copilot trims that were chosen.
+
+## What changed (phone, small)
+- **Three ideas instead of up to eight** under "How can I help today?" (the rest show on larger screens). Typing and the microphone are always there. Tapping an idea still sends it, as before.
+- **Shorter words:** "Tap an idea or type." and "Private · suggests only, you approve" (the full explanation stays under the note).
+- No behaviour, backend or dependency change.
+
+## Testing
+- **Playwright:** `mobile-quick.spec.ts` gains a Copilot test: three ideas on a phone, more on a larger screen, the shorter hint is shown, and nothing is sent by merely opening the page.
+- **Results:** backend unchanged (299/299 in V34); Vitest 209/209; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build clean; Playwright 103 passed, 13 skipped (20.4 min).
+
+## Known limitations (V39)
+- Tasks, Habits and Calendar still show 18–22 buttons on the first screen; they are not changed here.
+- The word and button counts come from a script on an emulated phone; they are for comparing screens, not a standard.
