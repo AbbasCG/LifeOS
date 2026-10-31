@@ -272,3 +272,16 @@ test('each swipe can be set in Settings; delete asks first, and Reset brings the
     await page.evaluate(() => localStorage.removeItem('lifeos-swipe-actions'))
   }
 })
+
+test('Copilot offers three ideas on a phone and more on a larger screen, and sends nothing by itself', async ({ page, setLanguage, isMobile }) => {
+  await setLanguage('en')
+  let sent = 0
+  page.on('request', r => { if (r.method() === 'POST' && /\/api\/assistant\/(chat|messages)/.test(r.url())) sent++ })
+  await page.goto('/assistant')
+  const chips = page.locator('.prompt-chips .chip-button')
+  await expect(chips.first()).toBeVisible()
+  const visible = await chips.evaluateAll(nodes => nodes.filter(n => (n as HTMLElement).offsetParent !== null).length)
+  if (isMobile) expect(visible).toBe(3); else expect(visible).toBeGreaterThan(3)
+  await expect(page.getByText('Tap an idea or type.')).toBeVisible()
+  expect(sent).toBe(0)
+})
