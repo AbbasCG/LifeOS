@@ -2820,7 +2820,7 @@ Today and Focus are light. Tasks, Habits and above all Copilot (42 buttons: conv
 
 # V39 — Copilot lighter on a phone (and a correction)
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (bfd0dad) after PR #37 (V38) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (bfd0dad) after PR #37 (V38) was merged. Merged into `main` as PR #38.
 
 ## A correction first
 The V38 table said Copilot had 122 words and 42 buttons on its first screen. **That was wrong:** the measuring script also counted the conversation-history drawer, which sits off-screen to the side. Measured again, counting only what is inside the screen (Pixel 7, English):
@@ -2851,3 +2851,33 @@ So Copilot was already light; the busy first screens are **Tasks (21 buttons), H
 ## Known limitations (V39)
 - Tasks, Habits and Calendar still show 18–22 buttons on the first screen; they are not changed here.
 - The word and button counts come from a script on an emulated phone; they are for comparing screens, not a standard.
+
+# V40 — A clear way to get the phone app
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (2631c38) after PR #38 (V39) was merged.
+
+## The question
+Is there a strong, visible link on the site that tells someone to get the phone app (the web app)? If not, add one.
+
+## What was there (checked in the code and in the running app)
+After V37 the install lived in three places, none of them a strong link:
+- **Settings → "Install the app"**: only reached after signing in and opening Settings.
+- **A banner on Today**: touch screens only, and only where the browser had offered its prompt or it is an iPhone.
+- **A menu button**: only when the browser had handed over its install prompt, so on an iPhone or on a first visit there was nothing.
+- **The sign-in page, and any address you could send to a phone: nothing.**
+
+## What changed
+- **A public install page at `/install`** (works without signing in, so the address can be sent to a phone): "Get LifeOS on your phone", an **Install app** button where the browser offers its prompt, the steps for Android (browser menu → Install app or Add to Home screen) and for iPhone and iPad (Share → Add to Home Screen), the steps for the device in use first, **Open the app**, **Copy link**, English and Arabic with a language switch. Nothing installs without a tap.
+- **"Get the phone app" on the sign-in page**, a full-width button under the form.
+- **The menu always has a way in:** the one-tap Install button when the browser offers it, otherwise a "Get the phone app" link to the page. Hidden once LifeOS runs as an installed app.
+- The Settings card and the Today banner stay as they were.
+- No backend change, no new dependency, no QR-code library (the Copy link button and the plain address do that job).
+
+## Testing
+- **Vitest:** `v40.test.tsx` (5 tests: the steps for both systems, install through the browser's prompt with one tap, the steps for this device first, copy link, and the link being hidden after install); 214/214.
+- **Playwright:** signed out, the sign-in page links to `/install`, which shows both sets of steps without redirecting to sign-in and calls the browser's prompt when it is offered; the page is right-to-left in Arabic; the menu always links to it. `/install` is part of the accessibility scan.
+- **Results:** backend unchanged (299/299 in V34); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; Playwright 109 passed, 13 skipped (20.9 min). Visual check on Pixel 7.
+
+## Known limitations (V40)
+- **The real install is NOT VERIFIED on a device** (a headless browser cannot install an app; the tests hand the page the event a browser would send). The Android steps describe Chrome and Edge's menu as documented; button names vary between browser versions. Please try `/install` on a real phone.
+- The page serves like the other pages: the site's web server must send unknown addresses to the app (it already does for `/login`, so `/install` works the same way).

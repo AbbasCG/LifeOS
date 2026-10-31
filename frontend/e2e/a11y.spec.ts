@@ -9,7 +9,7 @@ import { test, expect } from './fixtures'
  */
 // V26: best-practice rules too (one main heading, heading order, allowed roles, landmarks).
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
-const PAGES = ['/', '/tasks', '/calendar', '/today/plan', '/planning', '/focus', '/goals', '/habits', '/projects', '/categories', '/timeline', '/review', '/analytics', '/assistant',
+const PAGES = ['/', '/install', '/tasks', '/calendar', '/today/plan', '/planning', '/focus', '/goals', '/habits', '/projects', '/categories', '/timeline', '/review', '/analytics', '/assistant',
   '/settings', '/settings/security', '/settings/integrations', '/settings/ai', '/settings/assistant', '/settings/notifications', '/settings/automations', '/settings/wellbeing']
 
 const describe = (path: string, violations: Awaited<ReturnType<AxeBuilder['analyze']>>['violations']) =>

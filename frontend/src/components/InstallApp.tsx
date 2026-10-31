@@ -1,19 +1,36 @@
 import { useState } from 'react'
-import { CheckCircle2, Download, Share, SquarePlus, X } from 'lucide-react'
+import { CheckCircle2, Download, MoreVertical, Share, Smartphone, SquarePlus, X } from 'lucide-react'
+import { Link } from 'react-router'
 import { useText } from '../lib/i18n'
 import { useToast } from '../lib/toast'
 import { useInstallPrompt } from '../lib/pwa'
 import { Dialog } from './ui/Shared'
 
+/** The three Share-sheet steps for Safari on iPhone and iPad (no install prompt there). */
+export function AppleStepsList() {
+  const t = useText()
+  return <ol className="install-steps">
+    <li><Share size={18} aria-hidden="true" /><span>{t('Tap the Share button (the square with an arrow) in Safari’s toolbar.', 'اضغط زر المشاركة (المربع الذي فيه سهم) في شريط Safari.')}</span></li>
+    <li><SquarePlus size={18} aria-hidden="true" /><span>{t('Scroll down and tap “Add to Home Screen”.', 'مرّر للأسفل واضغط «إضافة إلى الشاشة الرئيسية».')}</span></li>
+    <li><CheckCircle2 size={18} aria-hidden="true" /><span>{t('Tap “Add”. LifeOS opens from its own icon, full screen.', 'اضغط «إضافة». يُفتح LifeOS من أيقونته الخاصة بملء الشاشة.')}</span></li>
+  </ol>
+}
+
+/** The steps for Chrome and Edge on Android, when the browser has not handed over its install button. */
+export function AndroidStepsList() {
+  const t = useText()
+  return <ol className="install-steps">
+    <li><MoreVertical size={18} aria-hidden="true" /><span>{t('Open the browser menu (the three dots).', 'افتح قائمة المتصفح (النقاط الثلاث).')}</span></li>
+    <li><Download size={18} aria-hidden="true" /><span>{t('Tap “Install app” or “Add to Home screen”.', 'اضغط «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية».')}</span></li>
+    <li><CheckCircle2 size={18} aria-hidden="true" /><span>{t('Tap “Install”. LifeOS opens from its own icon, full screen.', 'اضغط «تثبيت». يُفتح LifeOS من أيقونته الخاصة بملء الشاشة.')}</span></li>
+  </ol>
+}
+
 /** How to add LifeOS to the home screen where the browser has no install prompt (Safari on iPhone and iPad). */
 function AppleSteps({ onClose }: { onClose: () => void }) {
   const t = useText()
   return <Dialog title={t('Add LifeOS to your Home Screen', 'أضف LifeOS إلى الشاشة الرئيسية')} onClose={onClose}>
-    <ol className="install-steps">
-      <li><Share size={18} aria-hidden="true" /><span>{t('Tap the Share button (the square with an arrow) in Safari’s toolbar.', 'اضغط زر المشاركة (المربع الذي فيه سهم) في شريط Safari.')}</span></li>
-      <li><SquarePlus size={18} aria-hidden="true" /><span>{t('Scroll down and tap “Add to Home Screen”.', 'مرّر للأسفل واضغط «إضافة إلى الشاشة الرئيسية».')}</span></li>
-      <li><CheckCircle2 size={18} aria-hidden="true" /><span>{t('Tap “Add”. LifeOS opens from its own icon, full screen.', 'اضغط «إضافة». يُفتح LifeOS من أيقونته الخاصة بملء الشاشة.')}</span></li>
-    </ol>
+    <AppleStepsList />
     <p className="muted small">{t('It is the same app and the same account; nothing is installed from a store.', 'هو التطبيق نفسه والحساب نفسه؛ ولا يُثبَّت شيء من متجر.')}</p>
     <div className="toolbar"><button type="button" className="primary" onClick={onClose}>{t('Got it', 'فهمت')}</button></div>
   </Dialog>
@@ -67,4 +84,14 @@ export function InstallBanner() {
     <button type="button" className="icon-button" aria-label={t('Not now', 'ليس الآن')} onClick={() => { try { localStorage.setItem(DISMISSED, '1') } catch { /* asked again next time */ } setHidden(true) }}><X size={18} aria-hidden="true" /></button>
     {steps && <AppleSteps onClose={closeSteps} />}
   </section>
+}
+
+/**
+ * A plain link to the install page, for places everyone sees (the sign-in page, the menu). Hidden once LifeOS runs as an
+ * installed app. It goes to a page that works signed out, so the link can also be sent to a phone.
+ */
+export function InstallLink({ className = 'install-link' }: { className?: string }) {
+  const t = useText(), { installed } = useInstallPrompt()
+  if (installed) return null
+  return <Link className={className} to="/install"><Smartphone size={17} aria-hidden="true" />{t('Get the phone app', 'حمّل تطبيق الجوال')}</Link>
 }
