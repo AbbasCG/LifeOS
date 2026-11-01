@@ -2884,7 +2884,7 @@ After V37 the install lived in three places, none of them a strong link:
 
 # V41 — Schedule a task from the phone
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (9a0b42d) after PR #39 (V40) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (9a0b42d) after PR #39 (V40) was merged. Merged into `main` as PR #40.
 
 ## The gap
 Putting a task at a time in the calendar on a phone took several taps: the calendar opens on the agenda on phones, and the "Place a task, then tap a time slot" tray lives in the day and week views.
@@ -2906,3 +2906,35 @@ Putting a task at a time in the calendar on a phone took several taps: the calen
 - It does not tell that a task already has a time block (a second tap books the next free time); the calendar shows each block, and Undo removes the last one.
 - Suggestions come from working hours only; it does not weigh energy or focus time the way the planner does.
 - Moving a block after booking is done in the calendar, as before.
+
+# V42 — Task reminders you can answer from the notification
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (044bc27) after PR #40 (V41) was merged.
+
+## What existed
+Push and in-app notifications carried one-tap buttons only for habits ("Done") and when a focus session ended ("Start break", "Focus again"). A **task reminder or deadline** notification had no buttons and linked to the plain task list, not to the task.
+
+## What changed
+- **A task reminder or deadline now links to its own task** (`/tasks?task=ID`): the Tasks page opens that row and scrolls to it.
+- **Two buttons on those notifications**, in the pushed notification (where the browser shows notification buttons) and in the in-app notification list:
+  - a **reminder** gets **Done** and **In 1 hour**;
+  - a **deadline** (due soon or overdue) gets **Done** and **Tomorrow**.
+  Arabic: تم، بعد ساعة، غداً.
+- **What a button does** (the same way as the existing habit button: a link the app performs when it opens, so a tap on a notification alone never changes data):
+  - **Done** completes the task (kept on the device and sent later when offline) and says "Done: …" with **Undo**;
+  - **In 1 hour** sets the task's reminder an hour ahead, so the next reminder comes then, with **Undo** restoring the old one;
+  - **Tomorrow** moves the due date to tomorrow at 17:00 in the account's timezone, with **Undo**.
+  A task that is already done is left alone and the app says so. An unknown action or a link with no action does nothing.
+- Older notifications that link to `/tasks` keep working (they just have no buttons).
+- No new endpoint, no new dependency; the service worker already carries any action the server names, so it did not change.
+
+## Testing
+- **Backend (PHPUnit):** `TaskReminderActionsTest` (4 tests: reminders and deadlines link to their own task; the list offers Done plus the snooze that fits the kind; Arabic titles; older links and odd links offer nothing); `NotificationTest` updated for the new link; 303/303 on SQLite and on PostgreSQL 16.
+- **Vitest:** `v42.test.tsx` (6 tests: Done with Undo; "already done"; In 1 hour with Undo; Tomorrow with Undo; no action does nothing; the linked row opens); 225/225.
+- **Playwright:** `notification-actions.spec.ts`, desktop and phone: the three links done through the real app (task completed, reminder an hour ahead with the old one restored by Undo, deadline moved to tomorrow, the linked task opens expanded).
+- **Results:** backend 303/303 on SQLite and PostgreSQL 16; Vitest 225/225; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; the full Playwright run had 117 passed and 14 skipped, plus one flaky phone Copilot test (it counted the suggested ideas before the page had settled), which now waits on Playwright's own visibility count and passed 3 repeats.
+
+## Known limitations (V42)
+- **Real push delivery and the buttons on a real phone are NOT VERIFIED:** it needs a push service and a real browser. Notification buttons are only shown by browsers that support them (not by Safari on iPhone); there, tapping the notification opens the task instead. The app-side actions are tested through the same links a button opens.
+- **The first toast can be in the wrong language** when a link is opened on a device that has never opened the app: the app reads the saved account language a moment after it starts. On a device that has been used, the language is already known.
+- "In 1 hour" and "Tomorrow" need a connection (they are not queued for later); "Done" is.

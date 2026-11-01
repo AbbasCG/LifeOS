@@ -38,7 +38,7 @@ class NotificationTest extends TestCase
         $this->travelTo(now()->setDate(2027, 1, 4)->setTime(8, 0));
         $user = User::factory()->create();
         UserSetting::create(['user_id' => $user->id, 'preferences' => ['timezone' => 'UTC', 'work_start' => '09:00']]);
-        Task::create(['user_id' => $user->id, 'title' => 'Call the bank', 'remind_at' => '2027-01-04T07:55:00Z']);
+        $call = Task::create(['user_id' => $user->id, 'title' => 'Call the bank', 'remind_at' => '2027-01-04T07:55:00Z']);
         Task::create(['user_id' => $user->id, 'title' => 'Future reminder', 'remind_at' => '2027-01-04T12:00:00Z']);
         Task::create(['user_id' => $user->id, 'title' => 'Finished', 'status' => 'completed', 'remind_at' => '2027-01-04T07:00:00Z']);
 
@@ -46,7 +46,7 @@ class NotificationTest extends TestCase
         $this->artisan('lifeos:reminders')->assertSuccessful();
 
         $this->assertSame(1, InboxNotification::where('kind', 'reminder')->count());
-        $this->assertDatabaseHas('inbox_notifications', ['user_id' => $user->id, 'title' => 'Reminder: Call the bank', 'link' => '/tasks']);
+        $this->assertDatabaseHas('inbox_notifications', ['user_id' => $user->id, 'title' => 'Reminder: Call the bank', 'link' => '/tasks?task='.$call->id]);
     }
 
     public function test_reminders_respect_quiet_hours(): void

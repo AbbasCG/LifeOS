@@ -60,11 +60,11 @@ class SendReminders extends Command
 
         $open = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled']);
         foreach ((clone $open)->whereNotNull('remind_at')->whereBetween('remind_at', [now()->subDay(), now()])->cursor() as $task) {
-            $notifier->send($user, 'reminders', 'remind:'.$task->id.':'.$task->remind_at->timestamp, ($ar ? 'تذكير: ' : 'Reminder: ').$task->title, ['link' => '/tasks', 'kind' => 'reminder']);
+            $notifier->send($user, 'reminders', 'remind:'.$task->id.':'.$task->remind_at->timestamp, ($ar ? 'تذكير: ' : 'Reminder: ').$task->title, ['link' => '/tasks?task='.$task->id, 'kind' => 'reminder']);
         }
         foreach ((clone $open)->whereNotNull('due_at')->where('due_at', '<=', now()->addHour())->where('due_at', '>=', now()->subDays(7))->cursor() as $task) {
             $overdue = $task->due_at->isPast();
-            $notifier->send($user, 'deadlines', 'task:'.$task->id.':'.$task->due_at->timestamp, ($overdue ? ($ar ? 'مهمة متأخرة: ' : 'Overdue: ') : ($ar ? 'موعد المهمة: ' : 'Task due: ')).$task->title, ['link' => '/tasks', 'kind' => $overdue ? 'overdue' : 'due']);
+            $notifier->send($user, 'deadlines', 'task:'.$task->id.':'.$task->due_at->timestamp, ($overdue ? ($ar ? 'مهمة متأخرة: ' : 'Overdue: ') : ($ar ? 'موعد المهمة: ' : 'Task due: ')).$task->title, ['link' => '/tasks?task='.$task->id, 'kind' => $overdue ? 'overdue' : 'due']);
         }
 
         // Habits with a reminder time: once a day (daily) or once a week (weekly), until done for that day or week.

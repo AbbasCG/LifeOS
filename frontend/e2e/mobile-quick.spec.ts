@@ -280,8 +280,10 @@ test('Copilot offers three ideas on a phone and more on a larger screen, and sen
   await page.goto('/assistant')
   const chips = page.locator('.prompt-chips .chip-button')
   await expect(chips.first()).toBeVisible()
-  const visible = await chips.evaluateAll(nodes => nodes.filter(n => (n as HTMLElement).offsetParent !== null).length)
-  if (isMobile) expect(visible).toBe(3); else expect(visible).toBeGreaterThan(3)
+  // Counted with Playwright's own visibility check, which waits for the page to settle (the ideas are rendered after the history loads).
+  const shown = page.locator('.prompt-chips .chip-button:visible')
+  if (isMobile) await expect(shown).toHaveCount(3)
+  else await expect.poll(() => shown.count()).toBeGreaterThan(3)
   await expect(page.getByText('Tap an idea or type.')).toBeVisible()
   expect(sent).toBe(0)
 })

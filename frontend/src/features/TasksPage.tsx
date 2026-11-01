@@ -43,7 +43,7 @@ export default function TasksPage() {
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<Filter>(() => (['overdue', 'today', 'week'].includes(params.get('due') ?? '') ? params.get('due') as Filter : 'open'))
   const [search, setSearch] = useState(''), [searching, setSearching] = useState(false), [view, setView] = useState<'list' | 'board'>('list'), [moreOpen, setMoreOpen] = useState(false)
-  const [priority, setPriority] = useState(''), [quick, setQuick] = useState(''), [open, setOpen] = useState<number | null>(null)
+  const [priority, setPriority] = useState(''), [quick, setQuick] = useState(''), [open, setOpen] = useState<number | null>(() => Number(params.get('task')) || null)
   const [editing, setEditing] = useState<Partial<RecordItem> | null>(null), [deleting, setDeleting] = useState<RecordItem | null>(null), [done, setDone] = useState<number[]>([]), [busy, setBusy] = useState(false)
   const query = filter === 'done' ? 'status=completed&sort=updated_at' : `due=${filter === 'open' ? 'open' : filter}&sort=priority`
   const data = useRecords('tasks', `per_page=100&${query}&search=${encodeURIComponent(search)}&priority=${priority}`)
@@ -83,6 +83,13 @@ export default function TasksPage() {
     setQuick('')
   }
 
+  // A notification links to its task (/tasks?task=ID): that row opens (see the initial state) and is brought into view once it is listed.
+  const wanted = Number(params.get('task')) || null, scrolled = useRef<number | null>(null)
+  useEffect(() => {
+    if (!wanted || scrolled.current === wanted || !data.items.some(i => i.id === wanted)) return
+    scrolled.current = wanted
+    window.setTimeout(() => document.querySelector(`[data-task="${wanted}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250)
+  }, [wanted, data.items])
   const items = data.items.filter(i => filter === 'done' || !['completed', 'cancelled'].includes(String(i.status)) || done.includes(i.id))
   // Changing the filter, search or priority re-reads the list; say how many tasks it now shows (not on first load).
   const listKey = `${query}|${search}|${priority}`, announced = useRef(listKey), count = items.length
@@ -190,7 +197,7 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, o
     start.current = null; setDx(0)
   }
   const SwipeIcon = icons[action]
-  return <m.li layout exit={{ opacity: 0, height: 0 }} className={`task-item swipeable ${done ? 'is-done' : ''} ${expanded ? 'expanded' : ''}`}>
+  return <m.li layout exit={{ opacity: 0, height: 0 }} data-task={task.id} className={`task-item swipeable ${done ? 'is-done' : ''} ${expanded ? 'expanded' : ''}`}>
     <span className={`swipe-hint ${live ? `on ${side} tone-${swipeTone(action)}` : ''} ${ready ? 'ready' : ''}`} aria-hidden="true">
       {live && <span className={`swipe-label at-${side === 'right' ? 'left' : 'right'}`}>{SwipeIcon && <SwipeIcon size={16} />}{ready ? t('Release', 'اترك') : words[action].short}</span>}
     </span>
