@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,14 @@ class FocusSession extends Model
     public const DISTRACTIONS = ['phone', 'people', 'notifications', 'thought', 'other'];
 
     protected $guarded = ['id'];
+
+    protected $appends = ['server_time'];
+
+    /** The server's clock when the record is sent, so the app can count down by it even if the device clock is off. */
+    protected function serverTime(): Attribute
+    {
+        return Attribute::get(fn (): string => now()->toIso8601String());
+    }
 
     protected function casts(): array
     {

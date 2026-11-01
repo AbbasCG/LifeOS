@@ -2943,7 +2943,7 @@ Push and in-app notifications carried one-tap buttons only for habits ("Done") a
 
 # V43 — Security and privacy review
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (df3b1bf) after PR #41 (V42) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (df3b1bf) after PR #41 (V42) was merged. Merged into `main` as PR #42.
 
 ## What was reviewed
 Permissions and sessions, what is stored on the device, what leaves the app (push, AI providers, speech), and the browser-facing surface.
@@ -2976,3 +2976,36 @@ Permissions and sessions, what is stored on the device, what leaves the app (pus
 - **Real browser enforcement of the CSP and headers on a deployed HTTPS site is NOT VERIFIED** (checked in the test browser and by response tests only). HSTS is left to the web server or proxy that terminates HTTPS.
 - Data sent to an AI provider or to the browser's speech service when the person opts in is governed by those providers; the app only asks consent first.
 - The offline queue of unsent changes stays on the device after sign-out (see above); a person on a shared device should discard it from "Waiting to sync".
+
+---
+
+# V44 — Focus timer fix and Thmanyah everywhere
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (250f13a) after PR #42 (V43) was merged.
+
+## What was reported
+1. On the Focus page the timer does not run: right after pressing Start the session stops by itself and shows "Session complete — time saved", with no counting.
+2. The Thmanyah font was not used across the whole platform.
+
+## 1. The timer
+**Cause (reproduced).** The countdown was computed from the *device* clock minus the time the *server* recorded as the start. If the device clock is ahead of the server (a wrong date/time, or automatic time switched off) by more than the session length, the elapsed time was already the whole session on the first tick, so the page "finished" it immediately. An unreadable start time had the same effect (the sum became `NaN`, and `NaN > 0` is false, so the page also finished it). A new Playwright test with the device clock 6 hours ahead fails on the old code (the session is `completed` within seconds) and passes now.
+
+**What changed.**
+- Every focus session record now carries `server_time`, the server's clock when it was sent. The page keeps the gap between the two clocks (`skew_ms`) and counts by the server's clock, so a wrong device clock cannot end or lengthen a session.
+- An unreadable time (including microseconds on browsers that reject them) counts as "just started" and can never finish a session by accident; the elapsed time is always between 0 and the session length.
+- No migration, no new endpoint, no new dependency.
+
+## 2. Thmanyah everywhere
+The Arabic interface already used Thmanyah Sans, but the **English** interface listed *Inter* first, so English text was not Thmanyah. Thmanyah Sans is now first in both languages (Inter stays only as a fallback if the font files are missing); headings keep Thmanyah Serif Display; code blocks keep a monospace face on purpose. No other rule in the app styles names another family.
+
+The font files are still **not in Git** (licence): they must be installed on the server as described in `frontend/public/fonts/thmanyah/README.md`; without them the browser uses the fallback.
+
+## Testing
+- **Backend (PHPUnit):** `FocusExperienceTest` gains a test that sessions carry the server clock.
+- **Vitest:** `v44.test.ts` (8 tests: counting, a device clock hours ahead, the skew stamp, unreadable or missing times, microseconds, clamping, paused sessions; Thmanyah first in both stacks and no other family in the app styles).
+- **Results:** backend 312/312 on SQLite and PostgreSQL 16; Vitest 237/237; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; full Playwright run 124 passed, 14 skipped, 0 failed.
+- **Playwright:** `focus-clock.spec.ts`, desktop and phone: a session starts and keeps counting with the device clock 6 hours ahead (this test fails on the previous code); the computed font on the body, buttons, headings and navigation starts with a Thmanyah face in English and Arabic.
+
+## Known limitations (V44)
+- That the cause on your device is a clock difference is **NOT VERIFIED on the device itself**: it reproduces the exact symptom and the fix covers it, but if the problem continues, send the device's date, time and time zone settings.
+- The fonts depend on the licensed files being installed on the server (see above); their rendering on real devices is NOT VERIFIED.
