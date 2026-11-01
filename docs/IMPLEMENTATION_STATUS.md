@@ -3003,6 +3003,7 @@ The font files are still **not in Git** (licence): they must be installed on the
 ## Testing
 - **Backend (PHPUnit):** `FocusExperienceTest` gains a test that sessions carry the server clock.
 - **Vitest:** `v44.test.ts` (8 tests: counting, a device clock hours ahead, the skew stamp, unreadable or missing times, microseconds, clamping, paused sessions; Thmanyah first in both stacks and no other family in the app styles).
+- **Results:** backend 312/312 on SQLite and PostgreSQL 16; Vitest 237/237; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; full Playwright run 124 passed, 14 skipped, 0 failed.
 - **Playwright:** `focus-clock.spec.ts`, desktop and phone: a session starts and keeps counting with the device clock 6 hours ahead (this test fails on the previous code); the computed font on the body, buttons, headings and navigation starts with a Thmanyah face in English and Arabic.
 
 ## Known limitations (V44)
