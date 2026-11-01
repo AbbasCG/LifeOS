@@ -24,6 +24,20 @@ class FocusExperienceTest extends TestCase
         $this->user = User::factory()->create();
     }
 
+    public function test_sessions_carry_the_server_clock_so_a_wrong_device_clock_cannot_end_them_early(): void
+    {
+        $this->actingAs($this->user);
+
+        $started = $this->postJson('/api/focus-sessions', ['kind' => 'focus', 'duration_seconds' => 1500, 'mode' => 'custom'])->assertCreated();
+        $this->assertSame(now()->toIso8601String(), CarbonImmutable::parse($started->json('server_time'))->toIso8601String());
+        $this->assertSame(0, $started->json('elapsed_seconds'));
+
+        $this->travel(30)->seconds();
+        $list = $this->getJson('/api/focus-sessions')->assertOk();
+        $this->assertSame(now()->toIso8601String(), CarbonImmutable::parse($list->json('data.0.server_time'))->toIso8601String());
+        $this->assertSame('running', $list->json('data.0.status'));
+    }
+
     public function test_session_links_task_and_project_and_retries_do_not_duplicate(): void
     {
         $project = Project::create(['user_id' => $this->user->id, 'title' => 'Thesis']);

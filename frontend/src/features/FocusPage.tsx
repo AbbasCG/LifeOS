@@ -11,7 +11,7 @@ import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { ErrorMessage, Skeleton } from '../components/ui/Shared'
-import { clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
+import { clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, stampSession, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
 import { notify as notifyUser } from '../lib/quickActions'
 
 const DISTRACTIONS = ['phone', 'people', 'notifications', 'thought', 'other'] as const
@@ -27,11 +27,11 @@ export default function FocusPage() {
   const pendingStart = useRef<string | null>(null), finishing = useRef<number | null>(null)
 
   const reload = useCallback(async () => {
-    try { setSessions((await api<Page<FocusSessionRecord>>('/api/focus-sessions')).data) } catch (e) { setError((e as Error).message) }
+    try { setSessions((await api<Page<FocusSessionRecord>>('/api/focus-sessions')).data.map(stampSession)) } catch (e) { setError((e as Error).message) }
   }, [])
   useEffect(() => {
     let alive = true
-    api<Page<FocusSessionRecord>>('/api/focus-sessions').then(p => { if (alive) setSessions(p.data) }).catch(e => { if (alive) setError((e as Error).message) })
+    api<Page<FocusSessionRecord>>('/api/focus-sessions').then(p => { if (alive) setSessions(p.data.map(stampSession)) }).catch(e => { if (alive) setError((e as Error).message) })
     const id = window.setInterval(() => setNow(Date.now()), 500)
     return () => { alive = false; window.clearInterval(id) }
   }, [])
@@ -55,7 +55,7 @@ export default function FocusPage() {
     setBusy(true); setError('')
     try {
       const updated = await api<FocusSessionRecord>(`/api/focus-sessions/${active.id}`, 'PATCH', { action, ...extra })
-      setSessions(list => list?.map(s => s.id === updated.id ? updated : s) ?? null)
+      setSessions(list => list?.map(s => s.id === updated.id ? stampSession(updated) : s) ?? null)
       if (updated.status === 'completed') { setNotes(''); insights.reload() }
       return updated
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }

@@ -5,6 +5,8 @@ export type Interruption = { at: string; reason: string; note?: string | null; e
 export type FocusSessionRecord = {
   id: number; status: 'running' | 'paused' | 'completed' | 'cancelled'; kind: SessionKind; mode: FocusMode | null; cycle: number | null
   duration_seconds: number; elapsed_seconds: number; resumed_at: string | null; completed_at: string | null; started_at: string | null; created_at: string
+  /** The server's clock when it sent this record; with `skew_ms` it keeps the countdown right even if the device clock is off. */
+  server_time?: string; skew_ms?: number
   notes: string | null; interruptions: Interruption[] | null; task_id: number | null; project_id: number | null
   task?: { id: number; title: string } | null; project?: { id: number; title: string; color: string } | null
 }
@@ -19,9 +21,30 @@ export const POMODORO = { focus: 25, short: 5, long: 15, cyclesBeforeLong: 4 }
 export const DEEP_MINUTES = 90
 
 /** Seconds elapsed for a session right now (server time plus the running stretch). */
-export function elapsedNow(session: Pick<FocusSessionRecord, 'status' | 'elapsed_seconds' | 'resumed_at' | 'duration_seconds'>, now: number): number {
-  const running = session.status === 'running' && session.resumed_at ? Math.max(0, Math.floor((now - new Date(session.resumed_at).getTime()) / 1000)) : 0
-  return Math.min(session.duration_seconds, session.elapsed_seconds + running)
+/** A timestamp from the server as milliseconds, or null when it cannot be read (some browsers reject microseconds). */
+export function parseStamp(value: string | null | undefined): number | null {
+  if (!value) return null
+  const direct = new Date(value).getTime()
+  if (Number.isFinite(direct)) return direct
+  const trimmed = new Date(value.replace(/(\.\d{3})\d+/, '$1')).getTime()
+  return Number.isFinite(trimmed) ? trimmed : null
+}
+
+/** Remember how far this device's clock is from the server's at the moment the record arrived. */
+export const stampSession = (session: FocusSessionRecord): FocusSessionRecord => {
+  const server = parseStamp(session.server_time)
+  return server === null ? session : { ...session, skew_ms: server - Date.now() }
+}
+
+/**
+ * Seconds of the session used so far. Uses the server's clock (not only this device's), and an unreadable time counts as
+ * "just started" so a session can never finish by accident.
+ */
+export function elapsedNow(session: Pick<FocusSessionRecord, 'status' | 'elapsed_seconds' | 'resumed_at' | 'duration_seconds'> & { skew_ms?: number }, now: number): number {
+  const since = session.status === 'running' ? parseStamp(session.resumed_at) : null
+  const running = since === null ? 0 : Math.max(0, Math.floor((now + (session.skew_ms ?? 0) - since) / 1000))
+  const total = (session.elapsed_seconds || 0) + running
+  return Math.max(0, Math.min(session.duration_seconds, Number.isFinite(total) ? total : 0))
 }
 
 export function clock(seconds: number): string {
