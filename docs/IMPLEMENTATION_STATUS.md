@@ -2854,7 +2854,7 @@ So Copilot was already light; the busy first screens are **Tasks (21 buttons), H
 
 # V40 — A clear way to get the phone app
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (2631c38) after PR #38 (V39) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (2631c38) after PR #38 (V39) was merged. Merged into `main` as PR #39.
 
 ## The question
 Is there a strong, visible link on the site that tells someone to get the phone app (the web app)? If not, add one.
@@ -2881,3 +2881,28 @@ After V37 the install lived in three places, none of them a strong link:
 ## Known limitations (V40)
 - **The real install is NOT VERIFIED on a device** (a headless browser cannot install an app; the tests hand the page the event a browser would send). The Android steps describe Chrome and Edge's menu as documented; button names vary between browser versions. Please try `/install` on a real phone.
 - The page serves like the other pages: the site's web server must send unknown addresses to the app (it already does for `/login`, so `/install` works the same way).
+
+# V41 — Schedule a task from the phone
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (9a0b42d) after PR #39 (V40) was merged.
+
+## The gap
+Putting a task at a time in the calendar on a phone took several taps: the calendar opens on the agenda on phones, and the "Place a task, then tap a time slot" tray lives in the day and week views.
+
+## What changed
+- **"Schedule" in the open task row** (Tasks → open the task): up to three buttons with the next free times that fit the task, for example "Tomorrow 9:30 AM", "Tue 9:30 AM". One tap books a time block for that task in the calendar, the same flexible event the calendar's own "Place" makes, and a toast offers **Undo**, which removes it. Looking at the suggestions books nothing.
+- **How the times are found:** the server's own free-time answer (working hours in the account's timezone, minus what is already booked) for the next seven days, asking only for stretches at least as long as the task (30 minutes when the task has no estimate); the first fit on each working day, never in the past, starting on a quarter hour. The day and time are written in the account's timezone.
+- **A new swipe action, "Schedule in the next free time"**, chosen in Settings → Swipe actions like the others: swiping books the first free time in the next week, with the same Undo. None of the swipes is set to it by default.
+- **Explicit only:** nothing is booked without a tap or a swipe you chose to set; no external calendar is written (these are LifeOS events, as the calendar's Place already made); the shown chips are named "Schedule Tomorrow 9:30 AM" for screen readers.
+- No backend change, no new dependency.
+
+## Testing
+- **Vitest:** `v41.test.tsx` (5 tests: first fit per working day and never in the past, quarter-hour start, nothing when nothing fits, day and time words in the account's zone, the chips book nothing until tapped and then post the right event, Undo deletes it, only long-enough slots are asked for); `v38.test.tsx` updated for the new swipe option; 219/219.
+- **Playwright:** a task is scheduled from its row in one tap (event created for the task, flexible, as long as the task, not in the past) and Undo removes it; a swipe set to "Schedule" books the first free time (phone, real touch).
+- **A side fix from the full run:** two Arabic accessibility scans flagged the "Adjust hours" link inside a muted line on the planning page (`link-in-text-block`: a link in text that is told apart by colour alone). Links directly inside muted text are now underlined; the accessibility spec was re-run and passes (13 passed, 5 skipped).
+- **Results:** backend unchanged (299/299 in V34); Vitest 219/219; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; the full Playwright run had 110 passed and 14 skipped, plus those 2 accessibility failures, fixed as above. Visual check on Pixel 7.
+
+## Known limitations (V41)
+- It does not tell that a task already has a time block (a second tap books the next free time); the calendar shows each block, and Undo removes the last one.
+- Suggestions come from working hours only; it does not weigh energy or focus time the way the planner does.
+- Moving a block after booking is done in the calendar, as before.
