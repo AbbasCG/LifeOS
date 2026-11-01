@@ -573,3 +573,15 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 @media (max-width: 700px) {
   .prompt-chips .chip-button:nth-child(n+4) { display: none; }
 }
+
+/* Get the phone app (V40): the link on the sign-in page and in the menu, and the public install page. */
+.install-link { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin-top: var(--space-4, 16px); padding: 0 14px; border-radius: 12px; border: 1px solid var(--hairline-strong, var(--color-border)); color: var(--color-primary); font-weight: 650; text-decoration: none; }
+.install-link:hover { border-color: var(--color-primary); }
+.auth-form .install-link { width: 100%; }
+.install-page { max-width: 640px; margin: 0 auto; padding: 16px; display: grid; gap: var(--space-4, 16px); }
+.install-top { display: flex; align-items: center; justify-content: space-between; }
+.install-hero { display: grid; gap: var(--space-3, 12px); justify-items: start; padding-block: var(--space-4, 16px); }
+.install-hero h1 { margin: 0; font-size: 28px; }
+.install-hero > svg { color: var(--color-primary); }
+.install-big { min-height: 52px; font-size: 17px; }
+.install-platform h2 { margin: 0 0 var(--space-3, 12px); font-size: 17px; }
