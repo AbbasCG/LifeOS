@@ -2909,7 +2909,7 @@ Putting a task at a time in the calendar on a phone took several taps: the calen
 
 # V42 — Task reminders you can answer from the notification
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (044bc27) after PR #40 (V41) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (044bc27) after PR #40 (V41) was merged. Merged into `main` as PR #41.
 
 ## What existed
 Push and in-app notifications carried one-tap buttons only for habits ("Done") and when a focus session ended ("Start break", "Focus again"). A **task reminder or deadline** notification had no buttons and linked to the plain task list, not to the task.
@@ -2938,3 +2938,41 @@ Push and in-app notifications carried one-tap buttons only for habits ("Done") a
 - **Real push delivery and the buttons on a real phone are NOT VERIFIED:** it needs a push service and a real browser. Notification buttons are only shown by browsers that support them (not by Safari on iPhone); there, tapping the notification opens the task instead. The app-side actions are tested through the same links a button opens.
 - **The first toast can be in the wrong language** when a link is opened on a device that has never opened the app: the app reads the saved account language a moment after it starts. On a device that has been used, the language is already known.
 - "In 1 hour" and "Tomorrow" need a connection (they are not queued for later); "Done" is.
+
+---
+
+# V43 — Security and privacy review
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (df3b1bf) after PR #41 (V42) was merged.
+
+## What was reviewed
+Permissions and sessions, what is stored on the device, what leaves the app (push, AI providers, speech), and the browser-facing surface.
+
+## Found good (no change needed)
+- **Sign-in:** only the five sign-in routes (login, register, forgot/reset password, two-factor challenge) are open to guests; everything else sits behind `auth:sanctum` and rate limits.
+- **Ownership:** records are always looked up inside the signed-in account (`owned()` plus the ownership policy); another account's record answers 404 and is never changed.
+- **Service worker:** never caches `/api`, `/sanctum` or any non-GET request; it keeps only the app shell and static assets.
+- **Offline queue:** kept per account on the device (`lifeos-offline-<id>`), so another account on the same device never sees or sends it. It is not wiped on sign-out on purpose: that would silently lose unsent changes.
+- **Push:** the payload (title, body, link, buttons) is encrypted end to end to the browser by Web Push; it carries no e-mail address or token.
+- **Audit log:** stores only scalar metadata (action, IP, user agent); no task text.
+- **Dependencies:** `composer audit` and `npm audit --omit=dev` report no known vulnerabilities. No secrets, keys or private fonts are in Git; no `innerHTML`-style sinks in the frontend.
+
+## What changed
+- **CORS:** a new `config/cors.php` allows no foreign origin by default (the app and API share one origin). `CORS_ALLOWED_ORIGINS` (comma separated) is only for a split deployment. Before this, the framework default answered `Access-Control-Allow-Origin: *`.
+- **Security headers** on every response (`SecurityHeaders` middleware): `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Permissions-Policy` (camera, geolocation, payment off; microphone only for this site, used by dictation).
+- **`/api` responses are `Cache-Control: no-store, private`**, so personal data is not kept by browsers or proxies.
+- **Content Security Policy** for the production page only (a build-time `<meta>`, so the dev server is untouched): scripts, connections and workers from this origin only, no plugins, forms only to this origin. Styles allow inline (React style attributes).
+- **Signing out forgets the speech-service consent** on that device, so the next person on a shared device is asked again.
+- `.env.example` now states the production settings (`APP_DEBUG=false`, secure cookies, HTTPS, empty CORS).
+
+## Testing
+- **Backend (PHPUnit):** `RouteSecurityTest` (5 tests, 181 assertions: the open-route list is exactly the five sign-in routes; **every** other API route answers 401 to a guest, found from the route table so a new route cannot skip it; one account cannot read, change or delete another's tasks, projects, goals, habits, categories, events, notifications, focus sessions, plans or habit entries; records cannot be pointed at another account's project, goal or category) and `SecurityHeadersTest` (3 tests: headers, no-store, foreign origin gets no CORS permission).
+- **Vitest:** `v43.test.tsx` (4 tests: consent cleared on sign-out; CSP allows only this origin, no plugins, no eval or inline scripts).
+- **Playwright:** the whole suite was run against the build that carries the CSP, so any blocked resource would have failed a test.
+- **Results:** backend 311/311 on SQLite and PostgreSQL 16; Vitest 229/229; `tsc -b`, ESLint (0 errors, 1 pre-existing warning), build and the size check clean; full Playwright run 118 passed, 14 skipped (desktop/phone-only), 0 failed.
+
+## Known limitations (V43)
+- **Not a penetration test.** This is a code and configuration review plus regression tests; no external audit was done.
+- **Real browser enforcement of the CSP and headers on a deployed HTTPS site is NOT VERIFIED** (checked in the test browser and by response tests only). HSTS is left to the web server or proxy that terminates HTTPS.
+- Data sent to an AI provider or to the browser's speech service when the person opts in is governed by those providers; the app only asks consent first.
+- The offline queue of unsent changes stays on the device after sign-out (see above); a person on a shared device should discard it from "Waiting to sync".
