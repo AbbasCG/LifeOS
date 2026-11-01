@@ -29,7 +29,7 @@ test('a task moves to tomorrow and changes priority in two taps each, with Undo'
 
     // Move to tomorrow: tap the task (1), tap "Tomorrow" (2). 17:00 on the account's tomorrow.
     await row.locator('.task-body').click()
-    await row.getByRole('button', { name: 'Tomorrow' }).click()
+    await row.getByRole('button', { name: 'Tomorrow', exact: true }).click()
     await expect.poll(async () => (await read()).due_at ? dayIn((await read()).due_at!, zone) : null).toBe(dayIn(new Date(Date.now() + 86_400_000), zone))
     expect(clock((await read()).due_at!, zone)).toBe('05:00 PM')
 
@@ -284,4 +284,64 @@ test('Copilot offers three ideas on a phone and more on a larger screen, and sen
   if (isMobile) expect(visible).toBe(3); else expect(visible).toBeGreaterThan(3)
   await expect(page.getByText('Tap an idea or type.')).toBeVisible()
   expect(sent).toBe(0)
+})
+
+test('a task is scheduled from its row in one tap on a suggested free time, and Undo takes it out of the calendar', async ({ page, setLanguage }) => {
+  await setLanguage('en')
+  await page.goto('/')
+  const made = await call(page, 'POST', '/api/tasks', { title: `E2E schedule ${Date.now()}`, status: 'todo', priority: 'urgent', estimated_minutes: 30, due_at: new Date(Date.now() + 3 * 86_400_000).toISOString() })
+  const id = made.body.data.id as number, title = made.body.data.title as string
+  let eventId: number | null = null
+  try {
+    await page.goto('/tasks')
+    const row = page.locator('.task-item', { hasText: title })
+    await expect(row).toBeVisible()
+    await row.locator('.task-body').click()
+    const group = row.getByRole('group', { name: 'Schedule' })
+    await expect(group.locator('button').first()).toBeVisible()
+    // Nothing is booked just by looking.
+    const before = await call(page, 'GET', `/api/tasks/${id}`)
+    expect(before.body.data.title).toBe(title)
+
+    const booked = page.waitForResponse(r => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    await group.locator('button').first().click()
+    const response = await booked
+    expect(response.status()).toBe(201)
+    const event = (await response.json()).data as { id: number; task_id: number; kind: string; starts_at: string; ends_at: string }
+    eventId = event.id
+    expect(event.task_id).toBe(id)
+    expect(event.kind).toBe('flexible')
+    expect((Date.parse(event.ends_at) - Date.parse(event.starts_at)) / 60000).toBe(30)
+    expect(Date.parse(event.starts_at)).toBeGreaterThan(Date.now() - 60_000)
+
+    const removed = page.waitForResponse(r => /\/api\/events\/\d+$/.test(r.url()) && r.request().method() === 'DELETE')
+    await page.getByRole('button', { name: 'Undo' }).click()
+    expect((await removed).ok()).toBe(true)
+    eventId = null
+  } finally {
+    if (eventId) await call(page, 'DELETE', `/api/events/${eventId}`)
+    await call(page, 'DELETE', `/api/tasks/${id}`)
+  }
+})
+
+test('the swipe can be set to schedule a task in the next free time', async ({ page, setLanguage, isMobile }) => {
+  test.skip(!isMobile, 'a touch gesture')
+  await setLanguage('en')
+  await page.goto('/')
+  await page.evaluate(() => { localStorage.setItem('lifeos-swipe-actions', JSON.stringify({ right: 'complete', left: 'schedule' })); localStorage.setItem('lifeos-swipe-tip', '1') })
+  const { id, title } = await swipeTask(page, 3 * 86_400_000)
+  let eventId: number | null = null
+  try {
+    await page.goto('/tasks')
+    const booked = page.waitForResponse(r => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    await swipeRow(page, title, -110, async () => { await expect(page.locator('.task-item', { hasText: title }).locator('.swipe-label')).toContainText('Release') })
+    const response = await booked
+    expect(response.status()).toBe(201)
+    eventId = ((await response.json()).data as { id: number; task_id: number }).id
+    expect(((await response.json()).data as { task_id: number }).task_id).toBe(id)
+  } finally {
+    if (eventId) await call(page, 'DELETE', `/api/events/${eventId}`)
+    await call(page, 'DELETE', `/api/tasks/${id}`)
+    await page.evaluate(() => localStorage.removeItem('lifeos-swipe-actions'))
+  }
 })

@@ -46,7 +46,7 @@ describe('Settings → Swipe actions', () => {
   it('says in words that delete asks first, and offers every action on both sides', () => {
     render(wrap(<SwipeSettings />))
     const options = [...(screen.getByLabelText('Swipe right') as HTMLSelectElement).options].map(o => o.text)
-    expect(options).toEqual(['Complete', 'Snooze to tomorrow', 'Snooze to next week', 'Start focus', 'Delete (asks first)', 'Nothing'])
+    expect(options).toEqual(['Complete', 'Snooze to tomorrow', 'Snooze to next week', 'Schedule in the next free time', 'Start focus', 'Delete (asks first)', 'Nothing'])
     act(() => setSwipeAction('left', 'none'))
     expect((screen.getByLabelText('Swipe left') as HTMLSelectElement).value).toBe('none')
   })

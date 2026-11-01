@@ -5,8 +5,8 @@ import { useSyncExternalStore } from 'react'
  * swipe to the left, chosen in Settings. Kept on this device (a gesture belongs to the phone in your hand), nothing is sent
  * anywhere. Deleting only ever asks first; a snooze moves the due date and offers Undo.
  */
-export type SwipeAction = 'complete' | 'tomorrow' | 'nextweek' | 'focus' | 'delete' | 'none'
-export const SWIPE_ACTIONS: SwipeAction[] = ['complete', 'tomorrow', 'nextweek', 'focus', 'delete', 'none']
+export type SwipeAction = 'complete' | 'tomorrow' | 'nextweek' | 'schedule' | 'focus' | 'delete' | 'none'
+export const SWIPE_ACTIONS: SwipeAction[] = ['complete', 'tomorrow', 'nextweek', 'schedule', 'focus', 'delete', 'none']
 export type SwipeSides = { right: SwipeAction; left: SwipeAction }
 export const DEFAULT_SWIPE: SwipeSides = { right: 'complete', left: 'tomorrow' }
 
@@ -45,9 +45,10 @@ export function swipeWords(t: (en: string, ar: string) => string): Record<SwipeA
     complete: { short: t('Done', 'تم'), full: t('Complete', 'إنجاز') },
     tomorrow: { short: t('Tomorrow', 'غداً'), full: t('Snooze to tomorrow', 'تأجيل إلى الغد') },
     nextweek: { short: t('Next week', 'الأسبوع القادم'), full: t('Snooze to next week', 'تأجيل إلى الأسبوع القادم') },
+    schedule: { short: t('Schedule', 'جدولة'), full: t('Schedule in the next free time', 'جدولة في أقرب وقت متاح') },
     focus: { short: t('Focus', 'تركيز'), full: t('Start focus', 'بدء التركيز') },
     delete: { short: t('Delete', 'حذف'), full: t('Delete (asks first)', 'حذف (يسأل أولاً)') },
     none: { short: '', full: t('Nothing', 'لا شيء') },
   }
 }
-export const swipeTone = (a: SwipeAction): 'success' | 'primary' | 'warning' | 'danger' | '' => ({ complete: 'success', tomorrow: 'warning', nextweek: 'warning', focus: 'primary', delete: 'danger', none: '' } as const)[a]
+export const swipeTone = (a: SwipeAction): 'success' | 'primary' | 'warning' | 'danger' | '' => ({ complete: 'success', tomorrow: 'warning', nextweek: 'warning', schedule: 'primary', focus: 'primary', delete: 'danger', none: '' } as const)[a]
