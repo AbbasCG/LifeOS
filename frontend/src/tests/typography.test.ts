@@ -22,9 +22,9 @@ describe('Thmanyah typography', () => {
     for (const file of FILES) expect(css).toContain(file)
   })
 
-  it('uses Thmanyah first in RTL and in LTR, with Inter only as a fallback', () => {
+  it('uses Thmanyah first in RTL and keeps Inter first for Latin in LTR', () => {
     expect(css).toMatch(/--font-arabic:\s*"Thmanyah Sans"/)
-    expect(css).toMatch(/--font-latin:\s*"Thmanyah Sans",\s*"Thmanyah Sans Arabic",\s*"Inter"/)
+    expect(css).toMatch(/--font-latin:\s*"Inter",\s*"Thmanyah Sans Arabic"/)
     expect(css).toMatch(/\[dir="rtl"\]\s*{\s*--font-ui:\s*var\(--font-arabic\)/)
     expect(css).toMatch(/\[dir="rtl"\] h1,[\s\S]*font-family: var\(--font-display-arabic\)/)
   })

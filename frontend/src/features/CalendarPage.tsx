@@ -13,6 +13,7 @@ import { useToast } from '../lib/toast'
 import { minutesLabel } from '../lib/dates'
 import { useStatusLabel } from './ResourcePage'
 import { Empty, ErrorMessage } from '../components/ui/Shared'
+import { DateTimeField } from '../components/ui/DateTimePicker'
 import { atMinutes, findConflict, layoutLanes, minutesInto, movePreview, overlappingIds, resizePreview, snap } from '../lib/calendar'
 import { sourceName } from '../lib/sources'
 import { useCalendarZone } from '../lib/useCalendarZone'
@@ -213,7 +214,7 @@ export default function CalendarPage() {
         <button className="icon-button" aria-label={t('Previous', 'السابق')} onClick={() => shift(-1)}><ChevronLeft className="flip-rtl" /></button>
         <button className="quiet" onClick={() => setDate(todayKey)}>{t('Today', 'اليوم')}</button>
         <button className="icon-button" aria-label={t('Next', 'التالي')} onClick={() => shift(1)}><ChevronRight className="flip-rtl" /></button>
-        <input className="cal-date hide-phone" type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)} aria-label={t('Date', 'التاريخ')} />
+        <DateTimeField className="cal-date hide-phone" kind="date" value={date} onChange={day => day && setDate(day)} label={t('Date', 'التاريخ')} />
       </div>
       <div className="segmented cal-views" role="radiogroup" aria-label={t('Calendar view', 'عرض التقويم')}>{([['day', t('Day', 'يوم'), CalendarDays], ['week', t('Week', 'أسبوع'), Columns3], ['month', t('Month', 'شهر'), CalendarRange], ['agenda', t('Agenda', 'جدول'), List]] as const).map(([key, name, Icon]) => <button key={key} role="radio" aria-checked={view === key} className={view === key ? 'active' : ''} onClick={() => setView(key)}><Icon size={15} aria-hidden="true" /><span>{name}</span></button>)}</div>
       <button className="icon-button cal-free" aria-pressed={showFree} onClick={() => setShowFree(v => !v)} aria-label={showFree ? t('Hide free time', 'إخفاء الوقت المتاح') : t('Show free time', 'إظهار الوقت المتاح')} title={showFree ? t('Hide free time', 'إخفاء الوقت المتاح') : t('Show free time', 'إظهار الوقت المتاح')}>{showFree ? <EyeOff size={18} /> : <Eye size={18} />}</button>

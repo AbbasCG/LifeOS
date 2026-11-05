@@ -2981,7 +2981,7 @@ Permissions and sessions, what is stored on the device, what leaves the app (pus
 
 # V44 — Focus timer fix and Thmanyah everywhere
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (250f13a) after PR #42 (V43) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (250f13a) after PR #42 (V43) was merged. Merged into `main` as PR #43.
 
 ## What was reported
 1. On the Focus page the timer does not run: right after pressing Start the session stops by itself and shows "Session complete — time saved", with no counting.
@@ -3009,3 +3009,44 @@ The font files are still **not in Git** (licence): they must be installed on the
 ## Known limitations (V44)
 - That the cause on your device is a clock difference is **NOT VERIFIED on the device itself**: it reproduces the exact symptom and the fix covers it, but if the problem continues, send the device's date, time and time zone settings.
 - The fonts depend on the licensed files being installed on the server (see above); their rendering on real devices is NOT VERIFIED.
+
+---
+
+# V45 — Own date/time picker, font paths, Pomodoro hardening
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (3bf7b6f) after PR #43 (V44) was merged.
+
+## 1. A date and time picker of our own
+Every native browser date/time input is replaced (event start/end and "last date", task/project/goal deadline and reminder, event form on the Resource pages, smart planning start, timeline move dialog and date, calendar date, Plan my day date and "busy until", study/personal windows, Analytics from/to, Settings work/focus/quiet hours). No `type="date"`, `"time"` or `"datetime-local"` input is left in the app.
+
+- **How it looks:** a field shows the chosen value ("Wed, Mar 10 · 2:30 PM"); tapping it opens a month calendar (Monday first, like the Calendar page), a time section and Today / Clear / Done. On a computer it opens next to the field (two columns: calendar and time); on a phone it is a bottom sheet with 44 px targets.
+- **Time:** pick the hour and the minute (5-minute steps) or **type** it ("14:30", "2:30 pm", "1430", Arabic digits, ص/م); a **12 h / 24 h** switch is remembered on the device (`lifeos-hour-cycle`), starting from the language/region default; AM/PM in 12-hour mode.
+- **Same data as before:** values are still `YYYY-MM-DD`, `HH:mm` and `YYYY-MM-DDTHH:mm`, so forms and the server see exactly what they saw. Plain forms keep working through the field's `name`, and `required` still blocks an empty field. Calendar maths has no time zone in it, so the picker never moves a day; "today" is the account's today.
+- **Arabic / RTL:** the sheet and calendar mirror (weekdays start on the right, arrows flip), labels are Arabic, and the hour and minute grids keep numbers left to right.
+- **Keyboard and screen readers:** arrow keys move by day and week, Page Up/Down by month, Escape or Done closes and returns focus. Each day has its full name ("Friday, March 12, 2027"); selected and today are announced.
+- **Over a form:** the picker is its own modal dialog, so it opens above the event form and returns to it. Closing it never closes the form (React passes a portal's close/cancel events up to the form dialog; they are stopped at the picker, with a test).
+- New files: `src/components/ui/DateTimePicker.tsx`, `src/lib/dateTime.ts`, `src/styles/picker.css`.
+
+## 2. The Thmanyah font
+- **Cause found:** the stylesheet asks for `/fonts/thmanyah/<file>`, but the files may live in `public/fonts/Thmanyah/` (capital T) or with other capitalisation. On a case-sensitive server (and on the dev server, whose public-file list is case-sensitive) the request misses and the browser falls back, with no error. The CSS was also imported twice.
+- **Fix:** a small Vite plugin (`scripts/thmanyahFonts.mjs`) finds the folder and the files whatever their capitalisation: the dev server serves them, and the build writes them to `dist/fonts/thmanyah/` with the exact names the stylesheet asks for. `npm run check:fonts` lists which files were found. `fonts.css` is imported once. `.gitignore` now ignores fonts in any capitalised folder and any font file under `public/fonts` (the files stay out of Git).
+- **Result as you asked:** Arabic (RTL) interface = Thmanyah Sans everywhere; Arabic page headings (and the Copilot empty-state heading) = Thmanyah Serif Display; English keeps Inter first (this undoes the V44 change that put Thmanyah first in English). Code blocks keep a monospace face.
+- Not changed: the file names themselves must match the seven names in `public/fonts/thmanyah/README.md` (case does not matter). If your files are named differently, `check:fonts` shows which are missing.
+
+## 3. Pomodoro
+- V44 already fixed the case where the device clock is ahead of the server. This round hardens the rest and adds tests for the whole life of a session:
+  - Before a session is ended because the countdown reached zero, the page **asks the server again** and counts with the server's clock; it ends the session only if the server agrees the time is up. If it does not, nothing happens.
+  - If saving the finish **fails**, the page no longer announces "Session complete — time saved" (it used to), and it retries after 5 s instead of every tick.
+  - The finish is requested once per session however many times the page redraws.
+- Start, pause (the display holds), resume (continues), reset/discard (back to 25:00, session cancelled) are covered in Vitest and in Playwright (desktop, phone, English, Arabic).
+
+## Testing
+- **Vitest:** `picker.test.tsx` (18: calendar maths, 12/24 h, typed times, picking, month moves, min date, Clear/Today, time-only, keyboard, form post/required, Arabic, Escape never closes the form), `fonts.test.ts` (6), `v45.test.tsx` (5: Pomodoro), typography/v44 updated, `pick.ts` helper for older tests.
+- **Playwright:** `picker.spec.ts` (opens above the form and fits the screen in English and Arabic on desktop and phone; creates an event through the picker; axe scan of the open picker in light/dark, English/Arabic), `focus-pomodoro.spec.ts`, `fonts.spec.ts`, `focus-clock.spec.ts`; `timeline`, `calendar-zone`, `intelligence`, `timezone` updated to the picker.
+- **Results:** Vitest 266/266; backend 312/312 (unchanged by this work); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and the size check clean (first load 107.7 KB gzipped, budget 125 KB); full Playwright run 140 passed, 14 skipped, 0 failed.
+
+## Known limitations (V45)
+- Real phones and real browsers other than the test Chromium are NOT VERIFIED (iOS Safari bottom sheet and `<dialog>` stacking, Android keyboard with the typed boxes).
+- Whether the font fix solves the problem on your machine depends on the file names (see above); I could not see your folder.
+- The Pomodoro cause on your device is still NOT VERIFIED (a wrong device clock reproduces the exact symptom and is fixed; the server re-check covers any other wrong reading).
+- The timeline/Analytics date boxes take any day; only forms that set `min` (Plan my day, event end) grey out earlier days.

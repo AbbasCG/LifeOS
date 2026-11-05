@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, pick, field } from './fixtures'
 
 test('morning intelligence explains the day, and suggestions only become proposals', async ({ page, setLanguage }) => {
   await setLanguage('en')
@@ -46,7 +46,7 @@ test('re-planning after an interruption, and the AI Control Center in Arabic', a
   await page.goto('/today/plan')
   await expect(page.getByRole('radio', { name: /Deadlines first/ })).toBeVisible()
   await page.getByRole('button', { name: /Something came up/ }).click()
-  await page.getByLabel('Busy until').fill('16:00')
+  await pick(page, field(page, 'Busy until'), '16:00')
   await expect(page.locator('.why-list')).toContainText('Re-planned from 16:00')
 
   await setLanguage('ar')

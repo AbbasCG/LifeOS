@@ -10,6 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { useStatusLabel } from './ResourcePage'
 import { Dialog, EmptyState, ErrorMessage, Skeleton } from '../components/ui/Shared'
+import { DateTimeField } from '../components/ui/DateTimePicker'
 
 type Horizon = 'today' | 'week' | 'next_week'
 type Draft = PlanItem & { error?: string }
@@ -194,7 +195,7 @@ function BlockEditor({ initial, tasks, isNew, onClose, onSave }: { initial: Part
   return <Dialog title={isNew ? t('Add a focus block', 'إضافة فترة تركيز') : t('Change block time', 'تغيير وقت الفترة')} onClose={onClose}>
     <form className="form-grid" onSubmit={e => { e.preventDefault(); const s = new Date(start); const task = tasks.find(x => x.id === Number(taskId)); onSave({ task_id: Number(taskId), title: initial.title || task?.title, priority: initial.priority || task?.priority, starts_at: s.toISOString(), ends_at: new Date(s.getTime() + minutes * 60000).toISOString() }) }}>
       {isNew && <label className="full">{t('Task', 'المهمة')}<select value={taskId} onChange={e => setTaskId(e.target.value)} required>{initial.task_id && !tasks.some(x => x.id === initial.task_id) && <option value={initial.task_id}>{initial.title}</option>}{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}
-      <label>{t('Start', 'البداية')}<input type="datetime-local" required value={start} onChange={e => setStart(e.target.value)} /></label>
+      <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required value={start} onChange={setStart} /></label>
       <label>{t('Duration', 'المدة')}<select value={minutes} onChange={e => setMinutes(Number(e.target.value))}>{[...new Set([...options, minutes])].sort((a, b) => a - b).map(m => <option key={m} value={m}>{m} {t('min', 'د')}</option>)}</select></label>
       <p className="muted full">{t('Manual blocks may sit outside working hours. They still cannot overlap other commitments.', 'يمكن وضع الفترات اليدوية خارج ساعات العمل، لكنها لا تتداخل مع الالتزامات الأخرى.')}</p>
       <footer className="full row"><button type="button" className="quiet" onClick={onClose}>{t('Cancel', 'إلغاء')}</button><button className="primary" disabled={!start || !taskId}>{t('Apply', 'تطبيق')}</button></footer>

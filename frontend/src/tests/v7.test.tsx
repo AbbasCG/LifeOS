@@ -12,6 +12,7 @@ import { MoveDialog } from '../features/timeline/MoveDialog'
 import { ProposalCard } from '../features/assistant/ProposalCard'
 import { zonedParts, zonedToUtc, type TimelineItem } from '../lib/timeline'
 import type { AssistantProposal } from '../lib/api'
+import { pick } from './pick'
 
 type Route = { match: RegExp; method?: string; body: unknown; status?: number }
 function mockApi(routes: Route[]) {
@@ -80,13 +81,13 @@ describe('move with conflict preview', () => {
     const onMoved = vi.fn()
     render(wrap(<MoveDialog item={item} timeZone="Europe/Amsterdam" onClose={vi.fn()} onMoved={onMoved} />))
     expect(screen.getByText('Only this occurrence moves; the rest of the series stays.')).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Start'), { target: { value: '10:00' } })
-    fireEvent.change(screen.getByLabelText('End'), { target: { value: '10:15' } })
+    pick(/^Start/, '10:00')
+    pick(/^End/, '10:15')
     expect(await screen.findByText('Client call')).toBeInTheDocument()
     expect(screen.getByText('Google Calendar')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Move' })).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('Start'), { target: { value: '11:00' } })
-    fireEvent.change(screen.getByLabelText('End'), { target: { value: '11:15' } })
+    pick(/^Start/, '11:00')
+    pick(/^End/, '11:15')
     expect(await screen.findByText('This time is free.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Move' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Move' }))

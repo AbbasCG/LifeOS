@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, pick, field } from './fixtures'
 import type { TimelineData, TimelineItem } from '../src/lib/timeline'
 
 test('day and week views, filters, and a move preview that never saves by itself', async ({ page, setLanguage }) => {
@@ -29,12 +29,12 @@ test('day and week views, filters, and a move preview that never saves by itself
   const local = (iso: string) => new Intl.DateTimeFormat('en-GB', { timeZone: day!.zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso))
   const before = await page.evaluate(async id => (await (await fetch(`/api/timeline?from=${id}`, { credentials: 'include', headers: { Accept: 'application/json' } })).json()).items.length, day!.date)
 
-  await page.fill('.date-nav input[type=date]', day!.date)
+  await pick(page, page.locator('.date-nav .dtp-trigger'), day!.date)
   await page.locator('.tl-item.kind-event', { hasText: day!.a.title }).first().getByRole('button', { name: 'Move' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('This time is free.')).toBeVisible()
-  await dialog.getByLabel('Start').fill(local(day!.b.starts_at))
-  await dialog.getByLabel('End').fill(local(day!.b.ends_at!))
+  await pick(page, field(dialog, 'Start'), local(day!.b.starts_at))
+  await pick(page, field(dialog, 'End'), local(day!.b.ends_at!))
   await expect(dialog.locator('.move-preview.has-clash')).toContainText(day!.b.title)
   await expect(dialog.getByRole('button', { name: 'Move', exact: true })).toBeDisabled()
   await dialog.getByRole('button', { name: 'Cancel' }).click()

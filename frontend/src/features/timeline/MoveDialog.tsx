@@ -5,6 +5,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage } from '../../components/ui/Shared'
+import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { zonedParts, zonedToUtc, type MovePreview, type TimelineItem } from '../../lib/timeline'
 
 /**
@@ -48,9 +49,9 @@ export function MoveDialog({ item, timeZone, onClose, onMoved }: { item: Timelin
   return <Dialog title={t(`Move “${item.title}”`, `نقل «${item.title}»`)} onClose={onClose}>
     {item.meta.occurrence_start && <p className="muted small">{t('Only this occurrence moves; the rest of the series stays.', 'يُنقل هذا الموعد فقط؛ وتبقى بقية السلسلة كما هي.')}</p>}
     <div className="move-fields">
-      <label>{t('Date', 'التاريخ')}<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
-      <label>{t('Start', 'البداية')}<input type="time" value={from} onChange={e => setFrom(e.target.value)} /></label>
-      <label>{t('End', 'النهاية')}<input type="time" value={to} onChange={e => setTo(e.target.value)} /></label>
+      <label>{t('Date', 'التاريخ')}<DateTimeField kind="date" value={date} onChange={setDate} /></label>
+      <label>{t('Start', 'البداية')}<DateTimeField kind="time" value={from} onChange={setFrom} /></label>
+      <label>{t('End', 'النهاية')}<DateTimeField kind="time" value={to} onChange={setTo} /></label>
     </div>
     {!valid ? <p className="error" role="alert">{t('The end must be after the start.', 'يجب أن تكون النهاية بعد البداية.')}</p>
       : <div className={`move-preview ${clashes.length ? 'has-clash' : 'clear'}`} role="status" aria-live="polite" aria-busy={checking}>

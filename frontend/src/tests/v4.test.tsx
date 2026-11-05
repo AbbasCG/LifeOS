@@ -20,6 +20,7 @@ import { ProposalCard } from '../features/assistant/ProposalCard'
 import AssistantSettings from '../features/settings/AssistantSettings'
 import NotificationSettings from '../features/settings/NotificationSettings'
 import AutomationSettings from '../features/settings/AutomationSettings'
+import { pick } from './pick'
 
 type Route = { match: RegExp; method?: string; body: unknown; status?: number }
 function mockApi(routes: Route[]) {
@@ -50,7 +51,7 @@ describe('recurrence', () => {
     fireEvent.change(screen.getByLabelText('Frequency'), { target: { value: 'weekly' } })
     fireEvent.click(screen.getByRole('button', { name: new Date(2026, 0, 7).toLocaleDateString('en', { weekday: 'narrow' }), pressed: false }))
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: 'until' } })
-    fireEvent.change(screen.getByLabelText('Last date'), { target: { value: '2027-03-01' } })
+    pick(/^Last date/, '2027-03-01')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     const body = lastBody(fetcher, 'POST')

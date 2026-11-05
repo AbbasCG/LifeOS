@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, pick, field } from './fixtures'
 import type { Page } from '@playwright/test'
 
 /**
@@ -62,8 +62,8 @@ test('the calendar shows times in the account’s zone, can switch to the device
     const typed = `${tomorrow}T15:30`
     const newTitle = `${title} typed`
     await dialog.getByLabel('Title', { exact: true }).fill(newTitle)
-    await dialog.getByLabel('Start', { exact: true }).fill(typed)
-    await dialog.getByLabel('End', { exact: true }).fill(`${tomorrow}T16:30`)
+    await pick(page, field(dialog, 'Start'), typed)
+    await pick(page, field(dialog, 'End'), `${tomorrow}T16:30`)
     await dialog.getByRole('button', { name: /^Save|Create/ }).click()
     await expect(dialog).toBeHidden()
     const list = await call(page, 'GET', `/api/calendar?from=${encodeURIComponent(new Date(wanted - 86_400_000).toISOString())}&to=${encodeURIComponent(new Date(wanted + 2 * 86_400_000).toISOString())}`)

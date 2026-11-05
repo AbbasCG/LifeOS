@@ -156,9 +156,8 @@
 
 :root {
   --font-latin:
-    "Thmanyah Sans",
-    "Thmanyah Sans Arabic",
     "Inter",
+    "Thmanyah Sans Arabic",
     system-ui,
     -apple-system,
     "Segoe UI",

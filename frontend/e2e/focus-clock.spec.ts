@@ -40,14 +40,3 @@ test('a started focus session counts down even when the device clock is hours ah
 
   await call(page, 'PATCH', `/api/focus-sessions/${(await call(page, 'GET', '/api/focus-sessions') as { data: { id: number }[] }).data[0].id}`, { action: 'cancel' })
 })
-
-for (const language of ['en', 'ar'] as const) {
-  test(`the interface text uses a Thmanyah face first (${language})`, async ({ page, setLanguage }) => {
-    await setLanguage(language)
-    await page.goto('/')
-    await expect(page.locator('.now-card')).toBeVisible()
-    const families = await page.evaluate(() => [document.body, document.querySelector('button'), document.querySelector('h1,h2'), document.querySelector('.sidebar a, nav a')].filter(Boolean).map(el => getComputedStyle(el as Element).fontFamily))
-    expect(families.length).toBeGreaterThan(2)
-    for (const f of families) expect(f.startsWith('"Thmanyah '), f).toBe(true)
-  })
-}

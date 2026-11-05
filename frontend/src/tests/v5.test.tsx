@@ -19,6 +19,7 @@ import AssistantPage from '../features/AssistantPage'
 import AnalyticsPage from '../features/AnalyticsPage'
 import { ConnectedTasksPanel } from '../features/connected/ConnectedTasksPanel'
 import type { Analytics } from '../lib/api'
+import { pick } from './pick'
 
 type Route = { match: RegExp; method?: string; body: unknown; status?: number }
 function mockApi(routes: Route[]) {
@@ -220,8 +221,8 @@ describe('personal analytics', () => {
     expect(screen.queryByText(/\+300%/)).toBeNull()
     expect(screen.getByText(/Comparisons appear once at least two groups have 3\+ days/)).toBeInTheDocument()
     expect(screen.getByText('At risk')).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } })
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-07' } })
+    pick(/^From/, '2026-01-01')
+    pick(/^To/, '2026-01-07')
     fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
     await waitFor(() => expect(fetcher.mock.calls.some(c => String(c[0]).includes('/api/analytics?from=2026-01-01&to=2026-01-07'))).toBe(true))
     fireEvent.change(await screen.findByRole('combobox', { name: 'Project' }), { target: { value: '5' } })

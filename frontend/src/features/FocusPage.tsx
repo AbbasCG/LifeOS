@@ -26,15 +26,16 @@ export default function FocusPage() {
   const insights = useApi<FocusInsightsData>('/api/focus-sessions/insights?days=30')
   const pendingStart = useRef<string | null>(null), finishing = useRef<number | null>(null)
 
+  const load = useCallback(async () => (await api<Page<FocusSessionRecord>>('/api/focus-sessions')).data.map(stampSession), [])
   const reload = useCallback(async () => {
-    try { setSessions((await api<Page<FocusSessionRecord>>('/api/focus-sessions')).data.map(stampSession)) } catch (e) { setError((e as Error).message) }
-  }, [])
+    try { setSessions(await load()) } catch (e) { setError((e as Error).message) }
+  }, [load])
   useEffect(() => {
     let alive = true
-    api<Page<FocusSessionRecord>>('/api/focus-sessions').then(p => { if (alive) setSessions(p.data.map(stampSession)) }).catch(e => { if (alive) setError((e as Error).message) })
+    load().then(list => { if (alive) setSessions(list) }).catch(e => { if (alive) setError((e as Error).message) })
     const id = window.setInterval(() => setNow(Date.now()), 500)
     return () => { alive = false; window.clearInterval(id) }
-  }, [])
+  }, [load])
 
   const active = sessions?.find(s => s.status === 'running' || s.status === 'paused')
   const elapsed = active ? elapsedNow(active, now) : 0
@@ -61,16 +62,26 @@ export default function FocusPage() {
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }, [active, insights])
 
-  // When the countdown reaches zero, finish once (guarded against repeated ticks) and alert the user.
+  // When the countdown reaches zero, finish once and alert the user. Before ending anything, ask the server for the
+  // session again and count with its clock: a wrong reading on this device must never end a session that has time left.
   useEffect(() => {
     if (!active || active.status !== 'running' || remaining > 0 || finishing.current === active.id) return
-    finishing.current = active.id
-    const isBreak = active.kind !== 'focus'
-    void act('finish', notes ? { notes } : {}).then(() => {
+    const id = active.id, isBreak = active.kind !== 'focus'
+    finishing.current = id
+    const retryLater = () => window.setTimeout(() => { if (finishing.current === id) finishing.current = null }, 5000)
+    void (async () => {
+      let fresh: FocusSessionRecord[]
+      try { fresh = await load() } catch { retryLater(); return }
+      setSessions(fresh)
+      const current = fresh.find(s => s.id === id)
+      if (!current || current.status !== 'running') { finishing.current = null; return }
+      if (current.duration_seconds - elapsedNow(current, Date.now()) > 0) { finishing.current = null; return }
+      const done = await act('finish', notes ? { notes } : {})
+      if (!done) { retryLater(); return }
       notify(isBreak ? t('Break is over', 'انتهت الاستراحة') : t('Focus session complete', 'اكتملت جلسة التركيز'), isBreak ? t('Ready for the next round?', 'مستعد للجولة التالية؟') : t('Nice work. Take a short break.', 'عمل رائع. خذ استراحة قصيرة.'), isBreak)
       toast(isBreak ? t('Break finished.', 'انتهت الاستراحة.') : t('Session complete — time saved.', 'اكتملت الجلسة — حُفظ الوقت.'))
-    })
-  }, [active, remaining, act, notes, notify, toast, t])
+    })()
+  }, [active, remaining, act, load, notes, notify, toast, t])
 
   useEffect(() => {
     const base = document.title.replace(/^\d[\d:]* · /, '')

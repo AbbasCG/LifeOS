@@ -35,8 +35,8 @@ test('plan my day and habit logging follow the account’s day when it differs f
     const plan = page.waitForResponse(r => r.url().includes('/api/day-plan') && r.request().method() === 'GET')
     await page.goto('/today/plan')
     expect((await plan).status()).toBe(200)
-    await expect(page.locator('#plan-date')).toHaveValue(accountToday)
-    await expect(page.locator('#plan-date')).toHaveAttribute('min', accountToday)
+    await expect(page.locator('#plan-date')).toHaveAttribute('data-value', accountToday)
+    await expect(page.locator('#plan-date')).toHaveAttribute('data-min', accountToday)
 
     // A habit logged from Today is filed under the account's day, and the server takes it.
     const habit = (await call(page, 'POST', '/api/habits', { title: `E2E zone ${Date.now()}` })).body.data
