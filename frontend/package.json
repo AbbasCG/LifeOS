@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check:size": "node scripts/check-bundle.mjs"
+    "check:size": "node scripts/check-bundle.mjs",
+    "check:fonts": "node scripts/check-fonts.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

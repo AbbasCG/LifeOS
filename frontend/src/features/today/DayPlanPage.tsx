@@ -9,6 +9,7 @@ import { useToast } from '../../lib/toast'
 import { localDate } from '../../lib/hooks'
 import { minutesLabel } from '../../lib/dates'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { useReasonLabel } from '../../lib/labels'
 
 /**
@@ -47,7 +48,7 @@ export default function DayPlanPage() {
     <header className="page-heading"><div><p className="eyebrow">{t('Plan my day', 'خطط يومي')}</p><h1>{t('A realistic day, made with you', 'يوم واقعي تصنعه معك')}</h1><p className="muted">{t('Based on your real calendar, boundaries and energy. Nothing changes until you add it.', 'مبني على تقويمك الحقيقي وحدودك وطاقتك. لا يتغير شيء حتى تضيفه.')}</p></div>
       <div className="toolbar">
         <label className="sr-only" htmlFor="plan-date">{t('Day', 'اليوم')}</label>
-        <input id="plan-date" type="date" value={date} min={localDate()} onChange={e => { setDate(e.target.value); setSelected(null); setProposal(null) }} />
+        <DateTimeField id="plan-date" kind="date" required value={date} min={localDate()} onChange={day => { if (!day) return; setDate(day); setSelected(null); setProposal(null) }} />
         <button className="quiet" onClick={() => { setReplan(r => r + 1); setSelected(null); setProposal(null) }}><RefreshCw size={16} />{t('Replan from now', 'أعد التخطيط من الآن')}</button>
         <button className={`quiet ${extra ? 'has-filters' : ''}`} aria-expanded={interrupting} onClick={() => setInterrupting(v => !v)}><Zap size={16} />{t('Something came up?', 'طرأ شيء؟')}</button>
         <button className="quiet icon-button" aria-label={t('Boundaries and buffers', 'الحدود والفواصل')} aria-expanded={editing} onClick={() => setEditing(v => !v)}><Settings2 size={17} /></button>
@@ -56,7 +57,7 @@ export default function DayPlanPage() {
     {interrupting && <section className="panel interruption-panel reveal" aria-label={t('Re-plan after an interruption', 'إعادة التخطيط بعد مقاطعة')}>
       <p className="muted small">{t('Tell LifeOS what changed. The plan is recalculated from your real calendar — nothing changes until you add it.', 'أخبر LifeOS بما تغيّر. تُعاد حسابات الخطة من تقويمك الحقيقي — لا يتغير شيء حتى تضيفها.')}</p>
       <div className="move-fields">
-        <label>{t('Busy until', 'مشغول حتى')}<input type="time" value={interruption.busy_until} onChange={e => { setInterruption(i => ({ ...i, busy_until: e.target.value })); setSelected(null); setProposal(null) }} /></label>
+        <label>{t('Busy until', 'مشغول حتى')}<DateTimeField kind="time" value={interruption.busy_until} onChange={busy_until => { setInterruption(i => ({ ...i, busy_until })); setSelected(null); setProposal(null) }} /></label>
         <label>{t('Time lost (minutes)', 'الوقت الضائع (دقائق)')}<input type="number" min={0} max={600} step={15} value={interruption.lost_minutes || ''} onChange={e => { setInterruption(i => ({ ...i, lost_minutes: Math.max(0, Math.min(600, Number(e.target.value) || 0)) })); setSelected(null); setProposal(null) }} /></label>
         <button className="quiet" disabled={!extra} onClick={() => { setInterruption({ busy_until: '', lost_minutes: 0 }); setSelected(null); setProposal(null) }}>{t('Clear', 'مسح')}</button>
       </div>
@@ -139,10 +140,10 @@ function BoundaryEditor({ onSaved }: { onSaved: () => void }) {
     <div className="form-grid">
       <label>{t('Buffer around commitments (min)', 'فاصل حول الالتزامات (د)')}<input name="buffer_minutes" type="number" min={0} max={60} defaultValue={Number(data.buffer_minutes ?? 10)} /></label>
       <span />
-      <label>{t('Study from', 'الدراسة من')}<input name="study_start" type="time" defaultValue={String(data.study_start ?? '')} /></label>
-      <label>{t('Study until', 'الدراسة حتى')}<input name="study_end" type="time" defaultValue={String(data.study_end ?? '')} /></label>
-      <label>{t('Personal time from', 'الوقت الشخصي من')}<input name="personal_start" type="time" defaultValue={String(data.personal_start ?? '')} /></label>
-      <label>{t('Personal time until', 'الوقت الشخصي حتى')}<input name="personal_end" type="time" defaultValue={String(data.personal_end ?? '')} /></label>
+      <label>{t('Study from', 'الدراسة من')}<DateTimeField kind="time" name="study_start" defaultValue={String(data.study_start ?? '')} /></label>
+      <label>{t('Study until', 'الدراسة حتى')}<DateTimeField kind="time" name="study_end" defaultValue={String(data.study_end ?? '')} /></label>
+      <label>{t('Personal time from', 'الوقت الشخصي من')}<DateTimeField kind="time" name="personal_start" defaultValue={String(data.personal_start ?? '')} /></label>
+      <label>{t('Personal time until', 'الوقت الشخصي حتى')}<DateTimeField kind="time" name="personal_end" defaultValue={String(data.personal_end ?? '')} /></label>
       <label>{t('Study limit per day (min)', 'حد الدراسة اليومي (د)')}<input name="study_daily_limit" type="number" min={15} max={900} step={15} placeholder={t('No limit', 'بلا حد')} defaultValue={data.study_daily_limit == null ? '' : Number(data.study_daily_limit)} /></label>
       <label>{t('Personal limit per day (min)', 'حد الوقت الشخصي اليومي (د)')}<input name="personal_daily_limit" type="number" min={15} max={900} step={15} placeholder={t('No limit', 'بلا حد')} defaultValue={data.personal_daily_limit == null ? '' : Number(data.personal_daily_limit)} /></label>
     </div>

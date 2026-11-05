@@ -1,0 +1,55 @@
+/* The app's own date and time picker (components/ui/DateTimePicker.tsx). Logical properties throughout, so Arabic (RTL) mirrors by itself. */
+.dtp { position: relative; display: block; min-width: 0; }
+.dtp .dtp-value { position: absolute; inset: 0; width: 100%; min-height: 0; height: 100%; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.dtp-trigger { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 11px 12px; text-align: start; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text); font-size: 14px; }
+.dtp-trigger:hover:not(:disabled) { border-color: var(--color-primary); }
+.dtp-trigger[aria-expanded="true"] { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent); }
+.dtp-trigger svg { flex: none; color: var(--color-text-muted); }
+.dtp-trigger .dtp-empty { color: var(--color-text-muted); }
+
+.dtp-dialog { padding: 0; margin: 0; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); color: var(--color-text); box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.45); max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto; position: fixed; inset: auto; }
+.dtp-dialog::backdrop { background: rgba(8, 13, 36, 0.28); }
+.dtp-dialog:not(.is-phone) { width: min(612px, calc(100vw - 16px)); }
+.dtp-dialog:not(.is-phone):has(.dtp-cal:only-of-type):not(:has(.dtp-time)), .dtp-dialog:not(.is-phone):not(:has(.dtp-cal)) { width: min(336px, calc(100vw - 16px)); }
+.dtp-dialog.is-phone { inset: auto 0 0 0; width: 100%; max-width: none; max-height: 92dvh; border-radius: 20px 20px 0 0; border-inline: 0; border-bottom: 0; }
+.dtp-dialog.is-phone::backdrop { background: rgba(8, 13, 36, 0.5); }
+.dtp-inner { display: grid; gap: 12px; padding: 14px 16px 12px; }
+.dtp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dtp-head h2 { margin: 0; font-size: 15px; }
+.dtp-body { display: flex; flex-wrap: wrap; gap: 18px; }
+.dtp-cal { width: min(100%, 304px); display: grid; gap: 8px; align-content: start; }
+.dtp-time { width: min(100%, 244px); display: grid; gap: 10px; align-content: start; }
+.dtp-dialog.is-phone .dtp-cal, .dtp-dialog.is-phone .dtp-time { width: 100%; }
+.dtp-month { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dtp-month strong { font-size: 14px; }
+.dtp-month .icon-button, .dtp-head .icon-button { min-width: 40px; min-height: 40px; }
+.dtp-weekdays, .dtp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.dtp-weekdays span { font-size: 11px; color: var(--color-text-muted); padding: 4px 0; }
+.dtp-day { min-height: 40px; aspect-ratio: 1; width: 100%; max-width: 48px; justify-self: center; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--color-text); font-size: 14px; padding: 0; }
+.dtp-day:hover:not(:disabled) { background: var(--color-surface-muted); }
+.dtp-day.outside { color: var(--color-text-muted); }
+.dtp-day.today { border-color: var(--color-primary); font-weight: 700; }
+.dtp-day.selected, .dtp-day.selected:hover:not(:disabled) { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); font-weight: 700; opacity: 1; }
+.dtp-day:disabled { opacity: 0.3; }
+.dtp-typed { display: grid; gap: 4px; font-size: 12px; color: var(--color-text-muted); }
+.dtp-typed input { min-height: 40px; padding: 8px 10px; }
+.dtp-time-head { display: grid; gap: 8px; }
+.dtp-cycle, .dtp-period { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--color-surface-muted); }
+.dtp-cycle button, .dtp-period button { flex: 1; min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--color-text); font-size: 13px; }
+.dtp-cycle button[aria-pressed="true"], .dtp-period button.selected { background: var(--color-primary); color: var(--color-on-primary); font-weight: 700; }
+.dtp-cols { display: grid; gap: 10px; }
+.dtp-hours, .dtp-minutes { direction: ltr; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.dtp-hours button, .dtp-minutes button { min-height: 38px; padding: 0; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); color: var(--color-text); font-size: 13px; font-variant-numeric: tabular-nums; }
+.dtp-hours button:hover, .dtp-minutes button:hover { border-color: var(--color-primary); }
+.dtp-hours button.selected, .dtp-minutes button.selected { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); font-weight: 700; }
+.dtp-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 4px; border-top: 1px solid var(--color-border); }
+.dtp-foot .text-link:first-child { margin-inline-end: auto; }
+.dtp-foot .primary { min-height: 42px; padding-inline: 22px; }
+.dtp-dialog:focus-visible, .dtp-dialog *:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-primary) 55%, transparent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .dtp-day { min-height: 44px; }
+  .dtp-hours button, .dtp-minutes button { min-height: 44px; }
+  .dtp-cycle button, .dtp-period button { min-height: 44px; }
+  .dtp-inner { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: no-preference) { .dtp-dialog.is-phone[open] { animation: dtp-up 180ms ease-out; } @keyframes dtp-up { from { transform: translateY(24px); opacity: 0; } } }

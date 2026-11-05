@@ -14,4 +14,6 @@ thmanyahserifdisplay-Bold.woff2
 thmanyahserifdisplay-Black.woff2
 ```
 
+The folder may be named `thmanyah` or `Thmanyah` and the file names may differ in upper/lower case: the dev server and the build match them without regard to case, and the build writes them to `dist/fonts/thmanyah/` with the exact names above (a Linux web server is case-sensitive). Run `npm run check:fonts` to see which files were found.
+
 Without them the app still works and falls back to Inter or the system font. The faces are declared in `frontend/src/styles/fonts.css`.

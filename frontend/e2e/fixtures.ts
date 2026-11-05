@@ -30,3 +30,20 @@ export { expect }
 export async function noHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
 }
+
+/**
+ * Set a value through the app's own date/time picker (never the browser's): open the field, type the date and/or time into the
+ * picker's boxes, and close it. `value` is 'YYYY-MM-DD', 'HH:mm' or 'YYYY-MM-DDTHH:mm'.
+ */
+export async function pick(page: Page, trigger: import('@playwright/test').Locator, value: string) {
+  await trigger.click()
+  const sheet = page.locator('.dtp-dialog[open]')
+  await expect(sheet).toBeVisible()
+  const [date, time] = value.includes('T') ? value.split('T') : /^\d{4}-/.test(value) ? [value, ''] : ['', value]
+  if (date) { const box = sheet.getByRole('textbox', { name: 'Date' }); await box.fill(date); await box.press('Enter') }
+  if (time) { const box = sheet.getByRole('textbox', { name: 'Time' }); await box.fill(time); await box.press('Enter') }
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(sheet).toBeHidden()
+}
+/** The picker button inside a `<label>` whose text starts with `label`. */
+export const field = (scope: Page | import('@playwright/test').Locator, label: string) => scope.locator('label', { hasText: new RegExp(`^${label}`) }).locator('.dtp-trigger').first()

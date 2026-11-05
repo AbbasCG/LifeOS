@@ -10,6 +10,7 @@ import { useToast } from '../../lib/toast'
 import { localDate } from '../../lib/hooks'
 import { isValidZone } from '../../lib/dial'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { MoveDialog } from './MoveDialog'
 import { SendToCalendar } from '../connected/SendToCalendar'
 import type { WriteData } from '../../lib/calendarWrite'
@@ -107,7 +108,7 @@ export default function TimelinePage() {
           <button className="icon-button" aria-label={t('Previous', 'السابق')} onClick={() => setAnchor(a => addDays(a, view === 'week' ? -7 : -1))}><ChevronLeft size={18} className="flip-rtl" /></button>
           <button className="quiet" onClick={() => setAnchor(localDate())}>{t('Today', 'اليوم')}</button>
           <button className="icon-button" aria-label={t('Next', 'التالي')} onClick={() => setAnchor(a => addDays(a, view === 'week' ? 7 : 1))}><ChevronRight size={18} className="flip-rtl" /></button>
-          <input type="date" aria-label={t('Date', 'التاريخ')} value={anchor} onChange={e => e.target.value && setAnchor(e.target.value)} />
+          <DateTimeField kind="date" label={t('Date', 'التاريخ')} value={anchor} onChange={day => day && setAnchor(day)} />
         </div>
         <button className={`quiet ${activeFilters ? 'has-filters' : ''}`} aria-expanded={showFilters} onClick={() => setShowFilters(s => !s)}><SlidersHorizontal size={16} />{t('Filters', 'التصفية')}{activeFilters ? ` (${activeFilters})` : ''}</button>
       </div>

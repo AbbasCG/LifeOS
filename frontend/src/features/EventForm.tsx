@@ -7,6 +7,7 @@ import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage } from '../components/ui/Shared'
+import { DateTimeField } from '../components/ui/DateTimePicker'
 import { sourceName } from '../lib/sources'
 import { makeShift, type ZoneShift } from '../lib/zoneShift'
 
@@ -92,8 +93,8 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onCl
         </div>
       </fieldset>}
       <label className="full">{t('Title', 'العنوان')}<input data-autofocus required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} /></label>
-      <label>{t('Start', 'البداية')}<input type="datetime-local" required value={start} onChange={e => setStart(e.target.value)} /></label>
-      <label>{t('End', 'النهاية')}<input type="datetime-local" required value={end} onChange={e => setEnd(e.target.value)} /></label>
+      <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required value={start} onChange={setStart} /></label>
+      <label>{t('End', 'النهاية')}<DateTimeField kind="datetime" required value={end} onChange={setEnd} min={start} /></label>
       <label>{t('Type', 'النوع')}<select value={kind} onChange={e => setKind(e.target.value)}><option value="fixed">{t('Fixed commitment', 'موعد ثابت')}</option><option value="flexible">{t('Flexible block', 'فترة مرنة')}</option></select></label>
       {!(item.recurring && scope === 'occurrence') && <label>{t('Reminder', 'التذكير')}<select value={remind} onChange={e => setRemind(e.target.value)}>{REMINDERS.map(m => <option key={String(m)} value={m == null ? '' : m}>{m == null ? t('Default', 'افتراضي') : m === 0 ? t('At start time', 'عند البداية') : m >= 60 ? t(`${m / 60} h before`, `قبل ${m / 60} س`) : t(`${m} min before`, `قبل ${m} د`)}</option>)}</select></label>}
       {!(item.recurring && scope === 'occurrence') && <label className="full">{t('Linked task', 'مهمة مرتبطة')}<select value={taskId} onChange={e => setTaskId(e.target.value)}><option value="">—</option>{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}
@@ -104,7 +105,7 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onCl
           {rule && <label>{t('Every', 'كل')}<input type="number" min={1} max={365} value={rule.interval ?? 1} onChange={e => setRule({ ...rule, interval: Math.max(1, Number(e.target.value)) })} /></label>}
           {rule?.freq === 'weekly' && <div className="full weekday-toggle" role="group" aria-label={t('Repeat on', 'التكرار في')}>{[1, 2, 3, 4, 5, 6, 0].map(d => { const on = rule.by_weekday?.includes(d); return <button key={d} type="button" aria-pressed={on} className={on ? 'on' : ''} onClick={() => { const next = on ? (rule.by_weekday ?? []).filter(x => x !== d) : [...(rule.by_weekday ?? []), d]; if (next.length) setRule({ ...rule, by_weekday: next }) }}>{new Date(2026, 0, 4 + d).toLocaleDateString(language, { weekday: 'narrow' })}</button> })}</div>}
           {rule && <label>{t('Ends', 'ينتهي')}<select value={endMode} onChange={e => setEndMode(e.target.value as typeof endMode)}><option value="never">{t('Never', 'أبداً')}</option><option value="until">{t('On a date', 'في تاريخ')}</option><option value="count">{t('After a number of times', 'بعد عدد مرات')}</option></select></label>}
-          {rule && endMode === 'until' && <label>{t('Last date', 'آخر تاريخ')}<input type="date" required value={rule.until ?? ''} min={start.slice(0, 10)} onChange={e => setRule({ ...rule, until: e.target.value })} /></label>}
+          {rule && endMode === 'until' && <label>{t('Last date', 'آخر تاريخ')}<DateTimeField kind="date" required value={rule.until ?? ''} min={start.slice(0, 10)} onChange={until => setRule({ ...rule, until })} /></label>}
           {rule && endMode === 'count' && <label>{t('Occurrences', 'عدد المرات')}<input type="number" min={1} max={1000} required value={rule.count ?? 10} onChange={e => setRule({ ...rule, count: Number(e.target.value) })} /></label>}
         </div>
         {rule && <p className="muted rule-summary">{describeRecurrence({ ...rule, count: endMode === 'count' ? rule.count ?? 10 : undefined, until: endMode === 'until' ? rule.until : undefined }, language, t)}</p>}

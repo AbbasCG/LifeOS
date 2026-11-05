@@ -44,12 +44,12 @@ describe('V44 the focus countdown', () => {
   })
 })
 
-describe('V44 one font across the platform', () => {
+describe('V44 the font stacks', () => {
   const css = fonts
   const stack = (name: string) => css.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].replace(/\s+/g, ' ').trim() ?? ''
 
-  it('puts Thmanyah first for English and for Arabic', () => {
-    expect(stack('font-latin')).toMatch(/^"Thmanyah Sans"/)
+  it('puts Thmanyah first for Arabic and keeps Inter first for English', () => {
+    expect(stack('font-latin')).toMatch(/^"Inter"/)
     expect(stack('font-arabic')).toMatch(/^"Thmanyah Sans"/)
   })
   it('keeps no other face ahead of it anywhere in the app styles', () => {

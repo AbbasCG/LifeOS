@@ -9,6 +9,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useStatusLabel } from './ResourcePage'
 import { SuggestionCard } from './Dashboard'
 import { Empty, ErrorMessage, Skeleton } from '../components/ui/Shared'
+import { DateTimeField } from '../components/ui/DateTimePicker'
 import { useRecords, localDate } from '../lib/hooks'
 import { ConsistencyPanel, EnergyPanel, GoalsPanel, PeriodCards, WorkloadPanel } from './analytics/PatternPanels'
 
@@ -52,9 +53,9 @@ export default function AnalyticsPage() {
     <Expandable className="analytics-filters" icon={<SlidersHorizontal size={16} aria-hidden="true" />} summary={<>{t('Custom range & project', 'فترة مخصصة ومشروع')}{(custom || projectId) && <span className="badge">{t('On', 'مفعّل')}</span>}</>} defaultOpen={Boolean(custom || projectId)}>
       <div className="analytics-controls">
         <form className="custom-range" onSubmit={e => { e.preventDefault(); if (draftValid) setCustom(draft) }}>
-          <label><span className="sr-only">{t('From', 'من')}</span><input type="date" aria-label={t('From', 'من')} value={draft.from} max={today} onChange={e => setDraft(d => ({ ...d, from: e.target.value }))} /></label>
+          <label><span className="sr-only">{t('From', 'من')}</span><DateTimeField kind="date" label={t('From', 'من')} value={draft.from} max={today} onChange={from => setDraft(d => ({ ...d, from }))} /></label>
           <span aria-hidden="true">–</span>
-          <label><span className="sr-only">{t('To', 'إلى')}</span><input type="date" aria-label={t('To', 'إلى')} value={draft.to} max={today} onChange={e => setDraft(d => ({ ...d, to: e.target.value }))} /></label>
+          <label><span className="sr-only">{t('To', 'إلى')}</span><DateTimeField kind="date" label={t('To', 'إلى')} value={draft.to} max={today} onChange={to => setDraft(d => ({ ...d, to }))} /></label>
           <button className={custom ? 'primary' : 'quiet'} disabled={!draftValid}>{t('Apply range', 'تطبيق الفترة')}</button>
         </form>
         <select aria-label={t('Project', 'المشروع')} value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">{t('All projects', 'كل المشاريع')}</option>{projects.items.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select>
