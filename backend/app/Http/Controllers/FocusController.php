@@ -101,7 +101,10 @@ class FocusController extends Controller
             $s = FocusSession::where('user_id', $request->user()->id)->lockForUpdate()->findOrFail($id);
             $action = $data['action'];
             if ($action === 'note') {
+                // Saving a note must not move `updated_at`, which marks when the running time was last accounted for.
+                $s->timestamps = false;
                 $s->update(['notes' => $data['notes'] ?? null]);
+                $s->timestamps = true;
 
                 return $s;
             }
@@ -109,7 +112,7 @@ class FocusController extends Controller
                 return $s;
             }
             if ($s->status === 'running' && $s->resumed_at) {
-                $s->elapsed_seconds = min($s->duration_seconds, $s->elapsed_seconds + max(0, (int) $s->resumed_at->diffInSeconds(now())));
+                $s->elapsed_seconds = $s->elapsedAt(now());
                 $s->resumed_at = now();
             }
             // The page asks for an automatic finish when its countdown reaches zero. Only the server's clock decides whether that is true:

@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -151,5 +152,71 @@ class FocusTimerTest extends TestCase
 
         $this->postJson('/api/focus-sessions', ['kind' => 'manual', 'duration_seconds' => 300])->assertCreated();
         $this->assertSame(2, FocusSession::count());
+    }
+
+    public function test_a_sixty_minute_session_is_not_over_the_moment_it_starts(): void
+    {
+        // The reported bug: start 60 minutes, and the timer jumps to 00:00 with "60 min saved". Needs no special database.
+        $id = $this->start(60);
+
+        $record = $this->getJson('/api/focus-sessions')->assertOk()->json('data.0');
+        $this->assertSame('running', $record['status']);
+        $this->assertSame(0, $record['elapsed_now_seconds']);
+        $this->assertSame(0, $record['overdue_seconds']);
+
+        $this->travel(5)->seconds();
+        $this->assertSame(5, $this->getJson('/api/focus-sessions')->json('data.0.elapsed_now_seconds'));
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'finish', 'auto' => true])->assertUnprocessable();
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'finish'])->assertOk()->assertJsonPath('elapsed_seconds', 5);
+    }
+
+    public function test_the_database_connection_always_runs_in_utc(): void
+    {
+        if (DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL only: its session zone decides how a timestamp without an offset is stored.');
+        }
+
+        $this->assertSame('UTC', DB::selectOne('show time zone')->TimeZone, 'config/database.php sets the connection zone');
+    }
+
+    public function test_elapsed_time_does_not_depend_on_the_time_zone_of_the_database(): void
+    {
+        // REGRESSION: on a PostgreSQL server set to e.g. Europe/Amsterdam, `resumed_at` (timestamp with time zone) was stored an hour early, so a
+        // 60-minute session looked 60 minutes old at once and finished with the full time saved. Simulate that server zone on this connection.
+        if (DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL only.');
+        }
+        DB::statement("set time zone 'Europe/Amsterdam'");
+
+        $id = $this->start(60);
+        $this->assertSame(0, $this->getJson('/api/focus-sessions')->json('data.0.elapsed_now_seconds'));
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'finish', 'auto' => true])->assertUnprocessable();
+
+        $this->travel(7)->minutes();
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'pause'])->assertOk()->assertJsonPath('elapsed_seconds', 420);
+        $this->travel(40)->minutes();
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'resume'])->assertOk()->assertJsonPath('elapsed_seconds', 420);
+        $this->travel(3)->minutes();
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'finish'])->assertOk()->assertJsonPath('status', 'completed')->assertJsonPath('elapsed_seconds', 600);
+    }
+
+    public function test_saving_a_note_does_not_lose_running_time(): void
+    {
+        $id = $this->start();
+        $this->travel(4)->minutes();
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'note', 'notes' => 'Half way'])->assertOk();
+        $this->travel(3)->minutes();
+
+        $this->patchJson("/api/focus-sessions/{$id}", ['action' => 'finish'])->assertOk()->assertJsonPath('elapsed_seconds', 420);
+    }
+
+    public function test_the_database_time_check_is_read_only_and_reports_without_failing(): void
+    {
+        $this->start();
+        $before = FocusSession::count();
+
+        $this->artisan('lifeos:check-database-time')->expectsOutputToContain('Focus sessions checked: 1')->assertSuccessful();
+
+        $this->assertSame($before, FocusSession::count());
     }
 }

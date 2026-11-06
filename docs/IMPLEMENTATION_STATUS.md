@@ -3133,3 +3133,34 @@ The exact cause on your device could not be seen from here (NOT VERIFIED on the 
 - "Save N min" after an abandoned session credits the planned time because that is what a session left running accrued; the person chooses it knowingly. The phone-locked case (timer kept running while you work) is why elapsed time is wall-clock rather than only while the tab is open.
 - Only Chromium is available here; real phones and other browsers are NOT VERIFIED.
 - Today's free-focus buttons and the notification actions still start in one tap (no task to prepare).
+
+---
+
+# V48 — Focus timer: the real root cause (database time zone)
+
+Branch `claude/magical-johnson-1s7q7b`, on top of `main` (9f7e96e, PR #45).
+
+## The bug
+Start a 60-minute task: the timer jumps from `60:00` to `00:00` and "Session complete — 60 min saved" appears, a completed 60-minute session is stored and counted.
+
+## Root cause (reproduced in a real browser with the numbers)
+`focus_sessions.resumed_at` is a `timestamp with time zone` column. Laravel writes it as UTC *text without an offset*, and PostgreSQL reads such text in the **database session's own time zone**. On a server or machine set to another zone (for example Europe/Amsterdam, UTC+1 in winter) the moment was stored **an hour early**. Both the server (`now() − resumed_at`) and the page (`now − resumed_at`) then saw a session that was already 3600 s old when it started: for a 60-minute task, exactly its whole length, so it finished at once with the full 60 minutes saved (a 25-minute session was over by 35 minutes, a 90-minute one jumped to 30:01). Earlier fixes (clock skew, unfinished sessions, task linking) were real but could not touch this, and SQLite, the CI PostgreSQL (UTC) and the earlier tests never had a non-UTC database zone.
+
+Measured on the real server with PostgreSQL set to Europe/Amsterdam, before the fix: `created_at 16:28:14Z`, `resumed_at 15:28:14Z` (an hour earlier), page `elapsedStored 0, elapsedShown 3600` right after Start, session saved `completed, elapsed 3600`.
+
+## The fix (three layers)
+1. **Connection pinned to UTC** (`config/database.php`, `DB_TIMEZONE`, default UTC): every PostgreSQL connection runs `set time zone 'UTC'`, so timestamps are stored and read as written.
+2. **Elapsed time no longer trusts that column alone** (`FocusSession::runningSeconds/elapsedAt`): the running time is the smaller of the time since `resumed_at` and since `updated_at` (stored without a zone, written at the same moment by every action that sets `resumed_at`), and never more than the time since the session was created or its planned length. A session cannot look older than it is, even on a misconfigured database. Saving a note no longer touches `updated_at`.
+3. **The page counts from the server's figure**: records carry `elapsed_now_seconds` and `overdue_seconds` (computed on the server's clock when sent); the page adds only the seconds since, and no longer re-derives the time from `resumed_at`.
+
+Nothing was deleted or changed in existing data. **Older sessions written on a non-UTC database keep their shifted timestamps** (new ones are correct); `php artisan lifeos:check-database-time` is a read-only report of the database zone and how many older focus sessions look shifted.
+
+## Proof
+- Real browser (Playwright, `e2e/focus-60.spec.ts`), PostgreSQL set to Europe/Amsterdam (`E2E_PG=1`): **before the fix** the 25, 60 and 90-minute tasks fail (`60:00` replaced by `00:00` at once, one completed 3600 s session saved); **after the fix** all pass: the full length is shown after Start, after 5 s the timer shows about `59:55`, no completion message, no completed record, the statistics do not move, and a manual finish saves only the real seconds. The same run passes with the connection forced into Amsterdam (`E2E_DB_TZ`) to prove layers 2 and 3 alone.
+- PHPUnit on PostgreSQL: `test_elapsed_time_does_not_depend_on_the_time_zone_of_the_database` and the earlier focus tests fail on the previous code (6 failures) and pass now; CI's PostgreSQL job now runs with `PGTZ=Europe/Amsterdam`.
+- Vitest: `v47.test.tsx › V48` fails on the previous `focus.ts` (`00:01` right after Start) and passes now.
+
+## Known limitations (V48)
+- The user's own machine could not be inspected; the zone offset is the cause that reproduces every reported symptom, including the exact `60:00 → 00:00 → 60 min saved`.
+- Old sessions stored with an offset stay as they are (reported, not modified).
+

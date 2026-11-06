@@ -22,7 +22,7 @@ const seconds = async (page: Page) => { const [a, b, c] = (await page.locator('.
 
 function moveTimeForward(seconds: number) {
   const db = process.env.E2E_DB!
-  const sql = `UPDATE focus_sessions SET resumed_at = datetime(resumed_at, '-${seconds} seconds'), started_at = datetime(started_at, '-${seconds} seconds') WHERE status = 'running'`
+  const sql = `UPDATE focus_sessions SET resumed_at = datetime(resumed_at, '-${seconds} seconds'), started_at = datetime(started_at, '-${seconds} seconds'), updated_at = datetime(updated_at, '-${seconds} seconds'), created_at = datetime(created_at, '-${seconds} seconds') WHERE status = 'running'`
   execFileSync('php', ['-r', `$p = new PDO('sqlite:' . $argv[1]); $p->exec($argv[2]);`, db, sql])
 }
 

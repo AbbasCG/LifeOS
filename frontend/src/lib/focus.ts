@@ -7,6 +7,8 @@ export type FocusSessionRecord = {
   duration_seconds: number; elapsed_seconds: number; resumed_at: string | null; completed_at: string | null; started_at: string | null; created_at: string
   /** The server's clock when it sent this record; with `skew_ms` it keeps the countdown right even if the device clock is off. */
   server_time?: string; skew_ms?: number
+  /** Worked seconds and seconds past the planned end on the server's clock when this record was sent (immune to this device's clock and to the database's time zone). */
+  elapsed_now_seconds?: number; overdue_seconds?: number
   notes: string | null; interruptions: Interruption[] | null; task_id: number | null; project_id: number | null
   task?: { id: number; title: string } | null; project?: { id: number; title: string; color: string } | null
 }
@@ -36,21 +38,29 @@ export const stampSession = (session: FocusSessionRecord): FocusSessionRecord =>
   return server === null ? session : { ...session, skew_ms: server - Date.now() }
 }
 
+type Timed = Pick<FocusSessionRecord, 'status' | 'elapsed_seconds' | 'resumed_at' | 'duration_seconds'> & { skew_ms?: number; server_time?: string; elapsed_now_seconds?: number; overdue_seconds?: number }
+
+/** Seconds that have passed on the server's clock since the record was sent (0 when it carries no server time). */
+const sinceSent = (session: Timed, now: number): number => {
+  const sent = parseStamp(session.server_time)
+  return sent === null ? 0 : Math.max(0, Math.floor((now + (session.skew_ms ?? 0) - sent) / 1000))
+}
+const hasServerElapsed = (session: Timed) => typeof session.elapsed_now_seconds === 'number' && Number.isFinite(session.elapsed_now_seconds) && parseStamp(session.server_time) !== null
+
 /**
- * Seconds of the session used so far. Uses the server's clock (not only this device's), and an unreadable time counts as
- * "just started" so a session can never finish by accident.
+ * Seconds of the session used so far. The server says how much was worked when it sent the record; this adds the seconds since (counted on the
+ * server's clock, so a wrong device clock does not matter). Only when the record has no such figure does it fall back to `resumed_at`. An
+ * unreadable time counts as "just started" so a session can never finish by accident.
  */
-export function elapsedNow(session: Pick<FocusSessionRecord, 'status' | 'elapsed_seconds' | 'resumed_at' | 'duration_seconds'> & { skew_ms?: number }, now: number): number {
-  const since = session.status === 'running' ? parseStamp(session.resumed_at) : null
+export function elapsedNow(session: Timed, now: number): number {
+  if (session.status !== 'running') return Math.max(0, Math.min(session.duration_seconds, session.elapsed_seconds || 0))
+  if (hasServerElapsed(session)) return Math.max(0, Math.min(session.duration_seconds, session.elapsed_now_seconds! + sinceSent(session, now)))
+  const since = parseStamp(session.resumed_at)
   const running = since === null ? 0 : Math.max(0, Math.floor((now + (session.skew_ms ?? 0) - since) / 1000))
   const total = (session.elapsed_seconds || 0) + running
   return Math.max(0, Math.min(session.duration_seconds, Number.isFinite(total) ? total : 0))
 }
 
-/**
- * A countdown as people read it: 25:00, 60:00 for exactly an hour, and 1:30:00 beyond an hour (so a 90-minute task starts at 1:30:00
- * and passes through 60:00 on its way down).
- */
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
   if (s <= 3600) return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
@@ -66,8 +76,12 @@ export const phaseOf = (session?: Pick<FocusSessionRecord, 'status'> | null): Fo
 export const AWAY_SECONDS = 120
 
 /** How many seconds past the planned end a running session is, by the server's clock (0 while time is left or when it is not running). */
-export function overdueSeconds(session: Pick<FocusSessionRecord, 'status' | 'elapsed_seconds' | 'resumed_at' | 'duration_seconds'> & { skew_ms?: number }, now: number): number {
+export function overdueSeconds(session: Timed, now: number): number {
   if (session.status !== 'running') return 0
+  if (hasServerElapsed(session) && typeof session.overdue_seconds === 'number') {
+    const left = Math.max(0, session.duration_seconds - session.elapsed_now_seconds!)
+    return Math.max(0, session.overdue_seconds + (left > 0 ? Math.max(0, sinceSent(session, now) - left) : sinceSent(session, now)))
+  }
   const since = parseStamp(session.resumed_at)
   const running = since === null ? 0 : Math.max(0, Math.floor((now + (session.skew_ms ?? 0) - since) / 1000))
   const total = (session.elapsed_seconds || 0) + running

@@ -228,3 +228,28 @@ describe('V47 the play button on the Tasks page', () => {
     expect(posts).toHaveLength(0)
   })
 })
+
+describe('V48 a database whose time zone is not UTC', () => {
+  // REGRESSION (the reported bug): the server stored resumed_at an hour early (PostgreSQL set to Europe/Amsterdam), so a 60-minute session
+  // looked 60 minutes old the moment it started: the timer jumped from 60:00 to 00:00 and "60 min saved" appeared.
+  it('shows 60:00 after Start, counts down, and finishes nothing, even if resumed_at is an hour early', async () => {
+    let created: Rec | null = null
+    const early = () => iso(Date.now() - 3600_000)
+    const { posts, patches } = server({
+      task: () => new Response(JSON.stringify({ data: { id: 7, title: 'Write the report', status: 'todo', estimated_minutes: 60 } })),
+      sessions: () => created ? [created] : [],
+      post: body => { created = session({ ...body, task_id: 7, resumed_at: early(), started_at: early(), elapsed_now_seconds: 0, overdue_seconds: 0 }); return new Response(JSON.stringify({ server_time: iso(Date.now()), ...created }), { status: 201 }) },
+    })
+    render(wrap(<FocusPage />, '/focus?task=7'))
+    await waitFor(() => expect(dial()).toBe('60:00'))
+    fireEvent.click(screen.getByRole('button', { name: /^Start/ }))
+    await screen.findByRole('button', { name: /Pause/ })
+    expect(posts).toHaveLength(1)
+    expect(dial()).toMatch(/^(60:00|59:5\d)$/)
+    await new Promise(r => setTimeout(r, 1500))
+    expect(dial()).toMatch(/^59:5\d$/)
+    expect(screen.queryByText(/Session complete/)).toBeNull()
+    expect(screen.queryByText(/ended while you were away/)).toBeNull()
+    expect(patches).toHaveLength(0)
+  })
+})
