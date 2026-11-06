@@ -600,3 +600,12 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .focus-away { display: grid; gap: 10px; max-width: 460px; margin: var(--space-3) auto; padding: 14px 16px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--color-warning, #b45309) 55%, var(--color-border)); background: color-mix(in srgb, var(--color-warning, #b45309) 9%, var(--color-surface)); text-align: start; }
 .focus-away p { margin: 0; line-height: 1.5; }
 .focus-away .toolbar { justify-content: flex-start; }
+.focus-wrapup { display: grid; gap: 10px; max-width: 460px; margin: 0 auto var(--space-3); padding: 14px 16px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); text-align: start; }
+.focus-wrapup p { margin: 0; line-height: 1.5; }
+.focus-wrapup .toolbar { justify-content: flex-start; flex-wrap: wrap; }
+.focus-wrapup .primary { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.focus-wrapup .quiet { min-height: 44px; }
+
+/* The sidebar scrolls by wheel, touch and keyboard but shows no scrollbar (Firefox, Chrome 121+ and current Edge: scrollbar-width; older Chrome, Edge and Safari: the pseudo-element). overflow-y stays `auto`, so every item is still reachable. */
+.sidebar { scrollbar-width: none; -ms-overflow-style: none; overscroll-behavior: contain; }
+.sidebar::-webkit-scrollbar { display: none; width: 0; height: 0; }

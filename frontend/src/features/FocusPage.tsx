@@ -13,8 +13,12 @@ import { useToast } from '../lib/toast'
 import { ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { AWAY_SECONDS, clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, overdueSeconds, phaseOf, stampSession, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
 import { notify as notifyUser } from '../lib/quickActions'
+import { TASKS_CHANGED } from '../lib/quickAdd'
 
 const DISTRACTIONS = ['phone', 'people', 'notifications', 'thought', 'other'] as const
+type WrapUp = { sessionId: number; taskId: number; title: string; minutes: number }
+const WRAP_KEY = 'lifeos-focus-wrapup'
+const readWrapUp = (): WrapUp | null => { try { const v = JSON.parse(sessionStorage.getItem(WRAP_KEY) ?? 'null'); return v && typeof v.sessionId === 'number' && typeof v.taskId === 'number' ? v : null } catch { return null } }
 
 export default function FocusPage() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), [params] = useSearchParams()
@@ -30,6 +34,9 @@ export default function FocusPage() {
   // The task chosen with the play button on the Tasks page (/focus?task=ID): fetched by id, so only the owner can use it.
   const taskFetch = useApi<{ data: RecordItem }>(/^\d+$/.test(taskId) ? `/api/tasks/${taskId}` : null)
   const appliedTask = useRef<string | null>(null)
+  // After a focus session on a task finishes, the time is already saved; the person is asked whether the task is done. Nothing changes until they answer.
+  const [wrapUp, setWrapUp] = useState<WrapUp | null>(readWrapUp), completing = useRef(false), [completingTask, setCompletingTask] = useState(false)
+  const rememberWrapUp = (next: WrapUp | null) => { setWrapUp(next); try { if (next) sessionStorage.setItem(WRAP_KEY, JSON.stringify(next)); else sessionStorage.removeItem(WRAP_KEY) } catch { /* kept for this page only */ } }
 
   const load = useCallback(async () => (await api<Page<FocusSessionRecord>>('/api/focus-sessions')).data.map(stampSession), [])
   const reload = useCallback(async () => {
@@ -69,7 +76,13 @@ export default function FocusPage() {
     try {
       const updated = await api<FocusSessionRecord>(`/api/focus-sessions/${active.id}`, 'PATCH', { action, ...extra })
       setSessions(list => list?.map(s => s.id === updated.id ? stampSession(updated) : s) ?? null)
-      if (updated.status === 'completed') { setNotes(''); insights.reload() }
+      if (updated.status === 'completed') {
+        setNotes(''); insights.reload()
+        // A finished focus session on a task that is still open: ask (never complete it here).
+        if (action !== 'cancel' && updated.kind === 'focus' && updated.task_id && updated.task && updated.task.status !== 'completed') {
+          rememberWrapUp({ sessionId: updated.id, taskId: updated.task_id, title: updated.task.title, minutes: Math.round(updated.elapsed_seconds / 60) })
+        }
+      }
       return updated
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }, [active, insights])
@@ -129,12 +142,25 @@ export default function FocusPage() {
     try {
       const created = await api<FocusSessionRecord>('/api/focus-sessions', 'POST', { kind, duration_seconds: Math.round(durationMinutes * 60), mode: focusMode, cycle: cycle ?? (kind === 'focus' && mode === 'pomodoro' ? (suggestion?.kind === 'focus' ? suggestion.cycle : 1) : undefined), task_id: taskId ? Number(taskId) : null, project_id: !taskId && projectId ? Number(projectId) : null, notes: kind === 'manual' && notes ? notes : undefined, client_id: pendingStart.current })
       pendingStart.current = null
-      finishing.current = null; setAwayId(null)
+      finishing.current = null; setAwayId(null); rememberWrapUp(null)
       if (kind === 'manual') { toast(t('Time logged.', 'سُجّل الوقت.')); setNotes(''); insights.reload() }
       // The countdown starts from the server's answer right away, not after a second round trip.
       else setSessions(list => [stampSession(created), ...(list ?? []).filter(x => x.id !== created.id)])
       await reload()
     } catch (e) { setError((e as Error).message) } finally { starting.current = false; setBusy(false) }
+  }
+  async function completeTask() {
+    if (!wrapUp || completing.current) return
+    completing.current = true; setCompletingTask(true); setError('')
+    try {
+      await api(`/api/focus-sessions/${wrapUp.sessionId}/complete-task`, 'POST')
+      const done = wrapUp
+      rememberWrapUp(null)
+      if (String(done.taskId) === taskId) setTaskId('')
+      toast(t(`Task completed: “${done.title}”.`, `اكتملت المهمة: «${done.title}».`), 'success')
+      // Tasks, Today and the statistics refresh at once, without reloading the page.
+      window.dispatchEvent(new Event(TASKS_CHANGED)); tasks.reload(); insights.reload()
+    } catch (e) { setError((e as Error).message) } finally { completing.current = false; setCompletingTask(false) }
   }
   function chooseMode(next: FocusMode) {
     setMode(next); setMinutes(next === 'pomodoro' ? POMODORO.focus : next === 'deep' ? DEEP_MINUTES : next === 'manual' ? 30 : 45)
@@ -186,6 +212,13 @@ export default function FocusPage() {
         {!active && <div className="segmented focus-modes" role="tablist" aria-label={t('Focus mode', 'نمط التركيز')}>
           {([['pomodoro', t('Pomodoro', 'بومودورو'), Timer], ['deep', t('Deep work', 'عمل عميق'), Brain], ['custom', t('Custom', 'مخصص'), Clock], ['manual', t('Log time', 'تسجيل وقت'), PenLine]] as const).map(([value, text, Icon]) =>
             <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? 'active' : ''} onClick={() => chooseMode(value)}><Icon size={15} />{text}</button>)}
+        </div>}
+        {wrapUp && !active && <div className="focus-wrapup" role="alert" aria-labelledby="focus-wrapup-title">
+          <p id="focus-wrapup-title"><strong>{t(`Saved ${wrapUp.minutes} min on “${wrapUp.title}”.`, `حُفظت ${wrapUp.minutes} د على «${wrapUp.title}».`)}</strong> {t('Is the task done?', 'هل انتهت المهمة؟')}</p>
+          <div className="toolbar">
+            <button type="button" className="primary" data-autofocus autoFocus disabled={completingTask} onClick={() => void completeTask()}><CheckCircle2 size={16} />{t('Complete task', 'إكمال المهمة')}</button>
+            <button type="button" className="quiet" disabled={completingTask} onClick={() => rememberWrapUp(null)}>{t('Keep it open', 'إبقاؤها مفتوحة')}</button>
+          </div>
         </div>}
         {(active || taskId) && <div className="focus-plan" aria-live="polite">
           {active ? <>

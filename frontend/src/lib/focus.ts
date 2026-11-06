@@ -10,7 +10,7 @@ export type FocusSessionRecord = {
   /** Worked seconds and seconds past the planned end on the server's clock when this record was sent (immune to this device's clock and to the database's time zone). */
   elapsed_now_seconds?: number; overdue_seconds?: number
   notes: string | null; interruptions: Interruption[] | null; task_id: number | null; project_id: number | null
-  task?: { id: number; title: string } | null; project?: { id: number; title: string; color: string } | null
+  task?: { id: number; title: string; status?: string } | null; project?: { id: number; title: string; color: string } | null
 }
 export type FocusInsightsData = {
   days: number; sessions: number; minutes: number; average_minutes: number; deep_minutes: number; completion_rate: number | null; planned_minutes: number; actual_minutes: number

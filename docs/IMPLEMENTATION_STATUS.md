@@ -3138,7 +3138,7 @@ The exact cause on your device could not be seen from here (NOT VERIFIED on the 
 
 # V48 — Focus timer: the real root cause (database time zone)
 
-Branch `claude/magical-johnson-1s7q7b`, on top of `main` (9f7e96e, PR #45).
+Branch `claude/magical-johnson-1s7q7b`, on top of `main` (9f7e96e, PR #45). Merged into `main` as PR #46.
 
 ## The bug
 Start a 60-minute task: the timer jumps from `60:00` to `00:00` and "Session complete — 60 min saved" appears, a completed 60-minute session is stored and counted.
@@ -3163,4 +3163,33 @@ Nothing was deleted or changed in existing data. **Older sessions written on a n
 ## Known limitations (V48)
 - The user's own machine could not be inspected; the zone offset is the cause that reproduces every reported symptom, including the exact `60:00 → 00:00 → 60 min saved`.
 - Old sessions stored with an offset stay as they are (reported, not modified).
+
+---
+
+# V49 — Finishing a focus session can complete its task; quiet sidebar scrollbar
+
+Branch `claude/magical-johnson-1s7q7b`, on top of `main` (1ee8047, PR #46). 
+
+## 1. Finish → "Complete task" / "Keep it open"
+Before: "Finish & save" saved the time and the task stayed open with no way to say it was done.
+
+- **Finishing saves the time first and changes nothing else.** After a focus session linked to a task finishes (the button, or the timer running out while you are there, or "Save N min" for a session that ended while you were away), the Focus page shows a card: *Saved 12 min on “task”. Is the task done?* with **Complete task** (the primary, first, focused button) and **Keep it open**. The task keeps its status until you press **Complete task**.
+- **Never automatic:** the timer running out, cancelling/discarding a session, sessions without a task, breaks and manual time logs never complete or even ask about a task; a task that is already completed is not asked about again.
+- **Server (`POST /api/focus-sessions/{id}/complete-task`)**: completes only the task of a **finished focus session of the signed-in account** (404 for another account's or an unknown/non-numeric id; 422 for a running, paused or cancelled session, a break, a session without a task, or a task that no longer exists). Asking again changes nothing (one completion time, one next occurrence for a recurring task), also for two requests at once (the user row is locked). The saved focus time is untouched. The task is stored as `completed` in PostgreSQL/SQLite exactly as the normal task update does.
+- **Page:** one request at a time (a double tap sends one); success shows "Task completed: …" and refreshes the Tasks page, Today and the statistics at once through the existing `TASKS_CHANGED` event (and the Focus page's own task list), with no page reload; the task moves from the open list to the completed ones. The question survives a page refresh until you answer it (kept for the tab only) and is dropped if you start another session. Arabic and RTL included.
+- Focus session records now include their task's status (`task.status`) so the page knows when not to ask.
+
+## 2. Sidebar scrollbar
+The sidebar no longer shows a scrollbar: `scrollbar-width: none` (Firefox, Chrome 121+, current Edge), `-ms-overflow-style: none` and `::-webkit-scrollbar { display: none }` (older Chrome/Edge, Safari), CSS only. `overflow-y` stays `auto`: wheel, touch and keyboard scrolling still reach every item, on the desktop sidebar and the phone drawer, in LTR/RTL and light/dark. (`overscroll-behavior: contain` keeps the page from scrolling behind it.)
+
+## Testing
+- **Laravel:** `FocusTaskCompletionTest` (11): finishing leaves the task open; the record carries the task's status; confirming completes it, keeps the saved time, removes it from the open list and counts it in the statistics; twice or at once completes once and makes one next occurrence; running/paused/cancelled sessions refused; the timer running out completes nothing; no-task sessions and breaks refused; another account's session 404; unknown and non-numeric ids 404; a deleted task is reported. Six of them failed before the endpoint existed.
+- **Vitest:** `v49.test.tsx` (9): the question and its buttons, one request on a double tap with the refresh event, "Keep it open" changes nothing, discard asks nothing, the timer running out asks but completes nothing, no question without a task or for a completed task, it survives a refresh, Arabic order of buttons; the CSS rules for the hidden scrollbar and that the sidebar is not `overflow: hidden`.
+- **Playwright (real server, desktop and phone):** `focus-complete-task.spec.ts` (finish then Complete: time saved first, task completed once, statistics +1, Tasks shows it without a reload; Keep it open; refresh keeps the question; discard asks nothing; no task asks nothing and the endpoint refuses; Arabic) and `sidebar-scroll.spec.ts` (computed `scrollbar-width: none`, no space taken, still `overflow-y: auto` and taller than the screen, wheel scrolling moves it, the last item and a keyboard-focused item come into view; English/Arabic, light/dark, desktop and phone drawer). The sidebar test failed on the previous CSS (`scrollbar-width` was `auto`).
+- **Results:** Laravel 338/338 on PostgreSQL (database zone Europe/Amsterdam) and SQLite; Vitest 297/297; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and size check (107.8 KB of 125) clean; full Playwright run 258 passed, 14 skipped, 0 failed.
+
+## Known limitations (V49)
+- The scrollbar can still appear in very old browsers that support none of the three rules.
+- Safari, Firefox and real phones are NOT VERIFIED (only Chromium is available here).
+- No "Undo" for completing the task from this card (the task can be reopened in Tasks as before).
 
