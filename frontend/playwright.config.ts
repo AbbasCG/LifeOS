@@ -14,9 +14,12 @@ process.env.E2E_DB ??= resolve(backend, 'storage/e2e.sqlite')
 process.env.E2E_PASSWORD ??= `e2e-${randomBytes(12).toString('hex')}`
 const isolated = {
   APP_ENV: 'testing', APP_DEBUG: 'false', APP_URL: 'http://127.0.0.1:8000', FRONTEND_URL: 'http://127.0.0.1:4173',
-  DB_CONNECTION: 'sqlite', DB_DATABASE: process.env.E2E_DB, SESSION_DRIVER: 'database', CACHE_STORE: 'database', QUEUE_CONNECTION: 'sync',
+  // E2E_PG=1 runs the same tests on PostgreSQL (database lifeos_e2e; its time zone is whatever the database is set to, so a non-UTC zone can be tried).
+  ...(process.env.E2E_PG === '1' ? { DB_CONNECTION: 'pgsql', DB_HOST: '127.0.0.1', DB_PORT: '5432', DB_DATABASE: 'lifeos_e2e', DB_USERNAME: 'lifeos', DB_PASSWORD: 'lifeos' } : { DB_CONNECTION: 'sqlite', DB_DATABASE: process.env.E2E_DB }), SESSION_DRIVER: 'database', CACHE_STORE: 'database', QUEUE_CONNECTION: 'sync',
   AI_PROVIDER: 'disabled', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', AI_REQUESTS_PER_MINUTE: '200', API_REQUESTS_PER_MINUTE: '5000',
   GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', MICROSOFT_CLIENT_ID: '', MICROSOFT_CLIENT_SECRET: '', TODOIST_CLIENT_ID: '', TODOIST_CLIENT_SECRET: '',
+  // E2E_DB_TZ forces the PostgreSQL connection into another zone, i.e. the misconfiguration this app must survive.
+  ...(process.env.E2E_DB_TZ ? { DB_TIMEZONE: process.env.E2E_DB_TZ } : {}),
   LIFEOS_DEMO_ENABLED: 'true', LIFEOS_CALENDAR_WRITE: 'false', MAIL_MAILER: 'array',
 }
 process.env.E2E_BACKEND_ENV = JSON.stringify(isolated)

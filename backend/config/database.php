@@ -97,6 +97,10 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // The app writes every moment as UTC text into `timestamp with time zone` columns. PostgreSQL reads text without an offset in the
+            // session's own time zone, which on a machine set to e.g. Europe/Amsterdam stored everything an hour early (a 60-minute focus
+            // session then looked 60 minutes old the moment it started). The connection is therefore always in UTC.
+            'timezone' => env('DB_TIMEZONE', 'UTC'),
         ],
 
         'sqlsrv' => [
