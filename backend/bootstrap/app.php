@@ -14,6 +14,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+        // The framework's default sends a signed-out visitor to the route named "login". This app has no such server-side page (the React app owns /login),
+        // so a request without an Accept header made the `auth` middleware ask for it, got "Route [login] not defined" and answered 500. A signed-out
+        // request is simply refused: 401 with JSON for the API (see shouldRenderJsonWhen below), never a redirect.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

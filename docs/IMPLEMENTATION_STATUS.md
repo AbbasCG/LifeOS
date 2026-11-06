@@ -3193,3 +3193,23 @@ The sidebar no longer shows a scrollbar: `scrollbar-width: none` (Firefox, Chrom
 - Safari, Firefox and real phones are NOT VERIFIED (only Chromium is available here).
 - No "Undo" for completing the task from this card (the task can be reopened in Tasks as before).
 
+---
+
+# V50 — Signed-out API requests answer 401 JSON with or without an Accept header
+
+
+
+## The bug
+`GET /api/user` while signed out answered **500** (`Route [login] not defined`) when the request carried no `Accept: application/json`, and a correct 401 JSON when it did.
+
+## Root cause
+Laravel's `ApplicationBuilder::withMiddleware()` registers a default `redirectGuestsTo(fn () => route('login'))`. The `auth` middleware (`Authenticate::unauthenticated()`) evaluates it for any request that does not itself ask for JSON, **before** the exception handler is reached. This app has no server-side sign-in page (the React app owns `/login`), so `route('login')` threw `RouteNotFoundException` and the answer was 500. `shouldRenderJsonWhen` in `bootstrap/app.php` only decides how an exception is rendered afterwards, so it never got the chance to turn the request into a 401.
+
+## The fix
+`bootstrap/app.php`: `$middleware->redirectGuestsTo(fn () => null)`. A signed-out request has nowhere to be redirected to, so the handler answers it directly: 401 `{"message":"Unauthenticated."}` for `api/*` (through the existing `shouldRenderJsonWhen`), whatever the Accept header. No login route was added and nothing redirects. Sanctum, the session cookie and CSRF are untouched (a login without the CSRF token is still 419, a signed-in session is still recognised).
+
+## Testing
+- `GuestApiResponseTest` (5 tests, 769 assertions): no Accept header gives 401 JSON, not 500 and no redirect; with Accept JSON gives 401 JSON; **every** protected API route (found from the route table) answers 401 JSON with no Accept, `text/html` and `*/*`; the sign-in routes stay open and a signed-in user is still recognised; the app has no `login` route and guests are never redirected. Two of them fail without the fix.
+- Real HTTP check (`php -S`, throwaway SQLite): no Accept, `Accept: application/json` and `Accept: text/html` all give 401 JSON; login without the CSRF token gives 419; login with it gives 200 and `/api/user` without Accept then gives 200.
+- Laravel 343/343 on SQLite and PostgreSQL; Vitest 297/297; browser `auth` and `smoke` specs pass.
+
