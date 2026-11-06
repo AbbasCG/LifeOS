@@ -41,6 +41,14 @@ export function monthGrid(day: string): { day: string; inMonth: boolean }[] {
   return Array.from({ length: 42 }, (_, i) => { const d = addDays(start, i); return { day: d, inMonth: d.slice(0, 7) === first.slice(0, 7) } })
 }
 
+/** The same day-of-month in another year and month (month 1-12), kept inside that month (31 Jan -> 28 Feb). */
+export function withMonth(day: string, year: number, month: number): string {
+  const p = parseDay(day)
+  if (!p) return day
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return dayKey(year, month, Math.min(p.d, last))
+}
+
 export const clampDay = (day: string, min?: string, max?: string) => (min && day < min ? min : max && day > max ? max : day)
 
 export function splitDateTime(value: string): { date: string; time: string } {

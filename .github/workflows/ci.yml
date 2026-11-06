@@ -141,6 +141,11 @@ jobs:
       - name: Browser tests
         working-directory: frontend
         run: npm run test:e2e
+      # The date/time pickers again on the Vite dev server (React StrictMode, unminified): a picker that works in the production build
+      # but closes itself in development is how this kind of bug reaches the people building the app.
+      - name: Date pickers on the dev server
+        working-directory: frontend
+        run: E2E_DEV=1 npx playwright test e2e/picker.spec.ts e2e/date-pickers.spec.ts --project=desktop
       - name: Upload report on failure
         if: failure()
         uses: actions/upload-artifact@v4

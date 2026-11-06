@@ -47,3 +47,37 @@ export async function pick(page: Page, trigger: import('@playwright/test').Locat
 }
 /** The picker button inside a `<label>` whose text starts with `label`. */
 export const field = (scope: Page | import('@playwright/test').Locator, label: string) => scope.locator('label', { hasText: new RegExp(`^${label}`) }).locator('.dtp-trigger').first()
+
+/**
+ * Really use a date/time picker the way a person does: open it (by the field or by its calendar icon), page to the right month,
+ * tap the day, tap the hour and the minute, press Done. Returns nothing; the caller checks what was saved.
+ * `time` is 24-hour 'HH:mm' (minutes in steps of 5); the clock is switched to 24 h first so the buttons are the same everywhere.
+ */
+export async function chooseByTapping(page: Page, trigger: import('@playwright/test').Locator, date: string, time?: string, via: 'field' | 'icon' = 'field') {
+  await trigger.scrollIntoViewIfNeeded()
+  if (via === 'icon') await trigger.locator('svg').first().click(); else await trigger.click()
+  const sheet = page.locator('.dtp-dialog[open]')
+  await expect(sheet).toBeVisible()
+  await sheet.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
+  const view = page.viewportSize()!, box = (await sheet.boundingBox())!
+  expect(box.x, 'picker inside the screen (left)').toBeGreaterThanOrEqual(-1)
+  expect(box.y, 'picker inside the screen (top)').toBeGreaterThanOrEqual(-1)
+  expect(box.x + box.width, 'picker inside the screen (right)').toBeLessThanOrEqual(view.width + 1)
+  expect(box.y + box.height, 'picker inside the screen (bottom)').toBeLessThanOrEqual(view.height + 1)
+  if (date) {
+    const dayButton = sheet.locator(`[data-day="${date}"]`)
+    for (let guard = 0; guard < 36 && !(await dayButton.count()); guard++) {
+      const shown = (await sheet.locator('.dtp-day:not(.outside)').first().getAttribute('data-day'))!
+      await sheet.locator('.dtp-month > .icon-button').nth(date.slice(0, 7) > shown.slice(0, 7) ? 1 : 0).click()
+    }
+    await dayButton.click()
+  }
+  if (time) {
+    const [h, m] = time.split(':')
+    if (await sheet.getByRole('button', { name: /^12 h|^١٢ س/ }).getAttribute('aria-pressed') === 'true') await sheet.getByRole('button', { name: /^24 h|^٢٤ س/ }).click()
+    await sheet.locator('.dtp-hours button', { hasText: new RegExp(`^${h}$`) }).click()
+    await sheet.locator('.dtp-minutes button', { hasText: new RegExp(`^${m}$`) }).click()
+  }
+  if (await sheet.isVisible()) await sheet.getByRole('button', { name: /^Done$|^تم$/ }).click()
+  await expect(sheet).toBeHidden()
+}

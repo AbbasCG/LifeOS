@@ -588,3 +588,15 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 
 /* A link inside a line of muted text is underlined, so it never depends on colour alone to be found (WCAG 1.4.1). */
 .muted > a:not([class]) { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Focus: the task and planned length above the timer, the length editor, and the "ended while you were away" question. */
+.focus-plan { display: grid; gap: 2px; justify-items: center; text-align: center; margin: 0 auto var(--space-3); max-width: 460px; }
+.focus-plan strong { font-size: 16px; overflow-wrap: anywhere; }
+.focus-plan span { font-size: 13px; color: var(--color-text-muted); }
+.focus-duration { display: flex; align-items: end; justify-content: center; gap: 10px; margin: var(--space-3) auto 0; }
+.focus-duration label { display: grid; gap: 4px; font-size: 12px; color: var(--color-text-muted); text-align: center; }
+.focus-duration input { width: 96px; text-align: center; font-variant-numeric: tabular-nums; min-height: 44px; }
+.focus-duration .icon-button { min-width: 44px; min-height: 44px; font-size: 20px; }
+.focus-away { display: grid; gap: 10px; max-width: 460px; margin: var(--space-3) auto; padding: 14px 16px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--color-warning, #b45309) 55%, var(--color-border)); background: color-mix(in srgb, var(--color-warning, #b45309) 9%, var(--color-surface)); text-align: start; }
+.focus-away p { margin: 0; line-height: 1.5; }
+.focus-away .toolbar { justify-content: flex-start; }
