@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\WorkspaceResource;
 use App\Jobs\FireAutomations;
 use App\Models\FocusSession;
 use App\Models\Task;
@@ -23,7 +24,7 @@ class FocusController extends Controller
 
     public function index(Request $request): mixed
     {
-        return FocusSession::where('user_id', $request->user()->id)->with(['task:id,title', 'project:id,title,color'])->latest()->latest('id')->paginate(50);
+        return FocusSession::where('user_id', $request->user()->id)->with(['task:id,title,status', 'project:id,title,color'])->latest()->latest('id')->paginate(50);
     }
 
     public function insights(Request $request, FocusInsights $insights): JsonResponse
@@ -51,7 +52,7 @@ class FocusController extends Controller
         ]);
         if (! empty($data['client_id']) && ($existing = FocusSession::where('user_id', $user->id)->where('client_id', $data['client_id'])->first())) {
             // A retried request (e.g. flaky mobile connection) returns the session it already created.
-            return response()->json($existing->load(['task:id,title', 'project:id,title,color']));
+            return response()->json($existing->load(['task:id,title,status', 'project:id,title,color']));
         }
         if (! empty($data['task_id']) && empty($data['project_id'])) {
             $data['project_id'] = Task::whereKey($data['task_id'])->value('project_id');
@@ -85,7 +86,7 @@ class FocusController extends Controller
             return $session;
         });
 
-        return response()->json($session->load(['task:id,title', 'project:id,title,color']), 201);
+        return response()->json($session->load(['task:id,title,status', 'project:id,title,color']), 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -159,6 +160,34 @@ class FocusController extends Controller
             return $s;
         });
 
-        return response()->json($session->load(['task:id,title', 'project:id,title,color']));
+        return response()->json($session->load(['task:id,title,status', 'project:id,title,color']));
+    }
+
+    /**
+     * The person confirmed that the task of a finished focus session is done. Finishing a session only saves time; this is the one place a
+     * session completes a task, and only the task that session was linked to. Asking again changes nothing (no second completion time and
+     * no second next occurrence of a recurring task).
+     */
+    public function completeTask(Request $request, int $id): JsonResponse
+    {
+        $task = DB::transaction(function () use ($request, $id) {
+            User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            $session = FocusSession::where('user_id', $request->user()->id)->findOrFail($id);
+            if ($session->status !== 'completed' || $session->kind !== 'focus' || ! $session->task_id) {
+                throw ValidationException::withMessages(['session' => ['Only a finished focus session linked to a task can complete that task.']]);
+            }
+            $task = Task::where('user_id', $request->user()->id)->lockForUpdate()->find($session->task_id);
+            if (! $task) {
+                throw ValidationException::withMessages(['session' => ['The task of this session no longer exists.']]);
+            }
+            if ($task->status !== 'completed') {
+                $task->forceFill(['status' => 'completed', 'completed_at' => $task->completed_at ?? now()])->save();
+                $task->createNextOccurrence();
+            }
+
+            return $task;
+        });
+
+        return (new WorkspaceResource($task->fresh()))->response();
     }
 }

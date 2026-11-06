@@ -142,6 +142,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('focus-sessions/today', [FocusController::class, 'today']);
         Route::post('focus-sessions', [FocusController::class, 'store']);
         Route::patch('focus-sessions/{id}', [FocusController::class, 'update']);
+        Route::post('focus-sessions/{id}/complete-task', [FocusController::class, 'completeTask'])->whereNumber('id');
         Route::get('day-plan', [DayPlanController::class, 'show']);
         Route::post('day-plan', [DayPlanController::class, 'choose']);
         Route::get('plans', [PlanningController::class, 'index']);
