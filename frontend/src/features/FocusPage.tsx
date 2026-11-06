@@ -4,14 +4,14 @@ import { Play, Pause, Square, X, BellRing, BellOff, Coffee, Brain, Timer, PenLin
 import { Expandable, PageHead } from '../components/visual'
 import { AnimatePresence, m } from 'motion/react'
 import { LivingOrb } from '../components/orb/LivingOrb'
-import { api, type Page } from '../lib/api'
+import { api, type Page, type RecordItem } from '../lib/api'
 import { useRecords } from '../lib/hooks'
 import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { ErrorMessage, Skeleton } from '../components/ui/Shared'
-import { clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, stampSession, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
+import { AWAY_SECONDS, clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, overdueSeconds, phaseOf, stampSession, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
 import { notify as notifyUser } from '../lib/quickActions'
 
 const DISTRACTIONS = ['phone', 'people', 'notifications', 'thought', 'other'] as const
@@ -24,12 +24,23 @@ export default function FocusPage() {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
   const tasks = useRecords('tasks', 'per_page=100&due=open&sort=priority'), projects = useRecords('projects', 'per_page=100')
   const insights = useApi<FocusInsightsData>('/api/focus-sessions/insights?days=30')
-  const pendingStart = useRef<string | null>(null), finishing = useRef<number | null>(null)
+  const pendingStart = useRef<string | null>(null), finishing = useRef<number | null>(null), starting = useRef(false)
+  // A running session that ended while nobody was looking is never finished or credited by itself: the person decides.
+  const [awayId, setAwayId] = useState<number | null>(null)
+  // The task chosen with the play button on the Tasks page (/focus?task=ID): fetched by id, so only the owner can use it.
+  const taskFetch = useApi<{ data: RecordItem }>(/^\d+$/.test(taskId) ? `/api/tasks/${taskId}` : null)
+  const appliedTask = useRef<string | null>(null)
 
   const load = useCallback(async () => (await api<Page<FocusSessionRecord>>('/api/focus-sessions')).data.map(stampSession), [])
   const reload = useCallback(async () => {
     try { setSessions(await load()) } catch (e) { setError((e as Error).message) }
   }, [load])
+  // Back on this tab (switching tabs, unlocking the phone): count by the clock again and ask the server where the session is.
+  useEffect(() => {
+    const back = () => { if (document.visibilityState === 'visible') { setNow(Date.now()); void reload() } }
+    document.addEventListener('visibilitychange', back)
+    return () => document.removeEventListener('visibilitychange', back)
+  }, [reload])
   useEffect(() => {
     let alive = true
     load().then(list => { if (alive) setSessions(list) }).catch(e => { if (alive) setError((e as Error).message) })
@@ -38,6 +49,7 @@ export default function FocusPage() {
   }, [load])
 
   const active = sessions?.find(s => s.status === 'running' || s.status === 'paused')
+  const phase = phaseOf(active)
   const elapsed = active ? elapsedNow(active, now) : 0
   const remaining = active ? active.duration_seconds - elapsed : minutes * 60
   const lastFinished = sessions?.find(s => s.status === 'completed' || s.status === 'cancelled')
@@ -62,8 +74,10 @@ export default function FocusPage() {
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }, [active, insights])
 
-  // When the countdown reaches zero, finish once and alert the user. Before ending anything, ask the server for the
-  // session again and count with its clock: a wrong reading on this device must never end a session that has time left.
+  // When the countdown reaches zero while the person is here, finish once and alert them. Before ending anything, ask the server
+  // again and count with its clock (a wrong reading on this device must never end a session that has time left), and ask the server
+  // to confirm the time is really up (`auto`). A session that ended long ago, while nobody was looking, is not finished or credited
+  // by itself: the person is asked.
   useEffect(() => {
     if (!active || active.status !== 'running' || remaining > 0 || finishing.current === active.id) return
     const id = active.id, isBreak = active.kind !== 'focus'
@@ -75,11 +89,14 @@ export default function FocusPage() {
       setSessions(fresh)
       const current = fresh.find(s => s.id === id)
       if (!current || current.status !== 'running') { finishing.current = null; return }
+      const overdue = overdueSeconds(current, Date.now())
       if (current.duration_seconds - elapsedNow(current, Date.now()) > 0) { finishing.current = null; return }
-      const done = await act('finish', notes ? { notes } : {})
+      if (overdue > AWAY_SECONDS && !isBreak) { setAwayId(id); return }
+      const done = await act('finish', { auto: true, ...(notes ? { notes } : {}) })
       if (!done) { retryLater(); return }
+      const minutes = Math.round(done.elapsed_seconds / 60)
       notify(isBreak ? t('Break is over', 'انتهت الاستراحة') : t('Focus session complete', 'اكتملت جلسة التركيز'), isBreak ? t('Ready for the next round?', 'مستعد للجولة التالية؟') : t('Nice work. Take a short break.', 'عمل رائع. خذ استراحة قصيرة.'), isBreak)
-      toast(isBreak ? t('Break finished.', 'انتهت الاستراحة.') : t('Session complete — time saved.', 'اكتملت الجلسة — حُفظ الوقت.'))
+      toast(isBreak ? t('Break finished.', 'انتهت الاستراحة.') : t(`Session complete — ${minutes} min saved.`, `اكتملت الجلسة — حُفظت ${minutes} د.`))
     })()
   }, [active, remaining, act, load, notes, notify, toast, t])
 
@@ -89,16 +106,35 @@ export default function FocusPage() {
     return () => { document.title = base }
   }, [active, remaining])
 
+  // A task chosen on the Tasks page: show its name, and set the timer to its own length (25 minutes when it has none). Nothing starts by itself.
+  const fetchedTask = taskFetch.data?.data
+  const planned = (task?: { estimated_minutes?: unknown } | null) => { const n = Number(task?.estimated_minutes); return Number.isFinite(n) && n >= 1 ? Math.min(240, Math.round(n)) : POMODORO.focus }
+  const modeFor = (n: number): FocusMode => n === POMODORO.focus ? 'pomodoro' : 'custom'
+  const chooseTask = (id: string, task?: { estimated_minutes?: unknown } | null) => { setTaskId(id); if (id) { const n = planned(task); setMinutes(n); setMode(modeFor(n)) } }
+  useEffect(() => {
+    if (!fetchedTask || String(fetchedTask.id) !== taskId || appliedTask.current === taskId) return
+    appliedTask.current = taskId
+    const n = planned(fetchedTask); setMinutes(n); setMode(modeFor(n))
+  }, [fetchedTask, taskId])
+  const taskMissing = Boolean(taskId) && /^\d+$/.test(taskId) && !taskFetch.loading && !!taskFetch.error
+  const setDuration = (n: number) => { const v = Math.max(1, Math.min(240, Math.round(n) || 1)); setMinutes(v); setMode(m => m === 'manual' ? m : (m === 'pomodoro' && v !== POMODORO.focus) || (m === 'deep' && v !== DEEP_MINUTES) ? 'custom' : m) }
+
   async function start(kind: SessionKind, durationMinutes: number, cycle?: number) {
+    // One start at a time, even for two taps in the same instant (state updates too late to stop the second one).
+    if (starting.current || (kind !== 'manual' && active)) return
+    starting.current = true
     setBusy(true); setError('')
     pendingStart.current ??= newClientId()
     const focusMode = kind === 'focus' ? (mode === 'manual' ? 'custom' : mode) : undefined
     try {
-      await api<FocusSessionRecord>('/api/focus-sessions', 'POST', { kind, duration_seconds: Math.round(durationMinutes * 60), mode: focusMode, cycle: cycle ?? (kind === 'focus' && mode === 'pomodoro' ? (suggestion?.kind === 'focus' ? suggestion.cycle : 1) : undefined), task_id: taskId ? Number(taskId) : null, project_id: !taskId && projectId ? Number(projectId) : null, notes: kind === 'manual' && notes ? notes : undefined, client_id: pendingStart.current })
+      const created = await api<FocusSessionRecord>('/api/focus-sessions', 'POST', { kind, duration_seconds: Math.round(durationMinutes * 60), mode: focusMode, cycle: cycle ?? (kind === 'focus' && mode === 'pomodoro' ? (suggestion?.kind === 'focus' ? suggestion.cycle : 1) : undefined), task_id: taskId ? Number(taskId) : null, project_id: !taskId && projectId ? Number(projectId) : null, notes: kind === 'manual' && notes ? notes : undefined, client_id: pendingStart.current })
       pendingStart.current = null
+      finishing.current = null; setAwayId(null)
       if (kind === 'manual') { toast(t('Time logged.', 'سُجّل الوقت.')); setNotes(''); insights.reload() }
-      await reload(); finishing.current = null
-    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+      // The countdown starts from the server's answer right away, not after a second round trip.
+      else setSessions(list => [stampSession(created), ...(list ?? []).filter(x => x.id !== created.id)])
+      await reload()
+    } catch (e) { setError((e as Error).message) } finally { starting.current = false; setBusy(false) }
   }
   function chooseMode(next: FocusMode) {
     setMode(next); setMinutes(next === 'pomodoro' ? POMODORO.focus : next === 'deep' ? DEEP_MINUTES : next === 'manual' ? 30 : 45)
@@ -146,10 +182,20 @@ export default function FocusPage() {
     <PageHead title={t('Focus', 'التركيز')} icon={Focus} action={permission !== 'unsupported' && permission !== 'granted' ? <button className="icon-button" onClick={() => void enableAlerts()} disabled={permission === 'denied'} aria-label={permission === 'denied' ? t('Timer alerts are blocked in your browser settings', 'تنبيهات المؤقت محظورة في إعدادات المتصفح') : t('Enable timer alerts', 'تفعيل تنبيهات المؤقت')} title={permission === 'denied' ? t('Alerts blocked', 'التنبيهات محظورة') : t('Enable timer alerts', 'تفعيل تنبيهات المؤقت')}>{permission === 'denied' ? <BellOff size={19} /> : <BellRing size={19} />}</button> : undefined} />
     <ErrorMessage error={error} />
     <div className="focus-v5">
-      <section className={`panel focus-stage${active ? ` is-${active.status}` : ''}${active && active.kind !== 'focus' ? ' is-break' : ''}`} aria-live="polite">
+      <section data-phase={phase} className={`panel focus-stage${active ? ` is-${active.status}` : ''}${active && active.kind !== 'focus' ? ' is-break' : ''}`} aria-live="polite">
         {!active && <div className="segmented focus-modes" role="tablist" aria-label={t('Focus mode', 'نمط التركيز')}>
           {([['pomodoro', t('Pomodoro', 'بومودورو'), Timer], ['deep', t('Deep work', 'عمل عميق'), Brain], ['custom', t('Custom', 'مخصص'), Clock], ['manual', t('Log time', 'تسجيل وقت'), PenLine]] as const).map(([value, text, Icon]) =>
             <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? 'active' : ''} onClick={() => chooseMode(value)}><Icon size={15} />{text}</button>)}
+        </div>}
+        {(active || taskId) && <div className="focus-plan" aria-live="polite">
+          {active ? <>
+            <strong>{active.task?.title ?? active.project?.title ?? label(active.kind, active.mode)}</strong>
+            <span>{t(`Planned ${Math.round(active.duration_seconds / 60)} min · done ${Math.floor(elapsed / 60)} min`, `المخطط ${Math.round(active.duration_seconds / 60)} د · أُنجز ${Math.floor(elapsed / 60)} د`)}</span>
+          </> : taskMissing ? <span role="alert" className="error">{t('That task was not found. Pick another or start without one.', 'لم يُعثر على هذه المهمة. اختر غيرها أو ابدأ بدونها.')}</span>
+            : <>
+              <strong>{fetchedTask && String(fetchedTask.id) === taskId ? fetchedTask.title : tasks.items.find(v => String(v.id) === taskId)?.title ?? t('Loading task…', 'جارٍ تحميل المهمة…')}</strong>
+              <span>{t(`Planned ${minutes} min`, `المخطط ${minutes} د`)}</span>
+            </>}
         </div>}
         <div className="focus-dial" style={{ ['--progress' as string]: String(progress) }}>
           {ambience && <LivingOrb className="dial-orb" progress={progress} mode={orbMode} size="74%" interactive={false} label={orbLabel} />}
@@ -160,6 +206,13 @@ export default function FocusPage() {
             <span className="dial-status">{active?.status === 'paused' ? t('Paused', 'متوقف مؤقتاً') : active ? (active.task?.title ?? active.project?.title ?? t('Stay present', 'ابقَ حاضراً')) : t('Ready when you are', 'جاهز عندما تكون جاهزاً')}</span>
           </div>
         </div>
+        {active && awayId === active.id && active.status === 'running' && <div className="focus-away" role="alert">
+          <p><strong>{t('This session ended while you were away.', 'انتهت هذه الجلسة أثناء غيابك.')}</strong> {t(`It was planned for ${Math.round(active.duration_seconds / 60)} min. Save that time as focus, or discard the session? Nothing is saved until you choose.`, `كانت مخططة لمدة ${Math.round(active.duration_seconds / 60)} د. هل تحفظ هذا الوقت كتركيز أم تتجاهل الجلسة؟ لا يُحفظ شيء حتى تختار.`)}</p>
+          <div className="toolbar">
+            <button className="primary" disabled={busy} onClick={() => void act('finish', notes ? { notes } : {}).then(done => { if (done) { setAwayId(null); toast(t(`Saved ${Math.round(done.elapsed_seconds / 60)} min.`, `حُفظت ${Math.round(done.elapsed_seconds / 60)} د.`)) } })}>{t(`Save ${Math.round(active.duration_seconds / 60)} min`, `حفظ ${Math.round(active.duration_seconds / 60)} د`)}</button>
+            <button className="quiet" disabled={busy} onClick={() => void act('cancel').then(done => { if (done) setAwayId(null) })}>{t('Discard', 'تجاهل')}</button>
+          </div>
+        </div>}
         {active ? <>
           <div className="focus-controls">
             <button className="primary big" disabled={busy || remaining <= 0} onClick={() => void act(active.status === 'running' ? 'pause' : 'resume')} aria-keyshortcuts="Space">{active.status === 'running' ? <><Pause size={18} />{t('Pause', 'إيقاف مؤقت')}</> : <><Play size={18} />{t('Resume', 'استئناف')}</>}</button>
@@ -187,11 +240,16 @@ export default function FocusPage() {
           <div className="focus-controls">
             <button className="cta focus-start" disabled={busy || minutes < 1 || minutes > 240} onClick={() => void start(mode === 'manual' ? 'manual' : 'focus', minutes)}>{mode === 'manual' ? <><PenLine size={20} />{t('Save time', 'حفظ الوقت')}</> : <><Play size={22} />{mode === 'pomodoro' ? t(`Start ${POMODORO.focus} min`, `ابدأ ${POMODORO.focus} دقيقة`) : mode === 'deep' ? t(`Start ${DEEP_MINUTES} min deep work`, `ابدأ ${DEEP_MINUTES} دقيقة عمل عميق`) : t('Start focus', 'بدء التركيز')}</>}</button>
           </div>
-          <label className="focus-task">{t('Task', 'المهمة')}<select value={taskId} onChange={e => setTaskId(e.target.value)}><option value="">{t('No task', 'بدون مهمة')}</option>{tasks.items.filter(v => v.status !== 'completed').map(v => <option key={v.id} value={v.id}>{v.title}</option>)}</select></label>
+          {mode !== 'manual' && <div className="focus-duration" role="group" aria-label={t('Session length', 'مدة الجلسة')}>
+            <button type="button" className="icon-button" disabled={busy || minutes <= 1} onClick={() => setDuration(minutes - 5)} aria-label={t('5 minutes less', 'أقل بخمس دقائق')}>−</button>
+            <label>{t('Minutes', 'الدقائق')}<input type="number" inputMode="numeric" min={1} max={240} value={minutes} onChange={e => setDuration(Number(e.target.value))} /></label>
+            <button type="button" className="icon-button" disabled={busy || minutes >= 240} onClick={() => setDuration(minutes + 5)} aria-label={t('5 minutes more', 'أكثر بخمس دقائق')}>+</button>
+          </div>}
+          <label className="focus-task">{t('Task', 'المهمة')}<select value={taskId} onChange={e => chooseTask(e.target.value, tasks.items.find(v => String(v.id) === e.target.value))}><option value="">{t('No task', 'بدون مهمة')}</option>{tasks.items.filter(v => v.status !== 'completed').map(v => <option key={v.id} value={v.id}>{v.title}</option>)}</select></label>
           <Expandable className="focus-options" summary={t('More options', 'خيارات أخرى')} icon={<SlidersHorizontal size={16} aria-hidden="true" />}>
             <div className="form-grid focus-setup">
-              {(mode === 'custom' || mode === 'manual') && <label>{mode === 'manual' ? t('Minutes worked', 'الدقائق المنجزة') : t('Minutes', 'الدقائق')}<input type="number" min={1} max={240} value={minutes} onChange={e => setMinutes(Number(e.target.value))} /></label>}
-              {!taskId && <label className={mode === 'custom' || mode === 'manual' ? '' : 'full'}>{t('Project', 'المشروع')}<select value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">{t('No project', 'بدون مشروع')}</option>{projects.items.filter(p => p.status !== 'completed').map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
+              {mode === 'manual' && <label>{t('Minutes worked', 'الدقائق المنجزة')}<input type="number" min={1} max={240} value={minutes} onChange={e => setMinutes(Number(e.target.value))} /></label>}
+              {!taskId && <label className={mode === 'manual' ? '' : 'full'}>{t('Project', 'المشروع')}<select value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">{t('No project', 'بدون مشروع')}</option>{projects.items.filter(p => p.status !== 'completed').map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
               {mode === 'manual' && <label className="full">{t('Notes (optional)', 'ملاحظات (اختياري)')}<textarea rows={2} maxLength={2000} value={notes} onChange={e => setNotes(e.target.value)} /></label>}
             </div>
             {mode !== 'manual' && <div className="toolbar">

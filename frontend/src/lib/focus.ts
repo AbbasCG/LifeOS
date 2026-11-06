@@ -47,10 +47,31 @@ export function elapsedNow(session: Pick<FocusSessionRecord, 'status' | 'elapsed
   return Math.max(0, Math.min(session.duration_seconds, Number.isFinite(total) ? total : 0))
 }
 
+/**
+ * A countdown as people read it: 25:00, 60:00 for exactly an hour, and 1:30:00 beyond an hour (so a 90-minute task starts at 1:30:00
+ * and passes through 60:00 on its way down).
+ */
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
+  if (s <= 3600) return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
+  return `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
+}
+
+/** The states a focus session can be in, as the page shows them: nothing running yet, or the status the server reports. */
+export type FocusPhase = 'idle' | 'running' | 'paused' | 'completed' | 'cancelled'
+export const phaseOf = (session?: Pick<FocusSessionRecord, 'status'> | null): FocusPhase => session ? session.status : 'idle'
+
+/** A running session that ended longer ago than this was not being watched: the page asks instead of finishing it. */
+export const AWAY_SECONDS = 120
+
+/** How many seconds past the planned end a running session is, by the server's clock (0 while time is left or when it is not running). */
+export function overdueSeconds(session: Pick<FocusSessionRecord, 'status' | 'elapsed_seconds' | 'resumed_at' | 'duration_seconds'> & { skew_ms?: number }, now: number): number {
+  if (session.status !== 'running') return 0
+  const since = parseStamp(session.resumed_at)
+  const running = since === null ? 0 : Math.max(0, Math.floor((now + (session.skew_ms ?? 0) - since) / 1000))
+  const total = (session.elapsed_seconds || 0) + running
+  return Number.isFinite(total) ? Math.max(0, total - session.duration_seconds) : 0
 }
 
 /**

@@ -50,6 +50,7 @@ export default defineConfig({
       // The built-in server logs every request to stderr; failures surface through the tests and traces instead.
       env: isolated, stdout: 'ignore', stderr: 'ignore',
     },
-    { command: 'npx vite preview --port 4173 --strictPort --host 127.0.0.1', cwd: root, url: 'http://127.0.0.1:4173', reuseExistingServer: false, timeout: 60_000 },
+    // E2E_DEV=1 runs the same tests against the Vite dev server (React StrictMode, unminified code), the way the app is used while developing.
+    { command: `npx vite ${process.env.E2E_DEV === '1' ? '' : 'preview '}--port 4173 --strictPort --host 127.0.0.1`, cwd: root, url: 'http://127.0.0.1:4173', reuseExistingServer: false, timeout: 60_000 },
   ],
 })

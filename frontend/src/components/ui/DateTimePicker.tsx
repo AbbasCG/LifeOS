@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useText } from '../../lib/i18n'
 import { accountDay } from '../../lib/accountDay'
 import {
   addDays, addMonths, clampDay, formatDay, formatTime, from12, HOUR_CYCLE_CHANGED, joinDateTime, monthGrid, parseDay, parseTimeInput,
-  preferredHourCycle, saveHourCycle, splitDateTime, TIME_RE, to12, type HourCycle,
+  preferredHourCycle, saveHourCycle, splitDateTime, TIME_RE, to12, withMonth, type HourCycle,
 } from '../../lib/dateTime'
 
 export type PickerKind = 'date' | 'time' | 'datetime'
@@ -76,13 +76,14 @@ function PickerSheet({ kind, value, min, max, clearable, anchor, onChange, onClo
   const [view, setView] = useState(() => parts.date || clampDay(today, min, max)), [focused, setFocused] = useState(() => parts.date || clampDay(today, min, max))
   // What is being typed, or null while the box simply shows the chosen value.
   const [dateDraft, setDateDraft] = useState<string | null>(null), [timeDraft, setTimeDraft] = useState<string | null>(null)
-  const [phone] = useState(isPhone)
+  const [phone] = useState(isPhone), [months, setMonths] = useState(false)
 
   // The picker is its own modal dialog, so it opens above any form dialog it is used in and returns focus when it closes.
   useLayoutEffect(() => {
     const dialog = ref.current
     if (!dialog) return
-    dialog.showModal()
+    // StrictMode (development) runs this effect, its cleanup and the effect again: opening an already open dialog throws, so check first.
+    if (!dialog.open) { if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', '') } // very old browsers: still opens, just not modal
     const target = anchor.current
     if (!phone && target) {
       const rect = target.getBoundingClientRect(), w = dialog.offsetWidth, h = dialog.offsetHeight
@@ -92,7 +93,7 @@ function PickerSheet({ kind, value, min, max, clearable, anchor, onChange, onClo
       dialog.style.top = `${Math.max(8, below + h > window.innerHeight - 8 ? Math.max(8, rect.top - h - 6) : below)}px`
     }
     dialog.querySelector<HTMLElement>('[data-day-focus]')?.focus()
-    return () => { if (dialog.open) dialog.close() }
+    return () => { if (dialog.open) { if (typeof dialog.close === 'function') dialog.close(); else dialog.removeAttribute('open') } }
   }, [anchor, phone, rtl])
 
   const timeShown = parts.time || '09:00'
@@ -127,27 +128,35 @@ function PickerSheet({ kind, value, min, max, clearable, anchor, onChange, onClo
   const showDate = kind !== 'time', showTime = kind !== 'date'
   const title = kind === 'time' ? t('Choose a time', 'اختر الوقت') : kind === 'date' ? t('Choose a date', 'اختر التاريخ') : t('Choose date and time', 'اختر التاريخ والوقت')
 
+  // Escape arrives as `cancel`. The native `close` event is deliberately NOT used: React StrictMode (development) mounts, unmounts and
+  // remounts this component, and the unmount's dialog.close() queues a `close` event that would shut the freshly reopened picker.
+  // `cancel` is stopped here because React passes a portal's events up to the form dialog that holds it.
   return createPortal(
-    <dialog ref={ref} className={`dtp-dialog ${phone ? 'is-phone' : ''}`} dir={rtl ? 'rtl' : 'ltr'} aria-labelledby={titleId} // React passes a portal's events up to the form dialog that holds it: stop them here so closing the picker never closes the form.
-      onCancel={e => e.stopPropagation()} onClose={e => { e.stopPropagation(); onClose() }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <dialog ref={ref} className={`dtp-dialog ${phone ? 'is-phone' : ''}`} dir={rtl ? 'rtl' : 'ltr'} aria-labelledby={titleId} onCancel={e => { e.preventDefault(); e.stopPropagation(); onClose() }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="dtp-inner">
         <header className="dtp-head"><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" onClick={onClose} aria-label={t('Close', 'إغلاق')}><X size={16} /></button></header>
         <div className="dtp-body">
           {showDate && <section className="dtp-cal" aria-label={t('Date', 'التاريخ')}>
             <div className="dtp-month">
-              <button type="button" className="icon-button" onClick={() => setView(addMonths(view, -1))} aria-label={t('Previous month', 'الشهر السابق')}><Prev size={16} /></button>
-              <strong aria-live="polite">{monthTitle}</strong>
-              <button type="button" className="icon-button" onClick={() => setView(addMonths(view, 1))} aria-label={t('Next month', 'الشهر التالي')}><Next size={16} /></button>
+              <button type="button" className="icon-button" onClick={() => setView(addMonths(view, months ? -12 : -1))} aria-label={months ? t('Previous year', 'السنة السابقة') : t('Previous month', 'الشهر السابق')}><Prev size={16} /></button>
+              <button type="button" className="dtp-title" aria-expanded={months} aria-label={`${monthTitle}: ${t('choose month or year', 'اختر الشهر أو السنة')}`} onClick={() => setMonths(v => !v)}><span aria-live="polite">{monthTitle}</span><ChevronDown size={14} aria-hidden="true" /></button>
+              <button type="button" className="icon-button" onClick={() => setView(addMonths(view, months ? 12 : 1))} aria-label={months ? t('Next year', 'السنة التالية') : t('Next month', 'الشهر التالي')}><Next size={16} /></button>
             </div>
-            <div className="dtp-weekdays" aria-hidden="true">{weekdays.map(w => <span key={w}>{w}</span>)}</div>
-            <div className="dtp-grid" role="group" aria-label={monthTitle} onKeyDown={onGridKey}>
+            {months && <div className="dtp-months" role="group" aria-label={t('Month', 'الشهر')}>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                const label = formatDay(withMonth(view, Number(view.slice(0, 4)), m), language, { month: 'long' }), current = Number(view.slice(5, 7)) === m
+                return <button key={m} type="button" className={current ? 'selected' : ''} aria-pressed={current} onClick={() => { setView(withMonth(view, Number(view.slice(0, 4)), m)); setMonths(false) }}>{label}</button>
+              })}
+            </div>}
+            {!months && <div className="dtp-weekdays" aria-hidden="true">{weekdays.map(w => <span key={w}>{w}</span>)}</div>}
+            {!months && <div className="dtp-grid" role="group" aria-label={monthTitle} onKeyDown={onGridKey}>
               {grid.map(({ day, inMonth }) => {
                 const off = !!((min && day < min) || (max && day > max)), selected = day === parts.date
-                return <button key={day} type="button" disabled={off} tabIndex={day === focused ? 0 : -1} {...(day === focused ? { 'data-day-focus': '' } : {})}
+                return <button key={day} type="button" data-day={day} disabled={off} tabIndex={day === focused ? 0 : -1} {...(day === focused ? { 'data-day-focus': '' } : {})}
                   className={`dtp-day ${inMonth ? '' : 'outside'} ${day === today ? 'today' : ''} ${selected ? 'selected' : ''}`} aria-pressed={selected} aria-current={day === today ? 'date' : undefined}
                   aria-label={formatDay(day, language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} onClick={() => pickDay(day)}>{Number(day.slice(8))}</button>
               })}
-            </div>
+            </div>}
             <label className="dtp-typed">{t('Date', 'التاريخ')}<input type="text" inputMode="numeric" dir="ltr" placeholder="YYYY-MM-DD" value={dateText} onChange={e => setDateDraft(e.target.value)} onBlur={e => commitDate(e.target.value)} onKeyDown={holdEnter(commitDate)} /></label>
           </section>}
           {showTime && <section className="dtp-time" aria-label={t('Time', 'الوقت')}>

@@ -53,3 +53,10 @@
   .dtp-inner { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: no-preference) { .dtp-dialog.is-phone[open] { animation: dtp-up 180ms ease-out; } @keyframes dtp-up { from { transform: translateY(24px); opacity: 0; } } }
+
+.dtp-title { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--color-text); font-weight: 700; font-size: 14px; }
+.dtp-title:hover, .dtp-title[aria-expanded="true"] { background: var(--color-surface-muted); }
+.dtp-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px 0; }
+.dtp-months button { min-height: 44px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); color: var(--color-text); font-size: 13px; }
+.dtp-months button:hover { border-color: var(--color-primary); }
+.dtp-months button.selected, .dtp-months button.selected:hover { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); font-weight: 700; }

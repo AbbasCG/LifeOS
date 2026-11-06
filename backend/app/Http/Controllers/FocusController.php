@@ -18,6 +18,9 @@ class FocusController extends Controller
 {
     public const MAX_INTERRUPTIONS = 50;
 
+    /** Seconds of clock rounding allowed when the page reports that the countdown reached zero. */
+    public const FINISH_TOLERANCE_SECONDS = 2;
+
     public function index(Request $request): mixed
     {
         return FocusSession::where('user_id', $request->user()->id)->with(['task:id,title', 'project:id,title,color'])->latest()->latest('id')->paginate(50);
@@ -62,9 +65,12 @@ class FocusController extends Controller
             if ($manual) {
                 $start = now()->subSeconds($data['duration_seconds']);
                 $overlap = FocusSession::where('user_id', $user->id)->where('status', 'completed')->whereIn('kind', ['focus', 'manual'])
-                    ->where('completed_at', '>', $start)->get()->first(fn (FocusSession $s) => ($s->started_at ?? $s->completed_at->subSeconds($s->elapsed_seconds)) < now());
-                if ($overlap) {
-                    throw ValidationException::withMessages(['duration_seconds' => ['This time overlaps a session you already logged. Shorten the entry so time is not counted twice.']]);
+                    ->where('completed_at', '>', $start)->get()->filter(fn (FocusSession $s) => ($s->started_at ?? $s->completed_at->subSeconds($s->elapsed_seconds)) < now());
+                if ($overlap->isNotEmpty()) {
+                    // Nothing is changed or removed: say how much of the time since the last session is still free.
+                    $free = (int) floor(max(0, $overlap->max('completed_at')->diffInSeconds(now(), false)) / 60);
+                    $hint = $free >= 1 ? " You can log up to {$free} minutes since it ended, or shorten the entry." : ' Shorten the entry so time is not counted twice.';
+                    throw ValidationException::withMessages(['duration_seconds' => ['This time overlaps a session you already logged.'.$hint]]);
                 }
             }
             $session = FocusSession::create($data + [
@@ -86,6 +92,7 @@ class FocusController extends Controller
     {
         $data = $request->validate([
             'action' => 'required|in:pause,resume,finish,cancel,interrupt,note',
+            'auto' => 'sometimes|boolean',
             'reason' => ['required_if:action,interrupt', 'nullable', Rule::in(FocusSession::DISTRACTIONS)],
             'note' => 'nullable|string|max:200',
             'notes' => 'nullable|string|max:2000',
@@ -104,6 +111,11 @@ class FocusController extends Controller
             if ($s->status === 'running' && $s->resumed_at) {
                 $s->elapsed_seconds = min($s->duration_seconds, $s->elapsed_seconds + max(0, (int) $s->resumed_at->diffInSeconds(now())));
                 $s->resumed_at = now();
+            }
+            // The page asks for an automatic finish when its countdown reaches zero. Only the server's clock decides whether that is true:
+            // a wrong device clock or a stale tab must never end a session that still has time left (nothing is saved when it is refused).
+            if ($action === 'finish' && ($data['auto'] ?? false) && $s->elapsed_seconds < $s->duration_seconds - self::FINISH_TOLERANCE_SECONDS) {
+                throw ValidationException::withMessages(['action' => ['The session is not finished yet.']]);
             }
             if (array_key_exists('notes', $data) && $data['notes'] !== null) {
                 $s->notes = $data['notes'];

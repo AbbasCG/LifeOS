@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
-import { useState, type ReactNode } from 'react'
+import { StrictMode, useState, type ReactNode } from 'react'
 import { LanguageProvider } from '../contexts/LanguageContext'
 import { DateTimeField } from '../components/ui/DateTimePicker'
 import { Dialog } from '../components/ui/Shared'
-import { addDays, addMonths, formatTime, monthGrid, parseDay, parseTimeInput, from12, to12, splitDateTime, weekdayIndex } from '../lib/dateTime'
+import { addDays, addMonths, withMonth, formatTime, monthGrid, parseDay, parseTimeInput, from12, to12, splitDateTime, weekdayIndex } from '../lib/dateTime'
 import { setAccountZone } from '../lib/accountDay'
 
 describe('V45 date and time helpers', () => {
@@ -16,6 +16,11 @@ describe('V45 date and time helpers', () => {
     expect(addMonths('2027-01-31', 1)).toBe('2027-02-28')
     expect(addMonths('2027-12-15', 1)).toBe('2028-01-15')
     expect(weekdayIndex('2027-03-08')).toBe(0) // a Monday
+  })
+  it('moves to another month or year and stays inside that month', () => {
+    expect(withMonth('2027-01-31', 2027, 2)).toBe('2027-02-28')
+    expect(withMonth('2028-02-29', 2029, 2)).toBe('2029-02-28')
+    expect(withMonth('2027-03-15', 2030, 12)).toBe('2030-12-15')
   })
   it('lays a month out as six Monday-first weeks', () => {
     const grid = monthGrid('2027-03-10')
@@ -90,6 +95,48 @@ describe('V45 the date and time picker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }))
     expect(screen.getByText('February 2027')).toBeInTheDocument()
+  })
+
+  it('chooses a month and a year from the title, without paging month by month', () => {
+    render(wrap(<Harness initial="2027-03-10T09:00" />))
+    open()
+    fireEvent.click(screen.getByRole('button', { name: /March 2027: choose month or year/ }))
+    expect(screen.getByRole('group', { name: 'Month' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Next year' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next year' }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Month' })).getByRole('button', { name: 'November' }))
+    expect(screen.queryByRole('group', { name: 'Month' })).toBeNull()
+    expect(screen.getByText('November 2029')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Thursday, November 15, 2029/ }))
+    expect(value()).toBe('2029-11-15T09:00')
+  })
+
+  it('stays open under React StrictMode, where a browser queues a close event for the first, simulated unmount', async () => {
+    // A real dialog.close() fires `close` asynchronously; the development server (StrictMode) mounts, unmounts and remounts the picker.
+    const originalClose = HTMLDialogElement.prototype.close
+    HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) { this.removeAttribute('open'); setTimeout(() => this.dispatchEvent(new Event('close')), 0) }
+    try {
+      render(<StrictMode>{wrap(<Harness initial="2027-03-10T09:00" />)}</StrictMode>)
+      open()
+      await new Promise(r => setTimeout(r, 30))
+      expect(document.querySelector('.dtp-dialog[open]')).not.toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: /Friday, March 12, 2027/ }))
+      expect(value()).toBe('2027-03-12T09:00')
+    } finally { HTMLDialogElement.prototype.close = originalClose }
+  })
+
+  it('still opens in a browser without dialog.showModal, and every day cell carries its date', () => {
+    const original = HTMLDialogElement.prototype.showModal
+    // @ts-expect-error simulating an old browser
+    HTMLDialogElement.prototype.showModal = undefined
+    try {
+      render(wrap(<Harness initial="2027-03-10T09:00" />))
+      open()
+      expect(document.querySelector('.dtp-dialog[open]')).not.toBeNull()
+      expect(document.querySelector('[data-day="2027-03-10"]')).not.toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      expect(document.querySelector('.dtp-dialog[open]')).toBeNull()
+    } finally { HTMLDialogElement.prototype.showModal = original }
   })
 
   it('sets the hour and minute, in the 24-hour clock', () => {
@@ -173,7 +220,7 @@ describe('V45 the date and time picker', () => {
     expect(value()).toBe('2027-03-18T09:00')
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(document.querySelector('.dtp-dialog[open]')).toBeNull()
-    open(); fireEvent(document.querySelector('.dtp-dialog')!, new Event('close'))
+    open(); fireEvent(document.querySelector('.dtp-dialog')!, new Event('cancel', { cancelable: true }))
     expect(document.querySelector('.dtp-dialog[open]')).toBeNull()
   })
 
@@ -183,7 +230,6 @@ describe('V45 the date and time picker', () => {
     open()
     const picker = document.querySelector('.dtp-dialog')!
     fireEvent(picker, new Event('cancel', { bubbles: false, cancelable: true }))
-    fireEvent(picker, new Event('close'))
     expect(document.querySelector('.dtp-dialog[open]')).toBeNull()
     expect(closed).not.toHaveBeenCalled()
     open(); fireEvent.click(screen.getByRole('button', { name: 'Done' }))

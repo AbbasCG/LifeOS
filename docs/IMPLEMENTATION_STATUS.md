@@ -3014,7 +3014,7 @@ The font files are still **not in Git** (licence): they must be installed on the
 
 # V45 — Own date/time picker, font paths, Pomodoro hardening
 
-Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (3bf7b6f) after PR #43 (V44) was merged.
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (3bf7b6f) after PR #43 (V44) was merged. Merged into `main` as PR #44.
 
 ## 1. A date and time picker of our own
 Every native browser date/time input is replaced (event start/end and "last date", task/project/goal deadline and reminder, event form on the Resource pages, smart planning start, timeline move dialog and date, calendar date, Plan my day date and "busy until", study/personal windows, Analytics from/to, Settings work/focus/quiet hours). No `type="date"`, `"time"` or `"datetime-local"` input is left in the app.
@@ -3050,3 +3050,86 @@ Every native browser date/time input is replaced (event start/end and "last date
 - Whether the font fix solves the problem on your machine depends on the file names (see above); I could not see your folder.
 - The Pomodoro cause on your device is still NOT VERIFIED (a wrong device clock reproduces the exact symptom and is fixed; the server re-check covers any other wrong reading).
 - The timeline/Analytics date boxes take any day; only forms that set `min` (Plan my day, event end) grey out earlier days.
+
+---
+
+# V46 — Date pickers open in development too
+
+Branch `claude/magical-johnson-1s7q7b`, restarted from `main` (5ee0e0f) after PR #44 (V45) was merged.
+
+## What was reported
+In the add/edit task window, pressing the date field or its calendar icon did not open the calendar.
+
+## The real cause (reproduced)
+It is **not** `z-index`, `overflow`, `pointer-events` or the portal: the picker is its own modal `<dialog>` in the browser's top layer, which sits above every form dialog and drawer, and none of those CSS properties apply to it.
+
+It is a **React StrictMode** problem that only shows in development (`npm run dev`):
+- StrictMode mounts, unmounts and mounts a component again. Cleaning up the first, simulated unmount calls `dialog.close()`, and a browser fires the dialog's `close` event *asynchronously*.
+- The picker listened to the native `close` event to know it was closed (added in V45 so that Escape closed only the picker). The queued event arrived after the picker had been reopened, so it closed itself immediately: "it does not open".
+- The production build does not use StrictMode, so every earlier browser test (which ran against the production build) passed.
+
+How it was proven: the Playwright picker tests run against the Vite dev server (`E2E_DEV=1`) failed (the dialog was gone before a day could be clicked) and pass after the fix; the new unit test reproduces the queued `close` event under `<StrictMode>` and fails on the V45 component.
+
+**Fix:** Escape is handled with the `cancel` event (and stopped so it never reaches the form dialog behind the picker); the native `close` event is no longer used; opening an already open dialog is guarded. No other dialog in the app listens to `close` (checked: the shared Dialog, Drawer and Sheet use `cancel` only).
+
+## Also done
+- **One reusable picker** (`components/ui/DateTimePicker.tsx`, unchanged API): used by every date or time field in the app. New: choose **month and year** from the title (year arrows plus a month grid) as well as paging month by month; every day cell carries its date (`data-day`); in a browser without `dialog.showModal` it still opens.
+- **Reachable at any size:** tested at 1280×560 (short laptop), 820×1180 (tablet), 360×640 and 640×360 (small phone, landscape or 200 % zoom) and 1920×1080, in English and Arabic: the picker stays inside the screen and Done is reachable. (The test waits for the opening animation before measuring.)
+- **Saving and time zones:** a deadline chosen as 14:30 is stored as that local time and shows 14:30 again when the form is reopened, in UTC, Asia/Riyadh and America/New_York; saving a form without touching a deadline stores the same instant; Clear stores nothing.
+- `npm run test:e2e:dev` runs the browser tests against the dev server, and CI now runs the picker tests that way too.
+
+## Testing
+- **Vitest:** `picker.test.tsx` 22 (adds: month/year chooser, StrictMode with a queued close event, no `showModal`); everything 270/270.
+- **Playwright, production build:** `date-pickers.spec.ts` (52 tests, desktop and phone): tasks (create with deadline and reminder by tapping a day, hour and minute, using the field and using the icon; save; reopen), projects, goals, habits, calendar events, Settings working hours, Plan my day (day and study/personal windows), Analytics custom range, Timeline day, Smart planning block; existing value kept; Clear; label, keyboard (Enter, Space), icon, Escape and tap-outside; month/year chooser and a date two years ahead; five screen sizes. Plus `picker.spec.ts`.
+- **Playwright, dev server:** the same two files, desktop.
+- **Results:** Vitest 270/270; backend 312/312 (unchanged by V46); `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and size check clean; full Playwright run 216 passed, 14 skipped, 0 failed; the picker tests also pass on the dev server (45 passed).
+
+## Known limitations (V46)
+- Only Chromium is available here: Safari, Firefox and real phones are NOT VERIFIED.
+- The reporter's exact setup is not known; the dev-server cause is the only one I could reproduce. If the calendar still does not open in a production build, send the browser name and version.
+- Found while testing, not changed (outside this request): `GET /api/tasks/<not a number>` answers 500 instead of 404 (the generic resource routes have no numeric constraint).
+
+---
+
+# V47 — Focus timer: real time only, and tasks that open Focus ready to start
+
+Branch `claude/magical-johnson-1s7q7b` (on top of the uncommitted V46 work).
+
+## The problem as reported
+"Start 25 min" ends at once with "Session complete", 25 minutes are recorded, retries pile up and "Time overlaps a session you already logged" appears.
+
+## Root cause (what the code allowed)
+1. **Any "finish" was believed.** The page sent `finish` whenever its own countdown read zero, and the server completed the session on that word alone. A wrong reading on the device (clock ahead, V44; an unreadable time) or a stale tab therefore ended a session that still had time left (proved by `test_an_automatic_finish_before_the_time_is_up_is_refused…`, which failed before the fix: the server answered 200).
+2. **A session left running was finished for the person.** A running session counts wall-clock time. One left behind (an earlier try, a closed tab, a sleeping phone) was found by the page on opening, its countdown read zero, and it was finished at once with its **full planned time** credited: "Session complete", 25 minutes saved without any focus (proved by `v47.test.tsx › REGRESSION…`, which fails on the previous page and passes now). Starting again is then refused by the server while that session exists ("Finish or cancel your active session first"), which is how retries and the overlap message follow: the 25-minute record is what "Log time" later collides with.
+3. After a start the page waited for a second round trip before showing the session, and a double tap could send two starts.
+
+The exact cause on your device could not be seen from here (NOT VERIFIED on the device); these are the paths in the code that produce every symptom you listed, each now covered by a test.
+
+## What changed
+**Server (`FocusController`)**
+- `PATCH … action=finish` accepts `auto: true`. For an automatic finish the server checks its own clock: if the planned time is not up (2 s of rounding allowed) it answers 422 and saves nothing. A person pressing "Finish & save" is unchanged: it records the time that really passed, never the planned length.
+- The "overlaps a session you already logged" message now says how many minutes are free since the last session ended. Nothing is changed or deleted.
+- Already true and now tested: elapsed time is computed on the server's clock; a repeated start with the same `client_id` returns the same session; a second start while one is active is refused; time spent on a task is added to `actual_minutes` and never completes the task; reading the list never changes a session.
+
+**Page (`FocusPage`)**
+- Explicit phases (idle / running / paused / completed / cancelled; `data-phase` on the stage).
+- Start shows the countdown from the server's answer immediately; a synchronous lock means two taps make one session.
+- Automatic finish only when the countdown reaches zero **while the person is here** (within 2 minutes of the end), after re-asking the server, and with `auto: true`. If it is refused, "Session complete" is not shown (it used to be) and it retries after 5 s.
+- A running session that ended longer ago than that is **not finished or credited**: the page says "This session ended while you were away" and offers **Save N min** or **Discard**. Nothing is saved until the person chooses (no autonomous change to user data).
+- Back on the tab (tab switch, unlocked phone) the page re-reads the clock and the server.
+- The planned length and the time done are shown above the timer; the length is editable before Start (−5 / + 5 / typed, 1–240) and the minutes box is no longer hidden.
+- `clock()`: 25:00, **60:00** for an hour, **1:30:00** beyond an hour.
+
+**Tasks → Focus**
+- The play button next to a task (Tasks, Today) now opens `/focus?task=ID` and starts nothing. The task is fetched by id (`GET /api/tasks/:id`, which only returns the owner's tasks), its name is shown above the timer, and the timer is set to its `estimated_minutes` (60 → 60:00, 90 → 1:30:00; none or 0 → 25:00). The countdown starts only on **Start**; the session is then linked to that task (`task_id`) and its real time is added to the task's actual minutes, without completing it. An unknown or foreign task id shows "That task was not found" and the timer works without a task. The free-focus buttons (no task) still start in one tap.
+
+## Testing
+- **Laravel:** `FocusTimerTest` (10 tests: no instant completion, early finish records real time only and leaves the task open, early automatic finish refused and unchanged, due automatic finish accepted and counted once, rounding allowance, pause/resume, reading changes nothing, retried start and second start, task ownership, overlap message). Two of them failed before the fix.
+- **Vitest:** `v47.test.tsx` (17; the regression and 8 more fail on the previous page): clock format, phases, away prompt (Discard / Save), automatic finish with `auto`, refused finish, double tap, refresh, task title and planned time, 60:00 / 1:30:00 / 25:00, length editing, unknown task, play button on Tasks.
+- **Playwright (real server; "time passing" is simulated by moving the session's start back in the server's database):** `focus-timer.spec.ts`: start counts down and a refresh keeps the real time left; two taps make one session; early finish saves real time only; real expiry finishes by itself with the full planned time; a session that ended hours ago waits for a decision; the play button from Tasks in English and Arabic for 60, 90 and no-length tasks (nothing starts before Start, the right task and length are saved, the task stays open).
+- **Results:** Laravel 322/322 on SQLite and PostgreSQL 16; Vitest 287/287; `tsc -b`, e2e typecheck, ESLint (0 errors, 1 pre-existing warning), build and size check (107.7 KB of 125) clean; full Playwright run 232 passed, 14 skipped, 0 failed.
+
+## Known limitations (V47)
+- "Save N min" after an abandoned session credits the planned time because that is what a session left running accrued; the person chooses it knowingly. The phone-locked case (timer kept running while you work) is why elapsed time is wall-clock rather than only while the tab is open.
+- Only Chromium is available here; real phones and other browsers are NOT VERIFIED.
+- Today's free-focus buttons and the notification actions still start in one tap (no task to prepare).
