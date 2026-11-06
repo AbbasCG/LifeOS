@@ -60,3 +60,7 @@ frontend/public/fonts/*.otf
 
 # Browser-test database (frontend/playwright.config.ts)
 backend/storage/e2e.sqlite*
+
+# Deploy scratch directories (built beside the live frontend/dist by scripts/deploy-production.sh)
+frontend/dist.new/
+frontend/dist.prev/

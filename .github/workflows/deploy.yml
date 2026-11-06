@@ -1,0 +1,144 @@
+name: Deploy production
+
+# CD is separate from CI (ci.yml). A deploy only ever ships a commit that (1) is on main and (2) has a green push-CI run, and the server
+# re-checks (1) itself. The `production` environment gates the SSH job: configure required reviewers on it (Settings → Environments).
+#
+#  - Manual:    Actions → "Deploy production" → Run workflow (sha empty = current main head). Approve in the environment prompt.
+#  - Automatic: only when the repository variable AUTO_DEPLOY is "true" — set it ONLY after the environment has required reviewers,
+#               otherwise every green merge would go straight to production.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: deploy (go forward) or rollback (code only; never touches the database)
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      sha:
+        description: Full 40-character commit on main (empty = current head of main; required for rollback)
+        type: string
+        required: false
+      dry_run:
+        description: Validate only on the server (git state, plan); change nothing
+        type: boolean
+        default: false
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One deploy at a time, queued rather than cancelled: cancelling a run half-way through a release would be worse than waiting.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve and verify the commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && vars.AUTO_DEPLOY == 'true' &&
+       github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+      action: ${{ steps.pick.outputs.action }}
+    steps:
+      - name: Pick and verify the commit
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          action="deploy"
+          if [ "$EVENT" = "workflow_run" ]; then
+            sha="$RUN_SHA"
+          else
+            action="$INPUT_ACTION"
+            sha="${INPUT_SHA,,}"
+            if [ -z "$sha" ]; then
+              [ "$action" = "deploy" ] || { echo "::error::rollback needs an explicit sha"; exit 1; }
+              sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+            fi
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40-character hash"; exit 1; }
+
+          # The commit must be on main (identical to, or behind, its head).
+          status="$(gh api "repos/$REPO/compare/main...$sha" --jq .status)"
+          case "$status" in identical|behind) ;; *) echo "::error::$sha is not on main (compare status: $status)"; exit 1 ;; esac
+
+          # ...and CI must have passed on exactly that commit.
+          ok="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq .total_count)"
+          [ "$ok" -ge 1 ] || { echo "::error::no successful CI run found for $sha — refusing to deploy an untested commit"; exit 1; }
+
+          { echo "sha=$sha"; echo "action=$action"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy plan"
+            echo "- action: \`$action\`"
+            echo "- commit: \`$sha\` (on main, CI green)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy over SSH
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Required reviewers on this environment are the manual approval gate; its secrets/variables are not visible to any other job.
+    environment:
+      name: production
+      url: https://life.softbuild.nl
+    steps:
+      - name: Prepare SSH (pinned host key, no StrictHostKeyChecking=no)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_SSH_KEY" ] && [ -n "$DEPLOY_KNOWN_HOSTS" ] || { echo "::error::DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS are not set on the production environment"; exit 1; }
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/id_deploy" > /dev/null   # fails early on a malformed key, without printing it
+
+      - name: Run the deploy on the server
+        env:
+          HOST: ${{ vars.DEPLOY_HOST }}
+          PORT: ${{ vars.DEPLOY_PORT }}
+          SSH_USER: ${{ vars.DEPLOY_USER }}
+          ACTION: ${{ needs.resolve.outputs.action }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          [ -n "$HOST" ] && [ -n "$SSH_USER" ] || { echo "::error::DEPLOY_HOST / DEPLOY_USER variables are not set"; exit 1; }
+          [ "$SSH_USER" != "root" ] || { echo "::error::refusing to deploy as root"; exit 1; }
+          remote="$ACTION $SHA"
+          [ "$DRY_RUN" = "true" ] && remote="$remote dry-run"
+          # The server-side forced command (scripts/deploy-ssh-entrypoint.sh) accepts only this exact shape.
+          ssh -i "$HOME/.ssh/id_deploy" -p "${PORT:-22}" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "$SSH_USER@$HOST" "$remote"
+          {
+            echo "### Result"
+            echo "\`$remote\` finished successfully on the server (dry-run: ${DRY_RUN:-false})."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the SSH key from the runner
+        if: always()
+        run: rm -f "$HOME/.ssh/id_deploy" "$HOME/.ssh/known_hosts"

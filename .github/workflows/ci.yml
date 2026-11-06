@@ -158,3 +158,21 @@ jobs:
             frontend/playwright-report
             frontend/test-results
           retention-days: 7
+
+  # Static checks and offline tests for the deploy tooling (scripts/ and .github/workflows/deploy.yml). Nothing here can reach a server:
+  # the deploy script runs against a temporary git remote with stubbed php/composer/npm/pg_dump/curl/sudo.
+  deploy-tooling:
+    name: Deploy tooling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: |
+          bash -n scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/tests/deploy-production.test.sh
+          shellcheck -x -S warning scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/tests/deploy-production.test.sh
+      - name: Workflow lint (actionlint)
+        run: |
+          python3 -m pip install --user actionlint-py==1.7.12.25
+          "$HOME/.local/bin/actionlint" .github/workflows/*.yml
+      - name: Deploy script scenarios (offline)
+        run: scripts/tests/deploy-production.test.sh

@@ -1,0 +1,141 @@
+# LifeOS — CI/CD and production deploy
+
+CI (`.github/workflows/ci.yml`) tests; CD (`.github/workflows/deploy.yml`) releases. They are separate workflows: CD never runs
+tests itself, it refuses any commit that has no green push-CI run on `main`.
+
+```
+merge to main ─► CI (Laravel sqlite+pgsql, React, Playwright, Deploy tooling)
+                   │ green
+                   ▼
+   Deploy production workflow  ── resolve: commit is on main AND CI is green on exactly that commit
+                   │
+        `production` environment  ◄── manual approval (required reviewers)
+                   │
+        ssh (pinned host key, restricted key) ─► forced command ─► scripts/deploy-production.sh deploy --sha <commit>
+```
+
+## What the server script does (`scripts/deploy-production.sh`)
+
+Runs on the VPS as the unprivileged user `lifeos` (it refuses root). Modes: `check`, `deploy --sha`, `rollback --sha`, both with `--dry-run`.
+
+1. **Pre-flight (read-only):** user, paths, writable `storage/` + `bootstrap/cache/` + `frontend/`, `.env` present, tools (git, php, composer, node/npm — NVM
+   is loaded automatically —, curl, flock, pg_dump ≥ 16), PostgreSQL reachable from the host, and the two sudo rules.
+2. **Lock:** `flock` on `/var/lib/lifeos-deploy/deploy.lock` — a second deploy is refused, not queued.
+3. **Git:** must be on `main` with a clean tree (`git status --porcelain`: any tracked change or non-ignored stray file aborts; `.env*`, fonts and `dist`
+   are git-ignored so they never count). `git fetch origin main`; the target must be a full 40-hex commit that is an ancestor of `origin/main` and a
+   fast-forward of what is deployed (rollback: an ancestor of it).
+4. **Plan:** diff between deployed and target decides what to run (composer, `npm ci`, frontend build, migrations). `--dry-run` stops here.
+5. **Release:** `git merge --ff-only` → `composer install --no-dev --optimize-autoloader` (from `composer.lock`, never `update`) → `npm ci` only when the lock
+   file changed → frontend built into `frontend/dist.new` (`LIFEOS_BUILD_ID=<sha>`) while the live `dist` keeps serving.
+6. **Migrations — only when `php artisan migrate:status --pending` lists some:** `pg_dump -Fc` over TCP (credentials from `.env` through a temporary 0600
+   `.pgpass`, never on a command line) → verified (exit code, non-empty, `pg_restore --list` shows table data, SHA-256 written) → only then
+   `php artisan migrate --force`. Keeps the 14 newest dumps in `/var/lib/lifeos-deploy/backups` (mode 700/600).
+7. **Cut-over:** `dist` → `dist.prev`, `dist.new` → `dist`; `artisan optimize:clear && optimize`; `sudo systemctl reload php8.3-fpm`; `sudo systemctl restart lifeos-queue`.
+8. **Health:** `/up` = 200, `/api/user` signed-out = **401 + `application/json`** (a 500 here is the bug fixed in PR #48), `/` = 200; retries ×10.
+9. **Log:** `/var/lib/lifeos-deploy/deploy.log` (everything) and `history.log` (one line per deploy: who, from, to, result, backup file).
+
+Automatic reversal exists only while nothing irreversible has happened: a failure *before* migrations/cut-over (composer, build, backup, migration status)
+moves the code back with `git reset --keep <previous>` (refuses to overwrite local changes; never `--hard`) and leaves the live site untouched. After
+migrations the script does **not** guess — it exits non-zero, prints the backup path and stops (see Rollback). Exit code 3 = released but unhealthy.
+
+It never restarts Docker, PostgreSQL or n8n, never runs `git reset --hard`, `git clean` or `git add`, and never prints `.env` values.
+
+## Rollback
+
+*Code only* (safe, idempotent): Actions → **Deploy production** → action `rollback`, sha = a previous commit (see `history.log` / `git log`).
+This moves the checkout back, rebuilds the frontend and reloads PHP-FPM/queue. **It never touches the database.**
+
+*Database:* Laravel migrations in this project are additive, so the previous code normally runs on the new schema. If a migration itself was wrong:
+1. Prefer a **fix-forward** migration (new commit, normal deploy).
+2. Restoring the pre-deploy dump loses everything written since it was taken. Only do it deliberately, by an administrator, e.g. into a *new* database first:
+   `createdb lifeos_restore && pg_restore --no-owner -d lifeos_restore /var/lib/lifeos-deploy/backups/<file>.dump`, inspect, then decide on swapping.
+   Verify the file before use: `sha256sum -c <file>.dump.sha256`. The script deliberately has no automatic restore.
+
+## One-time server setup (an administrator, as root; nothing here is automated)
+
+```bash
+# 1. Deploy user (owns the checkout; NOT in the docker group; no password login)
+id lifeos || adduser --disabled-password --gecos "" lifeos
+install -d -o lifeos -g lifeos -m 750 /var/lib/lifeos-deploy
+chown -R lifeos:lifeos /var/www/lifeos          # git checkout, storage/, bootstrap/cache/, frontend/ writable by lifeos
+# php-fpm must be able to write storage/ and bootstrap/cache/: run the pool as lifeos, or give www-data group write on those two directories.
+
+# 2. Exactly two privileged commands, nothing else (validate before installing)
+cat > /etc/sudoers.d/lifeos-deploy <<'SUDO'
+lifeos ALL=(root) NOPASSWD: /usr/bin/systemctl reload php8.3-fpm, /usr/bin/systemctl restart lifeos-queue
+SUDO
+chmod 440 /etc/sudoers.d/lifeos-deploy && visudo -cf /etc/sudoers.d/lifeos-deploy
+
+# 3. PostgreSQL client matching the server, and the container must publish the port on loopback only
+apt-get install -y postgresql-client-16      # pg_dump >= 16
+#    in /opt/lifeos/database/compose.yaml:  ports: ["127.0.0.1:5432:5432"]   (apply with your normal procedure; this script never restarts it)
+#    backend/.env must use DB_HOST=127.0.0.1, DB_PORT=5432 and the lifeos role (it already does if the app connects that way).
+#    Check:  pg_isready -h 127.0.0.1 -p 5432
+
+# 4. Forced-command entry point (root-owned, so a compromised checkout cannot widen the key's rights)
+install -o root -g root -m 755 /var/www/lifeos/scripts/deploy-ssh-entrypoint.sh /usr/local/bin/lifeos-deploy-entry
+
+# 5. A dedicated key, generated on your machine (never reuse a personal key); put the PUBLIC half in lifeos's authorized_keys
+#    ssh-keygen -t ed25519 -N "" -C lifeos-github-deploy -f ./lifeos_deploy
+install -d -m 700 -o lifeos -g lifeos /home/lifeos/.ssh
+echo 'restrict,command="/usr/local/bin/lifeos-deploy-entry" ssh-ed25519 AAAA…public-key… lifeos-github-deploy' >> /home/lifeos/.ssh/authorized_keys
+chown lifeos:lifeos /home/lifeos/.ssh/authorized_keys && chmod 600 /home/lifeos/.ssh/authorized_keys
+#    `restrict` disables shell, PTY and all forwarding; the entry point accepts only: check | deploy <sha> [dry-run] | rollback <sha> [dry-run].
+#    Optional: prefix with from="<GitHub Actions egress ranges>" — those change often, so it is NOT recommended as the only control.
+
+# 6. Make sure sshd allows the key (PasswordAuthentication no is recommended; PermitRootLogin no)
+```
+
+Verify without changing anything (from your machine, using the new key): `ssh -i lifeos_deploy lifeos@<host> check` → "Check ok".
+Note the very first run uses the checkout's current copy of `deploy-production.sh`; later runs use the copy from the commit that was deployed *before*
+(the script runs before it fast-forwards). Review changes to `scripts/` like production code.
+
+## GitHub setup (Settings of `AbbasCG/LifeOS`)
+
+1. **Environments → New environment → `production`.** Add **Required reviewers** (yourself or a second person) and, if available, "Prevent self-review"
+   and a deployment-branch rule: *Selected branches → `main`*. Required reviewers are available for public repositories and for private ones only on
+   paid plans — **NOT VERIFIED for this repository; check the screen.** If the option is missing, see "Without environment protection" below.
+2. In that environment add **secrets** `DEPLOY_SSH_KEY` (private key, whole PEM/OpenSSH text) and `DEPLOY_KNOWN_HOSTS`, and **variables** `DEPLOY_HOST`,
+   `DEPLOY_USER` (= `lifeos`, never `root`) and optionally `DEPLOY_PORT`.
+   `DEPLOY_KNOWN_HOSTS` must come from the server itself, not from a scan by the runner. On the server:
+   `echo "life.softbuild.nl,<server-ip> $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"` — paste that single line as the secret, and compare
+   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` with the fingerprint your first manual login showed. The file is pinned
+   (`StrictHostKeyChecking=yes`), so the job fails closed if the host key ever changes.
+3. **Branch protection on `main`:** require pull requests and the CI checks (`Laravel (sqlite)`, `Laravel (pgsql)`, `React`, `Browser (Playwright)`, `Deploy tooling`).
+4. Leave the repository variable `AUTO_DEPLOY` **unset** at first. First deploy manually (below). Set `AUTO_DEPLOY=true` only after the reviewer gate is
+   confirmed working: then every green push to `main` waits for approval in the `production` environment.
+5. Actions → General → "Workflow permissions": read-only is enough (the workflows request only `contents: read` and `actions: read`).
+
+### Without environment protection
+
+Do not enable `AUTO_DEPLOY`. Deploy only through **Run workflow** (`workflow_dispatch`), which already requires write access to the repository; the click
+is then the approval. Add a second factor yourself: keep `main` protected (PR + CI required), restrict who has write access, and run the same
+commands from your own machine instead (`ssh lifeos@host "deploy <sha>"` with the same restricted key) when you want a human-in-the-loop that GitHub cannot enforce.
+
+## First activation (safe order)
+
+1. Merge the PR containing these files (CI must be green, including `Deploy tooling`).
+2. Do the server setup and GitHub setup above.
+3. `ssh -i lifeos_deploy lifeos@host check` → pre-flight passes (this does not change anything).
+4. Actions → **Deploy production** → Run workflow, `dry_run` ✔ → approve → read the plan in the log.
+5. Same again with `dry_run` off, on a quiet moment; watch the health check lines. Keep a terminal on the server: `tail -f /var/lib/lifeos-deploy/deploy.log`.
+6. Practise `rollback` once with a dry run.
+7. Only then consider `AUTO_DEPLOY=true`.
+
+## Tests
+
+`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 60+ offline scenarios against a
+temporary git remote with stub binaries: bad/short/unknown commits, dirty tree, untracked files, wrong branch, root, missing sudo rule, concurrent
+deploys, dry run, deploy without/with migrations (backup strictly before migrate), failing/empty/unverifiable backup, failing build, failing
+migration, unhealthy API, fast-forward rules, rollback (never migrates), and the SSH forced command against injection attempts.
+It cannot reach any server and is safe to run anywhere.
+
+## Residual risks (read before enabling)
+
+- Real server behaviour (PHP-FPM pool user, Nginx root, systemd unit names, published PostgreSQL port, sudo rules, `pg_dump` version) is **NOT VERIFIED** — the
+  tests use stubs. The `check` and `--dry-run` modes exist to prove it step by step.
+- A `pg_dump` is a logical snapshot; restoring it discards later data. Migrations are therefore fix-forward by policy.
+- Between the frontend cut-over (two `mv`) and `reload`, requests may see a mixed old/new state for a moment (no maintenance mode by design).
+- The deploy script that runs is the one already on the server; a malicious change to it would run on the next deploy — protect `main` and review `scripts/`.
+- The `lifeos` user can write the application code, so an attacker who obtains the CI key can only run the three commands, but a compromised
+  *repository* (merged malicious commit) is deployed with that user's rights. Required reviewers on `production` are the control for that.

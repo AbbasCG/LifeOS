@@ -3213,3 +3213,22 @@ Laravel's `ApplicationBuilder::withMiddleware()` registers a default `redirectGu
 - Real HTTP check (`php -S`, throwaway SQLite): no Accept, `Accept: application/json` and `Accept: text/html` all give 401 JSON; login without the CSRF token gives 419; login with it gives 200 and `/api/user` without Accept then gives 200.
 - Laravel 343/343 on SQLite and PostgreSQL; Vitest 297/297; browser `auth` and `smoke` specs pass.
 
+
+---
+
+# V51 — CI/CD for production (GitHub Actions + SSH), Symfony advisories fixed
+
+Full guide: `docs/DEPLOYMENT.md`. Nothing was deployed and no server was contacted.
+
+## Dependency audit (the red check on `main`)
+`composer audit` reported 7 advisories in 4 packages: `symfony/http-foundation`, `http-kernel`, `routing`, `yaml` (all 7.4.x, fixed in 7.4.22/7.4.23). Safe fix: `composer update 'symfony/*'` — only `composer.lock` changes (19 packages, 7.4.x patch releases plus `*-contracts` 3.8 and `polyfill-*` patches), `composer.json` untouched, no constraint widened, audit not bypassed. After it: `composer audit` clean, `npm audit --omit=dev` clean, Laravel 343 tests pass (341 + 2 skipped).
+
+## New
+- `scripts/deploy-production.sh` — server-side deploy/rollback/check (flock, clean-tree + ancestry + fast-forward checks, verified `pg_dump` before any migration, migrate only when pending, `dist.new` → `dist` swap, caches, PHP-FPM reload, queue restart, health checks, logging, code-only rollback).
+- `scripts/deploy-ssh-entrypoint.sh` — forced command for the CI key (only `check`, `deploy <sha>`, `rollback <sha>`, optional `dry-run`).
+- `.github/workflows/deploy.yml` — resolve (commit on `main` + green CI on that commit) → `production` environment gate → SSH with a pinned host key and a restricted key; `workflow_dispatch` always, `workflow_run` only when repository variable `AUTO_DEPLOY=true`; one deploy at a time, never cancelled mid-run.
+- `scripts/tests/deploy-production.test.sh` + CI job **Deploy tooling** (bash -n, shellcheck, actionlint, 67 offline scenarios).
+- `.gitignore`: `frontend/dist.new/`, `frontend/dist.prev/`.
+
+## Not verified
+Environment protection availability on this repository, the real server (PHP-FPM user, sudo rules, published PostgreSQL port, pg_dump version, systemd units) and an end-to-end deploy — see "Residual risks" in the guide.
