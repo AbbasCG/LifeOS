@@ -3232,3 +3232,12 @@ Full guide: `docs/DEPLOYMENT.md`. Nothing was deployed and no server was contact
 
 ## Not verified
 Environment protection availability on this repository, the real server (PHP-FPM user, sudo rules, published PostgreSQL port, pg_dump version, systemd units) and an end-to-end deploy — see "Residual risks" in the guide.
+
+---
+
+# V52 — First production deploy hardening (target == HEAD, drifted vendor/dist)
+
+- Reviewed `deploy-production.sh` for a deploy whose target SHA equals the server's HEAD: `git merge --ff-only` is a no-op and the plan used to be diff-driven, so a `vendor/` that lagged `composer.lock` was only repaired by the unconditional `composer install` (already correct), but a stale or hand-built `dist/` would have been kept because nothing in the diff touched `frontend/`.
+- Fix (smallest): the frontend is rebuilt whenever `dist/.lifeos-frontend-tree` differs from the target's `frontend/` tree hash (or `dist/` is missing); `npm ci` runs with every build; `--dry-run` reports pending `composer install` operations. Backend-only deploys still skip the build.
+- Verified: fresh `composer install --no-dev --optimize-autoloader` + `migrate` + `optimize` + `composer audit` in a clean copy of `backend/`; 77 offline deploy scenarios (new: HEAD == target, idempotent second run, HEAD == target with pending migrations).
+- NOT VERIFIED: the real server (this change was tested with stubs only).

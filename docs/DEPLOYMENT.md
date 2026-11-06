@@ -24,9 +24,12 @@ Runs on the VPS as the unprivileged user `lifeos` (it refuses root). Modes: `che
 3. **Git:** must be on `main` with a clean tree (`git status --porcelain`: any tracked change or non-ignored stray file aborts; `.env*`, fonts and `dist`
    are git-ignored so they never count). `git fetch origin main`; the target must be a full 40-hex commit that is an ancestor of `origin/main` and a
    fast-forward of what is deployed (rollback: an ancestor of it).
-4. **Plan:** diff between deployed and target decides what to run (composer, `npm ci`, frontend build, migrations). `--dry-run` stops here.
-5. **Release:** `git merge --ff-only` → `composer install --no-dev --optimize-autoloader` (from `composer.lock`, never `update`) → `npm ci` only when the lock
-   file changed → frontend built into `frontend/dist.new` (`LIFEOS_BUILD_ID=<sha>`) while the live `dist` keeps serving.
+4. **Plan:** `--dry-run` stops here and reports the plan, including how many package operations `composer install` would apply to the current `vendor/`.
+   `composer install` *always* runs (no-op when `vendor/` matches `composer.lock`, repair when it lags). The frontend is rebuilt whenever `dist/` was not
+   built from the target's exact `frontend/` tree (marker `dist/.lifeos-frontend-tree`), so a deploy whose target equals HEAD still repairs a stale or
+   hand-built `dist/`. Migrations run only if `migrate:status --pending` lists some.
+5. **Release:** `git merge --ff-only` (no-op when already there) → `composer install --no-dev --optimize-autoloader` (from `composer.lock`, never `update`) →
+   when a build is needed: `npm ci` + build into `frontend/dist.new` (`LIFEOS_BUILD_ID=<sha>`) while the live `dist` keeps serving.
 6. **Migrations — only when `php artisan migrate:status --pending` lists some:** `pg_dump -Fc` over TCP (credentials from `.env` through a temporary 0600
    `.pgpass`, never on a command line) → verified (exit code, non-empty, `pg_restore --list` shows table data, SHA-256 written) → only then
    `php artisan migrate --force`. Keeps the 14 newest dumps in `/var/lib/lifeos-deploy/backups` (mode 700/600).
@@ -121,6 +124,17 @@ commands from your own machine instead (`ssh lifeos@host "deploy <sha>"` with th
 5. Same again with `dry_run` off, on a quiet moment; watch the health check lines. Keep a terminal on the server: `tail -f /var/lib/lifeos-deploy/deploy.log`.
 6. Practise `rollback` once with a dry run.
 7. Only then consider `AUTO_DEPLOY=true`.
+
+## What the very first real deploy does (server already on the target commit)
+
+Example: server HEAD `283be8b`, `--sha 283be8b…`, `vendor/` behind `composer.lock` (18 Symfony updates), `dist/` hand-built.
+1. Pre-flight, lock, clean-tree check; `fetch`; target is on `origin/main`; "Already at …" (no merge needed).
+2. `composer install --no-dev --optimize-autoloader` applies the 18 pending updates from the lock (no `update`, `composer.json`/`lock` untouched).
+3. `npm ci` + `vite build` into `frontend/dist.new` (the live site keeps serving); marker written.
+4. `migrate:status --pending`: none expected → no backup, no migrate. If some are pending: verified `pg_dump` first, then `migrate --force`.
+5. `dist` → `dist.prev`, `dist.new` → `dist`; `optimize`; `reload php8.3-fpm`; `restart lifeos-queue`.
+6. Health: `/up` 200, signed-out `/api/user` 401 JSON, `/` 200. Failure before step 4's migrate reverts automatically; exit 3 = released but unhealthy → `rollback`.
+Nothing touches `.env`, Docker, PostgreSQL, n8n or Nginx.
 
 ## Tests
 
