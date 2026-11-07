@@ -3300,3 +3300,22 @@ Replay of the incident (system Node 18 first on PATH + NVM Node 24 -> build runs
 
 ## Not verified
 The real server. Note the script that runs is the checked-out one: the fix only protects deploys that start after the server's checkout contains it (see docs/DEPLOYMENT.md, "The script that runs is the one already on the server").
+
+---
+
+# V56 — Deploy: `dist` readable by Nginx, health checks and `/up`
+
+After the first successful build the site answered **403**: Nginx (`www-data`) could not read `frontend/dist`, which the deploy user's `umask 027` left at 750/640 (private font 600). Nginx also answered 404 for `/up`.
+
+## Changes (`scripts/deploy-production.sh`)
+- `make_dist_public`: `chmod -R u=rwX,go=rX` on `dist.new` before the swap and on a kept `dist`, verified with `find` (dirs 755, files 644, owner unchanged, nothing world-writable, no 777). `DIST_PUBLIC=0` opts out.
+- Pre-flight / `check`: refuses when a parent directory of `frontend/dist` cannot be entered by others; warns when the live `dist` is unreadable.
+- `health_check`: `/api/user` 401 JSON + `/` 200 are mandatory; `/up` 200 required only with `HEALTH_REQUIRE_UP=1` (404 is logged as a note); 403 on `/` is reported as "the web server cannot read frontend/dist".
+- `docs/DEPLOYMENT.md`: "Permissions and Nginx" with a reference server block (`/up` routed to Laravel, no explicit 404).
+
+## Tests (`scripts/tests/deploy-production.test.sh`, 111 scenarios)
+Nested dirs and a mode-600 font end up 755/644; an existing `dist` is repaired; untraversable parent refused; `/up` 404 passes with a note, fails with `HEALTH_REQUIRE_UP=1`; `/up` 500 and `/` 403 fail with exit 3. The new scenarios fail against the previous script (9 failures) and pass now (also as an unprivileged user and with a polluted `NVM_DIR`).
+
+## Not verified
+The real server and its Nginx configuration; the fix protects only deploys that start after the server checkout contains it. No `.env`, Docker, PostgreSQL or n8n change.
+

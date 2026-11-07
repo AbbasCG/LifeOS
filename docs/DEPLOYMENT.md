@@ -38,7 +38,11 @@ Runs on the VPS as the unprivileged user `lifeos` (it refuses root). Modes: `che
    `.pgpass`, never on a command line) → verified (exit code, non-empty, `pg_restore --list` shows table data, SHA-256 written) → only then
    `php artisan migrate --force`. Keeps the 14 newest dumps in `/var/lib/lifeos-deploy/backups` (mode 700/600).
 7. **Cut-over:** `dist` → `dist.prev`, `dist.new` → `dist`; `artisan optimize:clear && optimize`; `sudo systemctl reload php8.3-fpm`; `sudo systemctl restart lifeos-queue`.
-8. **Health:** `/up` = 200, `/api/user` signed-out = **401 + `application/json`** (a 500 here is the bug fixed in PR #48), `/` = 200; retries ×10.
+   Before the swap the new `dist.new` is made readable by the web server (`chmod -R u=rwX,go=rX`: directories 755, files 644, owner unchanged, never
+   world-writable) and verified with `find`; a deploy that keeps the existing `dist` repairs it the same way. See "Permissions and Nginx" below.
+8. **Health:** `/api/user` signed-out = **401 + `application/json`** (a 500 here is the bug fixed in PR #48), `/` = 200 (403 = Nginx cannot read `frontend/dist`),
+   `/up` = 200; retries ×10. A `/up` that Nginx answers with 404 is logged as a note (Laravel is proven through `/api/user`), not a failure, unless
+   `HEALTH_REQUIRE_UP=1`.
 9. **Log:** `/var/lib/lifeos-deploy/deploy.log` (everything) and `history.log` (one line per deploy: who, from, to, result, backup file).
 
 After a revert the script also proves the restored checkout is consistent: `composer install --dry-run` must report **0** operations (vendor/ matches
@@ -157,12 +161,47 @@ Example: server HEAD `283be8b`, `--sha 283be8b…`, `vendor/` behind `composer.l
 6. Health: `/up` 200, signed-out `/api/user` 401 JSON, `/` 200. Failure before step 4's migrate reverts automatically; exit 3 = released but unhealthy → `rollback`.
 Nothing touches `.env`, Docker, PostgreSQL, n8n or Nginx.
 
+## Permissions and Nginx
+
+**Why the site returned 403.** The script runs as `lifeos` with `umask 027`, so Vite wrote `dist/` as 750/640 (and Node's `copyFile` keeps the 600 mode of a
+private font). Nginx runs as `www-data`, which is not in the `lifeos` group, so it could not enter `dist/`.
+
+**What the script does now** (`DIST_PUBLIC=1`, default): after every build, and when it keeps an existing `dist`, it applies `chmod -R u=rwX,go=rX` to the
+directory that is about to go live, so directories are 755 and files 644 (the minimum for another user to read). Ownership stays `lifeos:lifeos`; nothing is
+777 or world-writable; only `frontend/dist.new` / `dist` are touched. Pre-flight (and `check`) also refuses if a directory above `frontend/dist` lacks the
+"others execute" bit (`chmod o+x <dir>` on the parents, e.g. `/var/www/lifeos` and `frontend`), and warns when the live `dist` is currently unreadable
+(the next deploy repairs it). `DIST_PUBLIC=0` switches this off if access is granted another way (e.g. ACLs for `www-data`).
+
+Reference Nginx server block (**NOT VERIFIED against the real server** — adapt paths and the PHP-FPM socket):
+
+```nginx
+server {
+    server_name lifeos.example;                      # TLS directives as already configured
+    root /var/www/lifeos/frontend/dist;              # React build, read-only for www-data
+    index index.html;
+
+    location / { try_files $uri /index.html; }       # SPA fallback
+
+    # Laravel: API, Sanctum and the framework health route all go to public/index.php
+    location ~ ^/(api|sanctum)/ { include fastcgi_params; fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME /var/www/lifeos/backend/public/index.php; fastcgi_param SCRIPT_NAME /index.php; }
+    location = /up              { include fastcgi_params; fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME /var/www/lifeos/backend/public/index.php; fastcgi_param SCRIPT_NAME /index.php; }
+}
+```
+
+Do **not** add `location = /up { return 404; }` — Laravel serves `/up` (framework health route) and an explicit 404 hides it from monitoring. If you keep
+it, the deploy still passes because `/api/user` proves PHP-FPM + Laravel + database middleware; set `HEALTH_REQUIRE_UP=1` once `/up` is routed to make a missing
+route fail the deploy. After editing Nginx: `sudo nginx -t && sudo systemctl reload nginx` (an administrator step; the deploy script never touches Nginx).
+Quick checks on the server: `namei -m /var/www/lifeos/frontend/dist/index.html` (every row needs `x` for others on directories, `r` on the file) and
+`curl -sI http://127.0.0.1/` / `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/up`.
+
 ## Tests
 
-`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 95+ offline scenarios against a
+`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 110+ offline scenarios against a
 temporary git remote with stub binaries: bad/short/unknown commits, dirty tree, untracked files, wrong branch, root, missing sudo rule, concurrent
 deploys, dry run, deploy without/with migrations (backup strictly before migrate), failing/empty/unverifiable backup, failing build, failing
-migration, unhealthy API, fast-forward rules, rollback (never migrates), and the SSH forced command against injection attempts.
+migration, unhealthy API, `dist` permissions (nested dirs, private font, repair of an existing `dist`, untraversable parent), `/up` 404 vs 500 and an unreadable `dist` (403), fast-forward rules, rollback (never migrates), and the SSH forced command against injection attempts.
 It cannot reach any server and is safe to run anywhere.
 
 ## Residual risks (read before enabling)
