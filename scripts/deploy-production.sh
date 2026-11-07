@@ -198,17 +198,20 @@ health_check() {
 }
 
 main_deploy() {
-  local composer_changed npm_changed frontend_changed
-  composer_changed=$(changed backend/composer.lock backend/composer.json | wc -l)
-  npm_changed=$(changed frontend/package-lock.json frontend/package.json | wc -l)
-  frontend_changed=$(changed frontend ':(exclude)frontend/e2e' | wc -l)
-  [[ -d "$BACKEND/vendor" ]] || composer_changed=1
-  [[ -d "$FRONTEND/node_modules" ]] || npm_changed=1
-  [[ -f "$FRONTEND/dist/index.html" ]] || frontend_changed=1
+  # composer install always runs (it is a no-op when vendor/ already matches composer.lock, and it repairs a vendor/ that has drifted behind the
+  # lock — e.g. security updates committed but never installed). The frontend is rebuilt whenever dist/ was not built from this exact
+  # frontend/ tree, which is recorded next to the build; HEAD == target therefore still repairs a stale or hand-built dist.
+  local frontend_tree built_tree="" frontend_build=0
+  frontend_tree=$(git_app rev-parse "$TARGET_SHA:frontend")
+  if [[ -f "$FRONTEND/dist/.lifeos-frontend-tree" ]]; then built_tree=$(<"$FRONTEND/dist/.lifeos-frontend-tree"); fi
+  if [[ ! -f "$FRONTEND/dist/index.html" || "$built_tree" != "$frontend_tree" ]]; then frontend_build=1; fi
 
-  log "Plan: $MODE ${PREV_SHA:0:12} -> ${TARGET_SHA:0:12} | composer:$((composer_changed > 0)) npm:$((npm_changed > 0)) frontend-build:$((frontend_changed > 0))"
+  log "Plan: $MODE ${PREV_SHA:0:12} -> ${TARGET_SHA:0:12} | composer install: always | frontend build: $((frontend_build > 0)) (dist built from tree ${built_tree:0:12}, wanted ${frontend_tree:0:12})"
   git_app log --oneline --no-decorate "$PREV_SHA..$TARGET_SHA" 2>/dev/null | head -n 20 || true
   if (( DRY_RUN )); then
+    local ops
+    ops=$(cd "$BACKEND" && composer install --no-dev --dry-run --no-scripts --no-interaction --no-progress 2>&1 | grep -cE '^ *- (Installing|Upgrading|Downgrading|Removing)' || true)
+    log "vendor/ vs composer.lock of the CURRENT checkout: $ops pending package operation(s) (composer install will apply them)"
     log "Dry run: stopping here. Nothing was changed (the fetch only updated remote-tracking refs)."
     if [[ "$MODE" == "deploy" ]]; then changed backend/database/migrations | sed 's/^/  migration file changed: /' || true; fi
     return 0
@@ -222,14 +225,15 @@ main_deploy() {
   log "composer install (from composer.lock, no dev, no update)"
   (cd "$BACKEND" && composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader)
 
-  if (( frontend_changed > 0 )); then
-    if (( npm_changed > 0 )); then log "npm ci"; (cd "$FRONTEND" && npm ci --no-audit --no-fund); fi
+  if (( frontend_build > 0 )); then
+    log "npm ci (from package-lock.json)"; (cd "$FRONTEND" && npm ci --no-audit --no-fund)
     log "Building frontend into dist.new (the live dist is untouched until the swap)"
     rm -rf "$FRONTEND/dist.new"
     (cd "$FRONTEND" && LIFEOS_BUILD_ID="$TARGET_SHA" npm run build -- --outDir dist.new --emptyOutDir)
     [[ -f "$FRONTEND/dist.new/index.html" ]] || die "frontend build produced no index.html"
+    printf '%s\n' "$frontend_tree" > "$FRONTEND/dist.new/.lifeos-frontend-tree"
   else
-    log "No frontend changes: keeping the current dist"
+    log "dist/ already matches this frontend tree: keeping it"
   fi
 
   local pending_out pending=0

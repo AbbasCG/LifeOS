@@ -155,7 +155,8 @@ teardown
 echo "== dry run"
 setup; run deploy --sha "$C2" --dry-run
 check "dry run succeeds" test $RC -eq 0
-check "dry run changes nothing (HEAD, calls)" bash -c "[ '$(head_sha)' = '$C1' ] && ! grep -qE 'composer|npm|migrate|systemctl' '$T/calls.log'"
+check "dry run changes nothing (HEAD, no install/build/migrate/reload)" bash -c "[ '$(head_sha)' = '$C1' ] && ! grep -vE 'dry-run|migrate:status' '$T/calls.log' | grep -qE 'composer|npm|migrate|systemctl'"
+check "dry run reports the vendor/lock state" has "pending package operation" "$OUT"
 check "dry run lists the migration file" has "migration file changed" "$OUT"
 teardown
 
@@ -172,6 +173,20 @@ check "no docker/postgres/n8n restart" bash -c "! grep -Ei 'docker|postgres|n8n'
 check "history + current.sha written" bash -c "grep -q 'result=ok' '$T/state/history.log' && [ \"\$(cat '$T/state/current.sha')\" = '$C2' ]"
 check "ignored local files survived (.env, fonts)" test -f "$T/app/backend/.env"
 check "no password in the log" bash -c "! grep -q 'cr.et' '$T/state/deploy.log' '$OUT'"
+teardown
+
+echo "== first deploy: HEAD already equals the target (server on the current commit, vendor/ and dist/ behind)"
+setup; run deploy --sha "$C1"
+check "HEAD == target succeeds" test $RC -eq 0
+check "…says so" has "Already at" "$OUT"
+check "…still runs composer install --no-dev (repairs a vendor/ that lags composer.lock)" has "composer install --no-dev --no-interaction" "$T/calls.log"
+check "…rebuilds a dist/ that has no build marker (npm ci + build), swaps it, writes the marker" bash -c "grep -q 'npm ci' '$T/calls.log' && grep -q $C1 '$T/app/frontend/dist/index.html' && [ -s '$T/app/frontend/dist/.lifeos-frontend-tree' ] && [ \"\$(cat '$T/app/frontend/dist/.lifeos-frontend-tree')\" = \"\$(git -C '$T/app' rev-parse $C1:frontend)\" ]"
+check "…no backup/migrate without pending migrations; php-fpm/queue still refreshed" bash -c "! grep -qE 'BACKUP|MIGRATE' '$T/order.log' && grep -q 'systemctl reload' '$T/calls.log' && grep -q 'systemctl restart' '$T/calls.log'"
+: > "$T/calls.log"; run deploy --sha "$C1"
+check "second run is idempotent: dist kept (marker matches), composer install still runs" bash -c "[ $RC -eq 0 ] && ! grep -qE 'npm (ci|run)' '$T/calls.log' && grep -q 'composer install --no-dev --no-interaction' '$T/calls.log' && grep -q 'keeping it' '$OUT'"
+teardown
+setup; touch "$T/flags/pending"; run deploy --sha "$C1"
+check "HEAD == target with pending migrations: backup strictly before migrate" bash -c "[ $RC -eq 0 ] && [ \"\$(tr '\n' ' ' < '$T/order.log')\" = 'BACKUP MIGRATE ' ]"
 teardown
 
 echo "== release with migrations"
