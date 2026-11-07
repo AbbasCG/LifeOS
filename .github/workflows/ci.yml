@@ -189,11 +189,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shell syntax
         run: |
-          bash -n scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/tests/deploy-production.test.sh
-          shellcheck -x -S warning scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/tests/deploy-production.test.sh
+          bash -n scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/deploy-resolve.sh scripts/tests/deploy-production.test.sh scripts/tests/deploy-resolve.test.sh
+          shellcheck -x -S warning scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/deploy-resolve.sh scripts/tests/deploy-production.test.sh scripts/tests/deploy-resolve.test.sh
       - name: Workflow lint (actionlint)
         run: |
           python3 -m pip install --user actionlint-py==1.7.12.25
           "$HOME/.local/bin/actionlint" .github/workflows/*.yml
       - name: Deploy script scenarios (offline)
         run: scripts/tests/deploy-production.test.sh
+      - name: Deploy resolver scenarios (offline, stubbed GitHub API)
+        run: scripts/tests/deploy-resolve.test.sh

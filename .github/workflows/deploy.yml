@@ -1,11 +1,16 @@
 name: Deploy production
+run-name: >-
+  Deploy ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.sha || 'main' }}${{ inputs.dry_run && ' dry-run' || '' }}${{ inputs.action == 'rollback' && ' rollback' || '' }}
 
-# CD is separate from CI (ci.yml). A deploy only ever ships a commit that (1) is on main and (2) has a green push-CI run, and the server
-# re-checks (1) itself. The `production` environment gates the SSH job: configure required reviewers on it (Settings → Environments).
+# CD is separate from CI (ci.yml). A deploy only ever ships a full SHA that (1) is on main and (2) has a green push-CI run, and the server
+# re-checks (1) itself. All of that is decided by scripts/deploy-resolve.sh (tested offline in CI job "Deploy tooling").
 #
-#  - Manual:    Actions → "Deploy production" → Run workflow (sha empty = current main head). Approve in the environment prompt.
-#  - Automatic: only when the repository variable AUTO_DEPLOY is "true" — set it ONLY after the environment has required reviewers,
-#               otherwise every green merge would go straight to production.
+#  - Automatic (hybrid policy): a human merges a pull request; when CI finishes on that merge commit on main, this workflow runs for that exact
+#               SHA only if CI succeeded, the SHA is still the head of main, it came from a merged PR and it was not deployed before.
+#               It is switched on by the repository variable AUTO_DEPLOY = "true" (set it to anything else, or delete it, to stop automatic
+#               deploys at once). There is no second approval: add none to the `production` environment if you want it fully automatic.
+#  - Manual:    Actions -> "Deploy production" -> Run workflow (sha empty = current main head; dry_run and rollback available). Always works,
+#               also with AUTO_DEPLOY off.
 on:
   workflow_dispatch:
     inputs:
@@ -43,6 +48,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' && vars.AUTO_DEPLOY == 'true' &&
@@ -51,7 +57,15 @@ jobs:
     outputs:
       sha: ${{ steps.pick.outputs.sha }}
       action: ${{ steps.pick.outputs.action }}
+      skip: ${{ steps.pick.outputs.skip }}
     steps:
+      # The resolver comes from the head of main (trusted, reviewed code), never from the commit being deployed.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: scripts/deploy-resolve.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Pick and verify the commit
         id: pick
         env:
@@ -59,41 +73,18 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_ACTION: ${{ inputs.action }}
-        run: |
-          set -euo pipefail
-          action="deploy"
-          if [ "$EVENT" = "workflow_run" ]; then
-            sha="$RUN_SHA"
-          else
-            action="$INPUT_ACTION"
-            sha="${INPUT_SHA,,}"
-            if [ -z "$sha" ]; then
-              [ "$action" = "deploy" ] || { echo "::error::rollback needs an explicit sha"; exit 1; }
-              sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"
-            fi
-          fi
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40-character hash"; exit 1; }
-
-          # The commit must be on main (identical to, or behind, its head).
-          status="$(gh api "repos/$REPO/compare/main...$sha" --jq .status)"
-          case "$status" in identical|behind) ;; *) echo "::error::$sha is not on main (compare status: $status)"; exit 1 ;; esac
-
-          # ...and CI must have passed on exactly that commit.
-          ok="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq .total_count)"
-          [ "$ok" -ge 1 ] || { echo "::error::no successful CI run found for $sha — refusing to deploy an untested commit"; exit 1; }
-
-          { echo "sha=$sha"; echo "action=$action"; } >> "$GITHUB_OUTPUT"
-          {
-            echo "### Deploy plan"
-            echo "- action: \`$action\`"
-            echo "- commit: \`$sha\` (on main, CI green)"
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/deploy-resolve.sh
 
   deploy:
     name: Deploy over SSH
     needs: resolve
+    if: ${{ needs.resolve.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Required reviewers on this environment are the manual approval gate; its secrets/variables are not visible to any other job.

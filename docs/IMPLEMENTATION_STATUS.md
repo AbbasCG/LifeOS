@@ -3319,3 +3319,21 @@ Nested dirs and a mode-600 font end up 755/644; an existing `dist` is repaired; 
 ## Not verified
 The real server and its Nginx configuration; the fix protects only deploys that start after the server checkout contains it. No `.env`, Docker, PostgreSQL or n8n change.
 
+---
+
+# V57 — Hybrid CI/CD: automatic deploy of the merge commit after green CI
+
+Policy: Claude/developers open PRs, a human merges, CI runs on the merge commit, and a green CI deploys that exact SHA with no second approval. A red CI never deploys.
+
+## Changes
+- `scripts/deploy-resolve.sh` (new): the decision "which SHA may ship" moved out of inline YAML so it can be tested. Automatic path requires a successful push-CI run on `main`, SHA on main with green CI of its own, SHA still the head of main (stale CI is skipped), membership of a merged PR (no direct pushes), and no earlier successful deploy of the same SHA (dry runs/rollbacks excluded). API errors fail closed. Manual path unchanged (empty SHA = head, rollback needs a SHA).
+- `.github/workflows/deploy.yml`: `run-name` carries the SHA (duplicate detection), resolve job checks out the resolver from `main`, has `pull-requests: read`, outputs `skip`; the deploy job only runs when the resolver did not skip. `production` environment, SSH key handling, forced command, concurrency (queued, never cancelled) and the `AUTO_DEPLOY` switch are unchanged.
+- `.github/workflows/ci.yml`: the Deploy tooling job also lints and runs the resolver tests.
+- `docs/DEPLOYMENT.md`: hybrid policy, decision table, activation steps.
+
+## Tests (`scripts/tests/deploy-resolve.test.sh`, 81 checks)
+Success; failed/cancelled/skipped CI; wrong event/branch/fork; stale CI after a newer commit; SHA not on main; no green CI for the SHA; no merged PR; duplicates, dry runs, rollbacks; malformed SHAs (injection attempts) before any API call; API failures; manual and rollback; static guard rails on `deploy.yml`. Mutation checks (removing the head, duplicate or conclusion check) make the suite fail.
+
+## Not verified
+GitHub-side behaviour (the `workflow_run` trigger, `pull-requests: read` on the commit→PR endpoint, environment and branch-protection settings) and the real server. No `.env`, Docker, PostgreSQL or n8n change; no secret is read or printed by the new script.
+
