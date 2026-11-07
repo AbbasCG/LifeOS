@@ -140,7 +140,8 @@ teardown() { [[ -n "$T" ]] && rm -rf "$T"; T=""; }
 
 run() { # run <args…>; sets OUT file and RC
   OUT="$T/out.txt"
-  as_deployer env PATH="$T/bin:$PATH" HOME="$T/home" APP_DIR="$T/app" STATE_DIR="$T/state" EXPECT_USER="$(as_deployer id -un)" APP_URL=https://example.test \
+  # NVM_DIR is set explicitly: GitHub's runner image (and many dev machines) export their own, which would leak a real NVM into the test.
+  as_deployer env PATH="$T/bin:$PATH" HOME="$T/home" NVM_DIR="$T/home/.nvm" APP_DIR="$T/app" STATE_DIR="$T/state" EXPECT_USER="$(as_deployer id -un)" APP_URL=https://example.test \
     HEALTH_RETRIES=2 HEALTH_DELAY=0 "$SCRIPT" "$@" > "$OUT" 2>&1
   RC=$?
 }
@@ -161,7 +162,7 @@ run bogus;                                      check "unknown mode rejected" te
 run deploy --sha "$SIDE";                       check "commit not on origin/main refused" test $RC -ne 0; check "  …with a clear message" has "not part of origin/main" "$OUT"
 check "…and HEAD unchanged" test "$(head_sha)" = "$C1"
 if [[ "$(id -u)" -eq 0 ]]; then
-  OUT="$T/out.txt"; env PATH="$T/bin:$PATH" HOME="$T/home" APP_DIR="$T/app" STATE_DIR="$T/state" EXPECT_USER=root "$SCRIPT" check > "$OUT" 2>&1; RC=$?
+  OUT="$T/out.txt"; env PATH="$T/bin:$PATH" HOME="$T/home" NVM_DIR="$T/home/.nvm" APP_DIR="$T/app" STATE_DIR="$T/state" EXPECT_USER=root "$SCRIPT" check > "$OUT" 2>&1; RC=$?
   check "running as root refused" test $RC -ne 0; check "  …with a clear message" has "refusing to run as root" "$OUT"
 fi
 echo "x" >> "$T/app/frontend/app.txt"; run deploy --sha "$C2"
