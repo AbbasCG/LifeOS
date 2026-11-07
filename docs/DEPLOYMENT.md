@@ -4,15 +4,44 @@ CI (`.github/workflows/ci.yml`) tests; CD (`.github/workflows/deploy.yml`) relea
 tests itself, it refuses any commit that has no green push-CI run on `main`.
 
 ```
-merge to main ─► CI (Laravel sqlite+pgsql, React, Playwright, Deploy tooling)
-                   │ green
+you review + merge a PR ─► CI on the merge commit (Laravel sqlite+pgsql, React, Playwright, Deploy tooling)
+                   │ success
                    ▼
-   Deploy production workflow  ── resolve: commit is on main AND CI is green on exactly that commit
-                   │
-        `production` environment  ◄── manual approval (required reviewers)
+   Deploy production workflow (workflow_run) ── resolve (scripts/deploy-resolve.sh), for that exact full SHA:
+        CI run = push to main, success │ SHA on main + green push-CI for it │ still the head of main │ came from a merged PR │ not deployed before
+                   │ any check fails ─► skipped / refused, nothing is shipped
+                   ▼
+        `production` environment (secrets only here; deployment branch = main)
                    │
         ssh (pinned host key, restricted key) ─► forced command ─► scripts/deploy-production.sh deploy --sha <commit>
+                   │            pre-flight ─ lock ─ (verified pg_dump only if migrations are pending) ─ composer ─ build ─ swap ─ health
 ```
+
+## Hybrid policy (who approves what)
+
+- **Claude Code / developers** work on `claude/*` branches, run the tests and open pull requests. Nothing else is automated before the merge.
+- **You** review and merge. Branch protection (PR + the five CI checks) is what stops a red or unreviewed change from reaching `main`; the deploy
+  workflow never bypasses it.
+- **Merge commit → CI → deploy is automatic** (no second approval) when the repository variable `AUTO_DEPLOY` is `true`. Delete it or set it to anything
+  else to stop automatic deploys immediately; manual **Run workflow** (deploy, `dry_run`, `rollback`) always works.
+- A **failed, cancelled or skipped CI never deploys** (the workflow condition and the resolver both check the conclusion). The deploy for that run is
+  gone for good; fix forward with a new PR, or deploy a green SHA by hand.
+
+Automatic decision table (implemented in `scripts/deploy-resolve.sh`, 81 offline checks):
+
+| Situation | Result |
+|---|---|
+| CI `success`, push to `main`, SHA still head of `main`, from a merged PR, never deployed | deploy **that full SHA** |
+| CI failed / cancelled / skipped / not a push to `main` / fork | skipped, nothing asked of GitHub |
+| An older CI finishes after a newer commit landed (SHA is no longer head) | skipped; the newer commit deploys through its own CI run |
+| Commit pushed straight to `main` (no merged PR) | skipped (deploy it manually if intended) |
+| Same SHA already deployed successfully (re-run CI, re-delivered event, queued twin) | skipped; dry runs and rollbacks do not count |
+| No successful CI for the SHA, not on `main`, malformed SHA, GitHub API error | refused / job fails; nothing is shipped |
+| Two merges in quick succession | runs are queued (`concurrency: deploy-production`, never cancelled mid-release); the one that runs re-checks "is this still head?" at its own start |
+
+The SHA that is deployed is always the one CI tested (`workflow_run.head_sha`), never "latest main" at deploy time. The server independently refuses a
+target that is not on `origin/main` or not a fast-forward of what it runs.
+
 
 ## What the server script does (`scripts/deploy-production.sh`)
 
@@ -130,8 +159,11 @@ Note the very first run uses the checkout's current copy of `deploy-production.s
    (kept under the old name) fails unless all of them succeeded, even when some were cancelled or skipped. Require only the five names above; do not
    require the shard names (they would change whenever the shard count does). The deploy workflow needs no change: it looks for a successful `CI` run
    for the commit, and a run is only successful when every job, shards and gate included, is.
-4. Leave the repository variable `AUTO_DEPLOY` **unset** at first. First deploy manually (below). Set `AUTO_DEPLOY=true` only after the reviewer gate is
-   confirmed working: then every green push to `main` waits for approval in the `production` environment.
+4. Leave the repository variable `AUTO_DEPLOY` **unset** at first. First deploy manually (below). Set `AUTO_DEPLOY=true` (Settings → Secrets and
+   variables → Actions → Variables) only when you want the hybrid policy above: from then on every merged PR whose CI is green on the merge commit is
+   deployed without further clicks. If the `production` environment still has **Required reviewers**, each automatic run waits for that approval instead
+   (safer, but not hands-free); remove the reviewers only if you accept fully automatic production releases. Keep the deployment-branch rule
+   (*Selected branches → `main`*). **NOT VERIFIED: the real environment and branch-protection settings.**
 5. Actions → General → "Workflow permissions": read-only is enough (the workflows request only `contents: read` and `actions: read`).
 
 ### Without environment protection
@@ -148,7 +180,7 @@ commands from your own machine instead (`ssh lifeos@host "deploy <sha>"` with th
 4. Actions → **Deploy production** → Run workflow, `dry_run` ✔ → approve → read the plan in the log.
 5. Same again with `dry_run` off, on a quiet moment; watch the health check lines. Keep a terminal on the server: `tail -f /var/lib/lifeos-deploy/deploy.log`.
 6. Practise `rollback` once with a dry run.
-7. Only then consider `AUTO_DEPLOY=true`.
+7. Only then set `AUTO_DEPLOY=true`. Watch the first automatic run end to end (Actions → Deploy production, run title `Deploy <sha>`), and keep `rollback` ready.
 
 ## What the very first real deploy does (server already on the target commit)
 
@@ -198,7 +230,7 @@ Quick checks on the server: `namei -m /var/www/lifeos/frontend/dist/index.html` 
 
 ## Tests
 
-`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 110+ offline scenarios against a
+`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 110+ offline scenarios (`deploy-production.test.sh`) and, for the automatic decision, `scripts/tests/deploy-resolve.test.sh` (81 checks against a stubbed GitHub API: failed CI, stale CI, direct push, duplicates, dry runs, API errors, manual and rollback paths, workflow guard rails) against a
 temporary git remote with stub binaries: bad/short/unknown commits, dirty tree, untracked files, wrong branch, root, missing sudo rule, concurrent
 deploys, dry run, deploy without/with migrations (backup strictly before migrate), failing/empty/unverifiable backup, failing build, failing
 migration, unhealthy API, `dist` permissions (nested dirs, private font, repair of an existing `dist`, untraversable parent), `/up` 404 vs 500 and an unreadable `dist` (403), fast-forward rules, rollback (never migrates), and the SSH forced command against injection attempts.
