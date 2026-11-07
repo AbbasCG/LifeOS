@@ -26,6 +26,8 @@ QUEUE_SERVICE="${QUEUE_SERVICE:-lifeos-queue}"
 HEALTH_RETRIES="${HEALTH_RETRIES:-10}"
 HEALTH_DELAY="${HEALTH_DELAY:-3}"
 MIN_PG_CLIENT_MAJOR="${MIN_PG_CLIENT_MAJOR:-16}"
+DIST_PUBLIC="${DIST_PUBLIC:-1}"          # 1: make the built frontend readable by the web server (a different user) and require it to be reachable
+HEALTH_REQUIRE_UP="${HEALTH_REQUIRE_UP:-0}"  # 1: /up must answer 200 through the web server (see docs/DEPLOYMENT.md, Nginx)
 NODE_MAJOR="${NODE_MAJOR:-24}"          # the frontend toolchain needs a modern Node; Ubuntu's own /usr/bin/node is 18 (too old for Vite)
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
@@ -135,6 +137,30 @@ env_value() { # read KEY from backend/.env without sourcing it (never echoed)
 }
 git_app() { git -C "$APP_DIR" "$@"; }
 
+# The web server (Nginx, user www-data) is not the deploy user and not in its group. The script runs with umask 027 on purpose (logs, state),
+# which also made every file Vite wrote 640 and every directory 750: Nginx then answered 403. Nginx only needs to READ the built files and to
+# ENTER their directories, so the built tree gets exactly u=rwX,go=rX (dirs 755, files 644, owner and group unchanged; nothing is writable by others).
+dist_unreadable() {  # lists (at most $2, default 5) entries under $1 that "others" cannot read / enter
+  find "$1" \( -type d ! -perm -o=rx \) -o \( -type f ! -perm -o=r \) 2>/dev/null | head -n "${2:-5}" || true
+}
+dist_path_blocked() {  # prints the first directory at or above $1 that "others" cannot enter, and fails
+  local d="$1" mode
+  while [[ -n "$d" && "$d" != "/" ]]; do
+    mode=$(stat -c %a "$d" 2>/dev/null) || mode=0
+    if (( (8#$mode & 1) == 0 )); then printf '%s' "$d"; return 1; fi
+    d=$(dirname "$d")
+  done
+  return 0
+}
+make_dist_public() {
+  local dir="$1" bad
+  (( DIST_PUBLIC )) || return 0
+  chmod -R u=rwX,go=rX "$dir" || die "could not set read permissions on $dir"
+  bad=$(dist_unreadable "$dir")
+  if [[ -n "$bad" ]]; then printf '%s\n' "$bad"; die "entries under $dir are still not readable by the web server"; fi
+  log "Permissions: $dir is readable by the web server (directories 755, files 644, owner $(stat -c %U "$dir") unchanged)"
+}
+
 # Non-interactive SSH sessions do not load NVM, so `node` on PATH is the system one (Ubuntu 24.04 ships Node 18, which cannot build the
 # frontend). Select NODE_MAJOR from NVM explicitly and refuse to continue on any other major — before anything is changed.
 use_node() {
@@ -174,6 +200,14 @@ preflight() {
   pg_isready -q -h "$(env_value DB_HOST)" -p "$(env_value DB_PORT)" || die "PostgreSQL is not reachable at $(env_value DB_HOST):$(env_value DB_PORT) from the host (the container must publish 127.0.0.1:<port>)"
   sudo -n -l "/usr/bin/systemctl" reload "$PHP_FPM_SERVICE" >/dev/null 2>&1 || die "sudo rule missing: $EXPECT_USER may not 'systemctl reload $PHP_FPM_SERVICE' (see docs/DEPLOYMENT.md)"
   sudo -n -l "/usr/bin/systemctl" restart "$QUEUE_SERVICE" >/dev/null 2>&1 || die "sudo rule missing: $EXPECT_USER may not 'systemctl restart $QUEUE_SERVICE'"
+  if (( DIST_PUBLIC )); then
+    local blocked bad
+    blocked=$(dist_path_blocked "$FRONTEND") || die "the web server cannot enter $blocked (mode $(stat -c %a "$blocked")): it needs o+x on every directory above frontend/dist — run 'chmod o+x $blocked' once as its owner (or set DIST_PUBLIC=0 if Nginx reaches the files through a group or ACL)"
+    if [[ -d "$FRONTEND/dist" ]]; then
+      bad=$(dist_unreadable "$FRONTEND/dist" 3)
+      [[ -z "$bad" ]] || log "WARNING: the live frontend/dist is not readable by the web server (Nginx answers 403 for it); the next deploy repairs it"
+    fi
+  fi
   [[ -d "$FRONTEND/public/fonts" ]] || log "WARNING: frontend/public/fonts is missing — the app falls back to Inter (licensed Thmanyah files are never in Git)"
   log "Pre-flight ok"
 }
@@ -221,21 +255,27 @@ backup_database() {
   ls -1t "$BACKUP_DIR"/lifeos-*.dump 2>/dev/null | tail -n +"$((BACKUP_KEEP + 1))" | while IFS= read -r old; do rm -f -- "$old" "$old.sha256"; done || true
 }
 
+# Three probes through the web server. /api/user proves Laravel end to end (routing, sessions, database-backed guard, JSON errors) and / proves the
+# frontend files are readable; /up is Laravel's liveness route, which a hardened Nginx may not expose (404): that alone is not a failure unless
+# HEALTH_REQUIRE_UP=1. Any other answer from /up (500, 502, no connection) is.
 health_check() {
   log "Health checks against $APP_URL"
-  local i code ctype
+  local i up code ctype root up_ok
   for ((i = 1; i <= HEALTH_RETRIES; i++)); do
-    code=$(curl -sS -o /dev/null -m 10 -w '%{http_code}' "$APP_URL/up" 2>/dev/null || echo 000)
-    [[ "$code" == "200" ]] && break
-    log "  /up -> $code (attempt $i/$HEALTH_RETRIES)"; sleep "$HEALTH_DELAY"
+    up=$(curl -sS -o /dev/null -m 10 -w '%{http_code}' "$APP_URL/up" 2>/dev/null || echo 000)
+    IFS=' ' read -r code ctype < <(curl -sS -o /dev/null -m 10 -w '%{http_code} %{content_type}\n' "$APP_URL/api/user" 2>/dev/null || echo "000 none")
+    root=$(curl -sS -o /dev/null -m 10 -w '%{http_code}' "$APP_URL/" 2>/dev/null || echo 000)
+    up_ok=0
+    if [[ "$up" == "200" ]] || [[ "$up" == "404" && "$HEALTH_REQUIRE_UP" != "1" ]]; then up_ok=1; fi
+    if (( up_ok )) && [[ "$code" == "401" && "$ctype" == application/json* ]] && [[ "$root" == "200" ]]; then
+      if [[ "$up" == "404" ]]; then log "  note: /up is not routed by the web server (404); Laravel is verified through /api/user instead (HEALTH_REQUIRE_UP=1 makes /up mandatory)"; fi
+      log "Health checks ok (/up $up, /api/user $code JSON, / $root)"
+      return 0
+    fi
+    log "  /up -> $up | /api/user -> $code ($ctype; expected 401 application/json) | / -> $root (expected 200; 403 means the web server cannot read frontend/dist) — attempt $i/$HEALTH_RETRIES"
+    sleep "$HEALTH_DELAY"
   done
-  [[ "$code" == "200" ]] || return 1
-  # A signed-out API request must be a clean 401 JSON (never 500): proves routing, sessions, the database-backed guard and the JSON handler.
-  IFS=' ' read -r code ctype < <(curl -sS -o /dev/null -m 10 -w '%{http_code} %{content_type}\n' "$APP_URL/api/user" 2>/dev/null || echo "000 none")
-  [[ "$code" == "401" && "$ctype" == application/json* ]] || { log "  /api/user -> $code ($ctype), expected 401 application/json"; return 1; }
-  code=$(curl -sS -o /dev/null -m 10 -w '%{http_code}' "$APP_URL/" 2>/dev/null || echo 000)
-  [[ "$code" == "200" ]] || { log "  / -> $code, expected 200"; return 1; }
-  log "Health checks ok (/up 200, /api/user 401 JSON, / 200)"
+  return 1
 }
 
 main_deploy() {
@@ -274,8 +314,10 @@ main_deploy() {
     (cd "$FRONTEND" && LIFEOS_BUILD_ID="$TARGET_SHA" npm run build -- --outDir dist.new --emptyOutDir)
     [[ -f "$FRONTEND/dist.new/index.html" ]] || die "frontend build produced no index.html"
     printf '%s\n' "$frontend_tree" > "$FRONTEND/dist.new/.lifeos-frontend-tree"
+    make_dist_public "$FRONTEND/dist.new"
   else
     log "dist/ already matches this frontend tree: keeping it"
+    if [[ -d "$FRONTEND/dist" ]]; then make_dist_public "$FRONTEND/dist"; fi
   fi
 
   local pending_out pending=0

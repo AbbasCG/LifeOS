@@ -59,7 +59,8 @@ if [[ "\$1" == "run" && "\$2" == "build" ]]; then
   v=\$(node -v); v=\${v#v}; [[ \${v%%.*} -ge 20 ]] || { echo "vite: Node.js 20.19+ or 22.12+ is required (found \$(node -v))" >&2; exit 1; }
   [[ -f "$T/flags/build_fails" ]] && exit 1
   out=dist; for ((i=1;i<=\$#;i++)); do [[ "\${!i}" == "--outDir" ]] && { j=\$((i+1)); out="\${!j}"; }; done
-  mkdir -p "\$out"; echo "<html>\$LIFEOS_BUILD_ID</html>" > "\$out/index.html"
+  mkdir -p "\$out/assets" "\$out/fonts/thmanyah"; echo "<html>\$LIFEOS_BUILD_ID</html>" > "\$out/index.html"
+  echo "js" > "\$out/assets/app.js"; echo "font" > "\$out/fonts/thmanyah/a.woff2"; chmod 600 "\$out/fonts/thmanyah/a.woff2"
 fi
 exit 0
 STUB
@@ -90,9 +91,9 @@ STUB
 #!/usr/bin/env bash
 url="\${@: -1}"; mode=\$(cat "$T/flags/health" 2>/dev/null || echo ok)
 case "\$url" in
-  */up) code=200; [[ "\$mode" == "up500" ]] && code=500; ctype=text/html ;;
+  */up) code=200; [[ "\$mode" == "up500" ]] && code=500; [[ "\$mode" == "up404" ]] && code=404; ctype=text/html ;;
   */api/user) code=401; ctype="application/json"; [[ "\$mode" == "api500" ]] && { code=500; ctype="text/html"; } ;;
-  *) code=200; ctype=text/html ;;
+  *) code=200; [[ "\$mode" == "root403" ]] && code=403; ctype=text/html ;;
 esac
 if [[ "\$*" == *content_type* ]]; then printf '%s %s\n' "\$code" "\$ctype"; else printf '%s' "\$code"; fi
 STUB
@@ -288,6 +289,43 @@ check "…vendor/ was reinstalled for the restored lock, not left on the failed 
 teardown
 setup; run deploy --sha "$C2"; : > "$T/calls.log"; touch "$T/flags/health"; echo ok > "$T/flags/health"; run deploy --sha "$C3"
 check "a later healthy deploy runs composer for the new lock and refreshes PHP once" bash -c "[ $RC -eq 0 ] && grep -c 'systemctl reload' '$T/calls.log' | grep -qx 1"
+teardown
+
+echo "== dist permissions: Nginx (another user) must be able to read the built frontend (the 403 after the first real deploy)"
+modes_ok() { # no directory without o+rx, no file without o+r, nothing world-writable, owner unchanged
+  local d="$1" owner="$2"
+  [ -z "$(find "$d" \( -type d ! -perm -o=rx \) -o \( -type f ! -perm -o=r \) -print -quit)" ] && [ -z "$(find "$d" -perm -o=w -print -quit)" ] && [ -z "$(find "$d" ! -user "$owner" -print -quit)" ]
+}
+setup; run deploy --sha "$C2"; owner=$(stat -c %U "$T/app/frontend/dist")
+check "a deploy leaves every built directory/file readable by 'others', none writable by them, owner unchanged" modes_ok "$T/app/frontend/dist" "$owner"
+check "…including a private font copied with mode 600 and nested directories" bash -c "[ \"\$(stat -c %a '$T/app/frontend/dist/fonts/thmanyah/a.woff2')\" = 644 ] && [ \"\$(stat -c %a '$T/app/frontend/dist/assets')\" = 755 ]"
+check "…and says so in the log" has "readable by the web server" "$OUT"
+check "…while the source fonts stay private (only the built copy is opened up)" bash -c "[ -d '$T/app/frontend/public/fonts' ]"
+# the same tree as a pre-fix deploy leaves it (umask 027): repaired by the next deploy even though no rebuild is needed
+chmod -R go-rwx "$T/app/frontend/dist"; run deploy --sha "$C2"
+check "a deploy that keeps the existing dist repairs its permissions too" modes_ok "$T/app/frontend/dist" "$owner"
+teardown
+setup; chmod -R go-rwx "$T/app/frontend/dist"; run check
+check "'check' warns when the live dist is not readable by the web server" has "not readable by the web server" "$OUT"
+teardown
+setup; chmod o-x "$T/app/frontend"; run check
+check "a directory above dist that 'others' cannot enter is refused before anything changes" bash -c "[ $RC -ne 0 ] && [ '$(head_sha)' = '$C1' ]"
+check "…naming the directory and the fix" has "cannot enter" "$OUT"
+DIST_PUBLIC=0 run check; check "…unless DIST_PUBLIC=0 (Nginx reaches it through a group or ACL)" test $RC -eq 0
+teardown
+
+echo "== health checks: /up, the API and the frontend"
+setup; echo up404 > "$T/flags/health"; run deploy --sha "$C2"
+check "Nginx not routing /up (404) is a note, not a failure: Laravel is verified through /api/user" bash -c "[ $RC -eq 0 ] && grep -q 'not routed by the web server' '$OUT' && grep -q 'result=ok' '$T/state/history.log'"
+teardown
+setup; echo up404 > "$T/flags/health"; HEALTH_REQUIRE_UP=1 run deploy --sha "$C2"
+check "HEALTH_REQUIRE_UP=1 makes /up mandatory" test $RC -eq 3
+teardown
+setup; echo up500 > "$T/flags/health"; run deploy --sha "$C2"
+check "/up answering 500 is still a failure" test $RC -eq 3
+teardown
+setup; echo root403 > "$T/flags/health"; run deploy --sha "$C2"
+check "the frontend answering 403 (unreadable dist) fails the health check and says why" bash -c "[ $RC -eq 3 ] && grep -q '403 means the web server cannot read frontend/dist' '$OUT' && grep -q 'result=unhealthy' '$T/state/history.log'"
 teardown
 
 echo "== rollback"
