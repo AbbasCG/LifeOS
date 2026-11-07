@@ -6,7 +6,7 @@ import { LanguageProvider } from '../contexts/LanguageContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
 import { ToastProvider } from '../components/ui/Toaster'
 import OfflineSync from '../components/layout/OfflineSync'
-import { completeTaskOrQueue, confirmSignOut, createTaskOrQueue, enqueue, logHabitOrQueue, openSync, pendingItems, sendAllPending, sendPending, setOfflineOwner } from '../lib/offline'
+import { completeTaskOrQueue, signOutKeepingQueue, createTaskOrQueue, enqueue, logHabitOrQueue, openSync, pendingItems, sendAllPending, sendPending, setOfflineOwner } from '../lib/offline'
 
 type Call = [string, RequestInit | undefined]
 const wrap = (children: ReactNode) => <ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider>{children}</ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>
@@ -50,19 +50,33 @@ describe('keeping changes on this device', () => {
     expect(items[1].base).toBe('2027-01-04T10:00:00Z')
   })
 
-  it('belongs to one account and is cleared on sign-out after asking', () => {
+  it('belongs to one account and is cleared on sign-out after asking', async () => {
     enqueue({ kind: 'habit.log', label: 'Read', payload: { habit_id: 3, date: '2027-01-04', completed: true } })
     setOfflineOwner(2)
     expect(pendingItems()).toEqual([])
     setOfflineOwner(1)
     expect(pendingItems()).toHaveLength(1)
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
-    expect(confirmSignOut(n => `${n} will be deleted`)).toBe(false)
+    const logout = vi.fn(async () => {})
+    expect(await signOutKeepingQueue(n => `${n} will be deleted`, logout)).toBe(false)
+    expect(logout).not.toHaveBeenCalled()
     expect(pendingItems()).toHaveLength(1)
-    expect(confirmSignOut(n => `${n} will be deleted`)).toBe(true)
+    expect(await signOutKeepingQueue(n => `${n} will be deleted`, logout)).toBe(true)
     expect(pendingItems()).toEqual([])
     setOfflineOwner(null)
     expect(() => enqueue({ kind: 'habit.log', label: 'Read', payload: {} })).toThrow(/Sign in again/)
+  })
+
+  it('keeps the queue when sign-out fails, and still clears it when logout drops the owner first', async () => {
+    setOfflineOwner(1)
+    enqueue({ kind: 'habit.log', label: 'Read', payload: { habit_id: 3, date: '2027-01-04', completed: true } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await expect(signOutKeepingQueue(n => `${n}`, async () => { throw new Error('offline') })).rejects.toThrow('offline')
+    expect(pendingItems()).toHaveLength(1)
+    expect(await signOutKeepingQueue(n => `${n}`, async () => { setOfflineOwner(null) })).toBe(true)
+    setOfflineOwner(1)
+    expect(pendingItems()).toEqual([])
+    setOfflineOwner(null)
   })
 })
 
