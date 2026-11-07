@@ -8,9 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that PR's older, now pointless run. Pushes to main are never cancelled and never replace each
+# other (each commit gets its own group): every commit that lands on main keeps its own full CI result, which is what the deploy
+# workflow looks for.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -105,47 +108,47 @@ jobs:
       - name: Dependency audit (production dependencies)
         run: npm audit --omit=dev --audit-level=high
 
-  e2e:
-    name: Browser (Playwright)
+  # Browser tests, split across runners. All tests share one demo account and one single-threaded PHP server, so a runner can only run
+  # them one at a time; separate runners each get their own database and server. Which spec files run where is decided by
+  # scripts/e2e-shards.mjs from measured durations (balanced to within a few seconds), and a unit test fails if a spec file could ever
+  # be left out of the plan. Isolated by design: a throwaway SQLite database seeded with the demo account, no provider credentials or
+  # AI keys, and every request outside 127.0.0.1 is blocked by the test fixtures — the suite can never reach a real account.
+  e2e-shard:
+    name: Playwright shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
-    # Isolated by design: a throwaway SQLite database seeded with the demo account, no provider credentials or AI keys,
-    # and every request outside 127.0.0.1 is blocked by the test fixtures — the suite can never reach a real account.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false      # every shard reports; one failure never hides another
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_sqlite, intl, openssl
-          coverage: none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Cache Composer packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.composer/cache/files
-          key: composer-${{ hashFiles('backend/composer.lock') }}
-      - name: Backend
-        working-directory: backend
-        run: |
-          composer install --no-interaction --no-progress --prefer-dist
-          cp .env.example .env
-          php artisan key:generate --no-interaction
-      - name: Frontend
+      - uses: ./.github/actions/e2e-setup
+      - name: Choose this shard's spec files
         working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-          npx playwright install --with-deps chromium
-        env:
-          LIFEOS_BUILD_ID: ${{ github.sha }}
-      - name: Browser tests
+        run: node scripts/e2e-shards.mjs env ${{ matrix.shard }} ${{ strategy.job-total }} | tee -a "$GITHUB_ENV"
+      - name: Browser tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
         working-directory: frontend
         run: npm run test:e2e
-      # The date/time pickers again on the Vite dev server (React StrictMode, unminified): a picker that works in the production build
-      # but closes itself in development is how this kind of bug reaches the people building the app.
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+  # The date/time pickers again on the Vite dev server (React StrictMode, unminified): a picker that works in the production build
+  # but closes itself in development is how this kind of bug reaches the people building the app. Runs alongside the shards.
+  e2e-dev-server:
+    name: Playwright dev server (pickers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/e2e-setup
       - name: Date pickers on the dev server
         working-directory: frontend
         run: E2E_DEV=1 npx playwright test e2e/picker.spec.ts e2e/date-pickers.spec.ts --project=desktop
@@ -153,11 +156,29 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-dev-server
           path: |
             frontend/playwright-report
             frontend/test-results
           retention-days: 7
+
+  # One result for all browser jobs, under the name branch protection already knows ("Browser (Playwright)"): it fails unless every
+  # shard and the dev-server job succeeded, and it also runs (and fails) when they were cancelled or skipped, so a missing shard can
+  # never read as a pass. The per-shard names are not meant to be required checks; this one is.
+  e2e:
+    name: Browser (Playwright)
+    needs: [e2e-shard, e2e-dev-server]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every browser job must have succeeded
+        env:
+          SHARDS: ${{ needs.e2e-shard.result }}
+          DEV: ${{ needs.e2e-dev-server.result }}
+        run: |
+          echo "shards: $SHARDS | dev server: $DEV"
+          [ "$SHARDS" = "success" ] && [ "$DEV" = "success" ]
 
   # Static checks and offline tests for the deploy tooling (scripts/ and .github/workflows/deploy.yml). Nothing here can reach a server:
   # the deploy script runs against a temporary git remote with stubbed php/composer/npm/pg_dump/curl/sudo.

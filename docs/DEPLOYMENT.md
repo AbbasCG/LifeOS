@@ -105,6 +105,10 @@ Note the very first run uses the checkout's current copy of `deploy-production.s
    `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` with the fingerprint your first manual login showed. The file is pinned
    (`StrictHostKeyChecking=yes`), so the job fails closed if the host key ever changes.
 3. **Branch protection on `main`:** require pull requests and the CI checks (`Laravel (sqlite)`, `Laravel (pgsql)`, `React`, `Browser (Playwright)`, `Deploy tooling`).
+   `Browser (Playwright)` is a **gate job**: the browser tests run as six `Playwright shard n/6` jobs plus `Playwright dev server (pickers)`, and the gate
+   (kept under the old name) fails unless all of them succeeded, even when some were cancelled or skipped. Require only the five names above; do not
+   require the shard names (they would change whenever the shard count does). The deploy workflow needs no change: it looks for a successful `CI` run
+   for the commit, and a run is only successful when every job, shards and gate included, is.
 4. Leave the repository variable `AUTO_DEPLOY` **unset** at first. First deploy manually (below). Set `AUTO_DEPLOY=true` only after the reviewer gate is
    confirmed working: then every green push to `main` waits for approval in the `production` environment.
 5. Actions → General → "Workflow permissions": read-only is enough (the workflows request only `contents: read` and `actions: read`).
