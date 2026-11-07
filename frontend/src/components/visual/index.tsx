@@ -82,11 +82,24 @@ export function Expandable({ summary, icon, children, defaultOpen = false, class
  * A bottom sheet on phones, a centered card on larger screens. Built on <dialog> so focus is trapped, Escape closes
  * it and the page behind is inert.
  */
-export function BottomSheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+export function BottomSheet({ title, onClose, children, footer, tall }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; tall?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null), t = useText(), id = useId()
   // showModal() focuses the first control (the close button); a field marked data-autofocus takes focus instead.
   useEffect(() => { const dialog = ref.current, previous = document.activeElement as HTMLElement | null; dialog?.showModal?.(); dialog?.querySelector<HTMLElement>('[data-autofocus]')?.focus(); return () => { dialog?.close?.(); previous?.focus?.() } }, [])
-  return <dialog ref={ref} className="sheet" aria-labelledby={id} onCancel={e => { e.preventDefault(); onClose() }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+  // On a phone the on-screen keyboard covers the bottom of the page without resizing the layout viewport: follow the visual viewport so the
+  // footer (Save / Add) always stays above the keyboard and the body scrolls inside the sheet.
+  useEffect(() => {
+    const vv = window.visualViewport, dialog = ref.current
+    if (!vv || !dialog) return
+    const apply = () => {
+      dialog.style.setProperty('--kb', `${Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))}px`)
+      dialog.style.setProperty('--vvh', `${Math.round(vv.height)}px`)
+    }
+    apply(); vv.addEventListener('resize', apply); vv.addEventListener('scroll', apply)
+    return () => { vv.removeEventListener('resize', apply); vv.removeEventListener('scroll', apply) }
+  }, [])
+  // stopPropagation: a sheet opened from inside another sheet's form must not also close the one beneath it.
+  return <dialog ref={ref} className={`sheet${tall ? ' sheet-tall' : ''}`} aria-labelledby={id} onCancel={e => { e.preventDefault(); e.stopPropagation(); onClose() }} onClose={e => e.stopPropagation()} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
     <div className="sheet-inner">
       <span className="sheet-handle" aria-hidden="true" />
       <header className="sheet-head"><h2 id={id}>{title}</h2><button type="button" className="icon-button" onClick={onClose} aria-label={t('Close', 'إغلاق')}><X size={18} /></button></header>

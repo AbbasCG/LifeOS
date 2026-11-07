@@ -134,19 +134,28 @@ describe('calendar integrations', () => {
   it('explains setup for unconfigured providers and never pretends to be connected', async () => {
     mockApi([user, { match: /\/api\/integrations$/, body: providers }])
     render(wrap(<IntegrationsSettings />))
+    // Compact list: the row says "Setup needed"; the administrator's instructions are in the info sheet behind (i).
+    expect(await screen.findByText('Setup needed')).toBeInTheDocument()
+    expect(screen.queryByText('https://app/api/integrations/google/callback')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'About Google Calendar' }))
     expect(await screen.findByText('Not configured on this server yet.')).toBeInTheDocument()
     expect(screen.getByText('https://app/api/integrations/google/callback')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('button', { name: 'Connect Google Calendar' })).not.toBeInTheDocument()
     expect(screen.getByText('Access revoked')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument()
     // Planned integrations explain themselves and cannot be connected.
-    expect(screen.getByText('Planned: import pages from one database you pick.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'About Notion' }))
+    expect(await screen.findByText('Planned: import pages from one database you pick.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('button', { name: 'Connect Notion' })).not.toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Share connected data with an external AI provider' })).not.toBeChecked()
   })
   it('lets the user choose which lists are imported', async () => {
     const fetcher = mockApi([user, { match: /\/api\/integrations$/, body: providers }, { match: /\/api\/integrations\/accounts\/4$/, method: 'PATCH', body: { imported: 3 } }])
     render(wrap(<IntegrationsSettings />))
+    // Which lists are imported lives in the account's details sheet.
+    fireEvent.click(await screen.findByRole('button', { name: 'Details of me@todoist.test' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: /Side project/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Save and sync' }))
     await waitFor(() => expect(fetcher.mock.calls.some(c => c[1]?.method === 'PATCH')).toBe(true))
