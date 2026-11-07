@@ -140,10 +140,17 @@ export async function sendAllPending() {
   return summary
 }
 
-/** Signing out deletes what was kept on this device for this account; ask first when something is waiting. */
-export function confirmSignOut(question: (count: number) => string) {
+/**
+ * Signing out deletes what was kept on this device for this account, but only once the server has
+ * accepted the sign-out. Ask first when something is waiting; if signing out fails (offline or a
+ * server error) the pending changes stay and the error is passed on. Returns false if declined.
+ */
+export async function signOutKeepingQueue(question: (count: number) => string, logout: () => Promise<void>) {
   const count = pendingItems().length
   if (count && !window.confirm(question(count))) return false
-  clearQueue()
+  // Logging out clears the signed-in user, which drops the queue's owner; remember whose queue this was.
+  const mine = key()
+  await logout()
+  if (mine) { try { localStorage.removeItem(mine) } catch { /* storage blocked */ } window.dispatchEvent(new Event(OFFLINE_CHANGED)) }
   return true
 }
