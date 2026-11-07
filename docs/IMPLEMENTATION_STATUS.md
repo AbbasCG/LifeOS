@@ -3283,3 +3283,20 @@ Not retries (0 in a full run), not waiting and not setup (~2 minutes): the suite
 - `ci.yml`: matrix of 6 shards (`fail-fast: false`, 25-minute job timeout), the dev-server picker run as its own parallel job, and a **gate job named `Browser (Playwright)`** that fails unless all of them succeeded (`if: always()`, so a cancelled or skipped shard is a failure, never a pass). Shared setup moved to `.github/actions/e2e-setup` with a Chromium download cache.
 - Concurrency: a new push to a PR cancels that PR's older run only; pushes to `main` never cancel anything (each gets its own group), so the deploy workflow always finds a full result for the commit.
 - No `continue-on-error`, no coverage reduction, no backend, `.env`, Docker or n8n change.
+
+---
+
+# V55 — Deploy script: explicit Node.js 24, consistent state after a failed release
+
+First real deploy (#18) failed at the React build and rolled back: `/usr/bin/node` is **v18.19.1** (too old for Vite) and the script only loaded NVM when `node` was missing from PATH, so the NVM Node 24 of the deploy user was never used. The 18 Symfony updates had already been installed by then.
+
+## Changes (`scripts/deploy-production.sh`)
+- `use_node` (pre-flight, read-only, also in `check`): sources `~/.nvm/nvm.sh`, runs `nvm use $NODE_MAJOR` (default 24), requires exactly that major, logs Node/npm; NVM missing, version not installed or another major -> refuses before anything is changed.
+- After any revert: `composer install --dry-run` must show 0 operations (else reinstall from the lock and re-check), the live `dist/` is confirmed untouched, and PHP-FPM is reloaded and the queue restarted if composer changed vendor/ before the failure. The real run logs how many package operations composer will apply.
+- Not changed: `.env`, fonts, Docker, PostgreSQL, n8n, backup/migration order, health checks, code-only rollback, locks.
+
+## Tests (`scripts/tests/deploy-production.test.sh`, 98 scenarios, 14 new)
+Replay of the incident (system Node 18 first on PATH + NVM Node 24 -> build runs under 24), refusal without NVM / Node 24 not installed / wrong major (nothing changed, `check` also refuses), build failure with vendor/ behind the lock, and a failure after a deploy that changed `composer.lock` (vendor/ restored to the previous lock). The new scenarios fail against the previous script (14 failures) and pass now.
+
+## Not verified
+The real server. Note the script that runs is the checked-out one: the fix only protects deploys that start after the server's checkout contains it (see docs/DEPLOYMENT.md, "The script that runs is the one already on the server").

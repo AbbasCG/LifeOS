@@ -18,8 +18,12 @@ merge to main ─► CI (Laravel sqlite+pgsql, React, Playwright, Deploy tooling
 
 Runs on the VPS as the unprivileged user `lifeos` (it refuses root). Modes: `check`, `deploy --sha`, `rollback --sha`, both with `--dry-run`.
 
-1. **Pre-flight (read-only):** user, paths, writable `storage/` + `bootstrap/cache/` + `frontend/`, `.env` present, tools (git, php, composer, node/npm — NVM
-   is loaded automatically —, curl, flock, pg_dump ≥ 16), PostgreSQL reachable from the host, and the two sudo rules.
+1. **Pre-flight (read-only):** user, paths, writable `storage/` + `bootstrap/cache/` + `frontend/`, `.env` present, **Node.js** (see below), tools (git, php,
+   composer, npm, curl, flock, pg_dump ≥ 16), PostgreSQL reachable from the host, and the two sudo rules.
+   **Node.js:** a non-interactive SSH session does not load NVM, so plain `node` is the system one (Ubuntu 24.04: v18, too old for Vite). The script
+   therefore sources `~/.nvm/nvm.sh` and runs `nvm use $NODE_MAJOR` (default **24**) itself, then requires `node -v` to be exactly that major, and logs
+   the Node and npm in use. NVM missing, version not installed or any other major: it stops here, before anything is changed — `check` shows the same,
+   so the server can be verified without deploying. Setup for the deploy user: `nvm install 24 && nvm alias default 24`.
 2. **Lock:** `flock` on `/var/lib/lifeos-deploy/deploy.lock` — a second deploy is refused, not queued.
 3. **Git:** must be on `main` with a clean tree (`git status --porcelain`: any tracked change or non-ignored stray file aborts; `.env*`, fonts and `dist`
    are git-ignored so they never count). `git fetch origin main`; the target must be a full 40-hex commit that is an ancestor of `origin/main` and a
@@ -37,11 +41,24 @@ Runs on the VPS as the unprivileged user `lifeos` (it refuses root). Modes: `che
 8. **Health:** `/up` = 200, `/api/user` signed-out = **401 + `application/json`** (a 500 here is the bug fixed in PR #48), `/` = 200; retries ×10.
 9. **Log:** `/var/lib/lifeos-deploy/deploy.log` (everything) and `history.log` (one line per deploy: who, from, to, result, backup file).
 
+After a revert the script also proves the restored checkout is consistent: `composer install --dry-run` must report **0** operations (vendor/ matches
+`composer.lock` of the restored commit; if not, it reinstalls from the lock and checks again), the live `frontend/dist` is confirmed to be the one that was
+serving before (it is only replaced after a successful build), and, when `composer install` had real work to do before the failure, PHP-FPM is reloaded and the
+queue worker restarted so no process keeps classes from a vendor/ that changed under it.
+
 Automatic reversal exists only while nothing irreversible has happened: a failure *before* migrations/cut-over (composer, build, backup, migration status)
 moves the code back with `git reset --keep <previous>` (refuses to overwrite local changes; never `--hard`) and leaves the live site untouched. After
 migrations the script does **not** guess — it exits non-zero, prints the backup path and stops (see Rollback). Exit code 3 = released but unhealthy.
 
 It never restarts Docker, PostgreSQL or n8n, never runs `git reset --hard`, `git clean` or `git add`, and never prints `.env` values.
+
+## The script that runs is the one already on the server
+
+The forced command executes `/var/www/lifeos/scripts/deploy-production.sh` from the **currently checked-out** commit, i.e. before the deploy moves it. A fix
+to the script (such as the Node check) therefore only protects the deploys that start *after* the server's checkout contains it. To bring a server that still
+has an older script up to date without a half-finished release: as the deploy user, `git -C /var/www/lifeos fetch origin main` and
+`git -C /var/www/lifeos merge --ff-only <commit>` (code only; nothing is built or restarted), then run **Deploy production** with that same commit
+as the target: the new script runs, installs from `composer.lock` and rebuilds a `dist/` that was not built from this `frontend/` tree.
 
 ## Rollback
 
@@ -142,7 +159,7 @@ Nothing touches `.env`, Docker, PostgreSQL, n8n or Nginx.
 
 ## Tests
 
-`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 60+ offline scenarios against a
+`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 95+ offline scenarios against a
 temporary git remote with stub binaries: bad/short/unknown commits, dirty tree, untracked files, wrong branch, root, missing sudo rule, concurrent
 deploys, dry run, deploy without/with migrations (backup strictly before migrate), failing/empty/unverifiable backup, failing build, failing
 migration, unhealthy API, fast-forward rules, rollback (never migrates), and the SSH forced command against injection attempts.
