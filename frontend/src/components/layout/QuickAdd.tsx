@@ -1,5 +1,5 @@
-import { Suspense, useEffect, useState, type FormEvent } from 'react'
-import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Flame, Plus, SlidersHorizontal, Sun, Sunrise, WifiOff, Heart } from 'lucide-react'
+import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, CalendarDays, CalendarX, Equal, Flame, Plus, SlidersHorizontal, Sun, Sunrise, WifiOff, Heart } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useOnline } from '../../lib/pwa'
 import { createTaskOrQueue } from '../../lib/offline'
@@ -9,8 +9,10 @@ import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { BottomSheet } from '../visual'
 import { ErrorMessage } from '../ui/Shared'
+import { ChoiceGroup } from '../ui/Choice'
+import { DateTimeField } from '../ui/DateTimePicker'
 import { openHabitSheet } from '../../lib/quickActions'
-import { dueFor, QUICK_ADD, spokenHints, TASKS_CHANGED, type Priority, type When } from '../../lib/quickAdd'
+import { dueFor, dueForDay, QUICK_ADD, spokenHints, TASKS_CHANGED, type Priority, type QuickWhen } from '../../lib/quickAdd'
 
 import { lazyPart, whenIdle } from '../../lib/lazyPart'
 
@@ -24,7 +26,7 @@ const RecordForm = lazyPart(() => import('../../features/ResourcePage').then(m =
  */
 export default function QuickAdd() {
   const t = useText(), toast = useToast()
-  const [open, setOpen] = useState(false), [text, setText] = useState(''), [when, setWhen] = useState<When>('today'), [priority, setPriority] = useState<Priority>('medium')
+  const [open, setOpen] = useState(false), [text, setText] = useState(''), [when, setWhen] = useState<QuickWhen>('today'), [day, setDay] = useState(''), [priority, setPriority] = useState<Priority>('medium')
   const [busy, setBusy] = useState(false), [voice, setVoice] = useState(false), [error, setError] = useState(''), [draft, setDraft] = useState<Partial<RecordItem> | null>(null)
   const online = useOnline(), [params, setParams] = useSearchParams()
   useEffect(() => whenIdle(() => { VoiceButton.preload(); RecordForm.preload() }), [])
@@ -45,12 +47,12 @@ export default function QuickAdd() {
   }, [shown])
   function task(): Partial<RecordItem> {
     const parsed = parseCapture(text)
-    return { ...parsed, status: 'todo', priority, due_at: parsed.due_at ?? dueFor(when) }
+    return { ...parsed, status: 'todo', priority, due_at: parsed.due_at ?? (when === 'custom' ? dueForDay(day) : dueFor(when)) }
   }
   function close() {
     setOpen(false)
     if (params.get('add')) setParams(p => { p.delete('add'); return p }, { replace: true })
-    setText(''); setWhen('today'); setPriority('medium'); setVoice(false) }
+    setText(''); setWhen('today'); setDay(''); setPriority('medium'); setVoice(false) }
   async function save(e?: FormEvent) {
     e?.preventDefault()
     if (!text.trim() || busy) return
@@ -63,21 +65,29 @@ export default function QuickAdd() {
       close()
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
-  const whens: [When, string, typeof Sun][] = [['today', t('Today', 'اليوم'), Sun], ['tomorrow', t('Tomorrow', 'غداً'), Sunrise], ['week', t('This week', 'هذا الأسبوع'), CalendarDays], ['none', t('No date', 'بلا موعد'), CalendarX]]
-  const priorities: [Priority, string, typeof Flame][] = [['urgent', t('Urgent', 'عاجل'), Flame], ['high', t('High', 'عالية'), ArrowUp], ['medium', t('Normal', 'عادية'), Plus], ['low', t('Low', 'منخفضة'), ArrowDown]]
+  const icon = (Icon: typeof Sun) => <Icon size={20} aria-hidden="true" />
+  const whens: { value: QuickWhen; label: string; icon: ReactNode }[] = [{ value: 'today', label: t('Today', 'اليوم'), icon: icon(Sun) }, { value: 'tomorrow', label: t('Tomorrow', 'غداً'), icon: icon(Sunrise) }, { value: 'week', label: t('This week', 'هذا الأسبوع'), icon: icon(CalendarDays) }, { value: 'none', label: t('No date', 'بلا موعد'), icon: icon(CalendarX) }]
+  const priorities: { value: Priority; label: string; icon: ReactNode; tone: string }[] = [{ value: 'urgent', label: t('Urgent', 'عاجل'), icon: icon(Flame), tone: 'urgent' }, { value: 'high', label: t('High', 'عالية'), icon: icon(ArrowUp), tone: 'high' }, { value: 'medium', label: t('Normal', 'عادية'), icon: icon(Equal), tone: 'medium' }, { value: 'low', label: t('Low', 'منخفضة'), icon: icon(ArrowDown), tone: 'low' }]
   return <>
-    {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} footer={<>
-      <button type="button" className="quiet quick-habit" onClick={() => { close(); openHabitSheet() }}><Heart size={16} />{t('Log a habit', 'سجّل عادة')}</button>
-      <button type="button" className="quiet" disabled={!text.trim()} onClick={() => { setDraft(task()); close() }}><SlidersHorizontal size={16} />{t('More details', 'تفاصيل أكثر')}</button>
-      <button type="submit" form="quick-add-form" className="primary" disabled={!text.trim() || busy}><Plus size={17} />{t('Add task', 'إضافة المهمة')}</button>
-    </>}>
+    {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} footer={
+      <button type="submit" form="quick-add-form" className="primary qa-add" disabled={!text.trim() || busy}><Plus size={20} aria-hidden="true" />{t('Add task', 'إضافة المهمة')}</button>}>
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
-          <input data-autofocus value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} />
+          <input data-autofocus className="qa-title" value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} enterKeyHint="done" autoComplete="off" autoCapitalize="sentences" />
           {voiceAllowed && <Suspense fallback={null}><VoiceButton autoStart={voice} onText={said => { setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200)); const hints = spokenHints(said); if (hints.when) setWhen(hints.when); if (hints.priority) setPriority(hints.priority) }} /></Suspense>}
         </div>
-        <div className="chip-row" role="radiogroup" aria-label={t('When', 'متى')}>{whens.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={when === value} className="filter-chip" onClick={() => setWhen(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
-        <div className="chip-row" role="radiogroup" aria-label={t('Priority', 'الأولوية')}>{priorities.map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={priority === value} className={`filter-chip prio-chip-${value}`} onClick={() => setPriority(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}</div>
+        <div className="field-block">
+          <div className="qa-whens" role="radiogroup" aria-label={t('When', 'متى')}>
+            {whens.slice(0, 3).map(o => <button key={o.value} type="button" role="radio" aria-checked={when === o.value} className="choice" onClick={() => setWhen(o.value)}><span className="choice-icon">{o.icon}</span><span className="choice-label">{o.label}</span></button>)}
+            <span className={`qa-pick${when === 'custom' ? ' is-set' : ''}`}><DateTimeField kind="date" value={day} onChange={v => { setDay(v); setWhen(v ? 'custom' : 'today') }} label={t('Pick a date', 'اختيار تاريخ')} /></span>
+            {whens.slice(3).map(o => <button key={o.value} type="button" role="radio" aria-checked={when === o.value} className="choice" onClick={() => setWhen(o.value)}><span className="choice-icon">{o.icon}</span><span className="choice-label">{o.label}</span></button>)}
+          </div>
+        </div>
+        <ChoiceGroup label={t('Priority', 'الأولوية')} variant="tiles" columns={4} value={priority} onChange={setPriority} options={priorities} />
+        <div className="qa-more">
+          <button type="button" className="quiet quick-habit" onClick={() => { close(); openHabitSheet() }}><Heart size={18} aria-hidden="true" />{t('Log a habit', 'سجّل عادة')}</button>
+          <button type="button" className="quiet" disabled={!text.trim()} onClick={() => { setDraft(task()); close() }}><SlidersHorizontal size={18} aria-hidden="true" />{t('More details', 'تفاصيل أكثر')}</button>
+        </div>
         {!online && <p className="offline-note" role="status"><WifiOff size={14} aria-hidden="true" />{t('You’re offline. The task is kept on this device until you send it.', 'أنت غير متصل. تُحفظ المهمة على هذا الجهاز حتى ترسلها.')}</p>}
         <ErrorMessage error={error} />
       </form>

@@ -45,6 +45,8 @@ describe('calendar subscriptions', () => {
   it('subscribes with a link instead of a sign-in and reports server errors', async () => {
     const fetcher = mockApi([user, { match: /\/api\/integrations$/, body: hub() }, { match: /\/api\/integrations\/ics$/, method: 'POST', body: { message: 'This calendar address points to a private network and cannot be used.', errors: { url: ['This calendar address points to a private network and cannot be used.'] } }, status: 422 }])
     render(wrap(<IntegrationsSettings />))
+    // The compact list offers "Add link"; the address field opens in a sheet.
+    fireEvent.click(await screen.findByRole('button', { name: /Add link/ }))
     const input = await screen.findByLabelText('Calendar address (.ics or webcal)')
     expect(screen.queryByRole('button', { name: /Connect Calendar subscription/ })).toBeNull()
     fireEvent.change(input, { target: { value: 'webcal://intranet/feed.ics' } })

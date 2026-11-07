@@ -35,6 +35,7 @@ for (const timezoneId of ['UTC', 'Asia/Riyadh', 'America/New_York']) {
         const form = page.getByRole('dialog').first()
         await expect(form).toBeVisible()
         const due = `${ymd(5)}T14:30`, remind = `${ymd(4)}T09:15`
+        await form.locator('details.rf-more > summary').click()   // the reminder is under "More options" since V53
         await chooseByTapping(page, label(form, T.deadline), due.slice(0, 10), '14:30')
         await chooseByTapping(page, label(form, T.remind), remind.slice(0, 10), '09:15', 'icon')
         await expect(label(form, T.deadline)).toHaveAttribute('data-value', due)

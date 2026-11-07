@@ -3241,3 +3241,29 @@ Environment protection availability on this repository, the real server (PHP-FPM
 - Fix (smallest): the frontend is rebuilt whenever `dist/.lifeos-frontend-tree` differs from the target's `frontend/` tree hash (or `dist/` is missing); `npm ci` runs with every build; `--dry-run` reports pending `composer install` operations. Backend-only deploys still skip the build.
 - Verified: fresh `composer install --no-dev --optimize-autoloader` + `migrate` + `optimize` + `composer audit` in a clean copy of `backend/`; 77 offline deploy scenarios (new: HEAD == target, idempotent second run, HEAD == target with pending migrations).
 - NOT VERIFIED: the real server (this change was tested with stubs only).
+
+---
+
+# V53 — Mobile-first redesign for iPhone 13 (Quick add, task details, connected accounts)
+
+Frontend only. No backend, API, validation or business-logic change; every field and action that existed still exists.
+
+## Audit (390x844, before)
+- Every input/select/textarea was **14px**: iOS Safari zooms the page when one is focused.
+- The task form was a centred dialog with a long stack of drop-downs and a **Save button below the fold**.
+- Quick add: three footer buttons wrapped to two lines, chips wrapped 3+1, the task field was 14px.
+- Connected accounts: **~4400px tall** on a phone, long paragraphs on every card.
+- Already correct: `viewport-fit=cover`, no horizontal overflow, bottom nav with safe area, `dvh` on drawers.
+
+## Changes
+- **Foundation** (`styles/mobile.css`, `BottomSheet`): 16px inputs on touch screens (pinch-zoom is untouched: no `maximum-scale`/`user-scalable`), 48px fields, `dvh` + safe-area sized sheets, an optional `tall` sheet, a footer that never scrolls away, and the sheet follows `visualViewport` so Save/Add stay above the on-screen keyboard. Nested sheets close one at a time. `interactive-widget=resizes-content` added to the viewport meta (Android Chrome).
+- **Quick add**: 60px task field (voice button kept), icon tiles for When (Today / Tomorrow / This week / Pick a date / No date) and Priority (Urgent / High / Normal / Low), a full-width 56px sticky **Add task**, "Log a habit" and "More details" as 48px buttons. Default = two moves (type, Add). A picked calendar day is saved as 17:00 of that day (`dueForDay`). Offline queue, voice hints and the `?add=task` shortcut unchanged.
+- **Task details** (`features/RecordForm.tsx`, moved out of `ResourcePage`): a bottom sheet (centred card on desktop) with When tiles + Deadline, Priority tiles, Status chips, Duration chips + minutes field, Repeat tiles, searchable Project / Goal / Category pickers, and **More options** (description, reminder, tags, notes, subtasks; opens by itself when any is filled). Other items (projects, goals, habits, categories, events) use the same sheet with one-tap choices for their short lists. The posted payload has the same keys as before (asserted).
+- **Connected accounts**: compact rows (icon, name, status pill, one action), per-account row with status dot, a sync **icon** button and Details; the long explanations, onboarding text, AI-sharing description, administrator setup and planned-provider notes moved behind (i) sheets; the subscription form opens from "Add link". Page height 4405px -> ~1400px at 390 wide.
+
+## Tests
+- Vitest: 21 new (`v53.test.tsx`: choice groups, picker, keyboard inset, nested Escape, stylesheet guarantees, Quick add payloads, details payload keys, compact integrations incl. loading/error); 3 existing integration tests updated for the (i)/Details/Add-link flow. Total 318.
+- Playwright (`mobile-redesign.spec.ts`): 375 / 390 / 430 phones, RTL + dark, keyboard-height viewport, loading/error state, desktop; asserts inputs >= 16px, controls >= 44px, no overflow, Save/Add in view, and the saved data through the API. `hub.spec.ts` and `date-pickers.spec.ts` adjusted to the new flow. A11y: the new "Read-only" chip had 4.2:1 contrast in dark mode and was fixed.
+
+## Not verified
+Real iPhone/Safari (keyboard behaviour, zoom-on-focus, home-indicator spacing, momentum scrolling): Chromium touch emulation only. The 16px rule that prevents the zoom is asserted in CSS and in the browser.
