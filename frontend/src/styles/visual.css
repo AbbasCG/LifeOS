@@ -134,6 +134,8 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .today-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
 .today-head h1 { font-size: clamp(22px, 2.6vw, 30px); letter-spacing: -0.02em; }
 .today-head p { font-size: 14px; }
+/* The greeting shares a row with the date when it is short and then sits on the aurora glow: a little darker than the muted token keeps it above 4.5:1 there (it measured 4.15:1). */
+.today-head > .muted { color: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text)); }
 .today-customize { margin-inline-start: auto; align-self: center; }
 
 .now-card { position: relative; display: grid; grid-template-columns: 1fr auto; gap: var(--space-4) var(--space-5); padding: clamp(18px, 3vw, 28px); border-radius: 26px; color: var(--color-text);
