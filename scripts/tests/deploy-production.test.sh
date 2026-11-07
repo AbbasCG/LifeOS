@@ -33,19 +33,30 @@ case "\$*" in
 esac
 exit 0
 STUB
+  # composer: `install` makes vendor/ match composer.lock (a hash is kept in vendor/.lockhash); `install --dry-run` prints 18 package
+  # operations while it does not (like the server's 18 pending Symfony updates) and none once it does.
   cat > "$T/bin/composer" <<STUB
 #!/usr/bin/env bash
-echo "composer \$*" >> "$T/calls.log"; mkdir -p vendor; exit 0
+echo "composer \$*" >> "$T/calls.log"
+mkdir -p vendor
+lock=\$(sha256sum composer.lock 2>/dev/null | cut -d' ' -f1)
+if [[ "\$*" == *--dry-run* ]]; then
+  [[ "\$(cat vendor/.lockhash 2>/dev/null)" == "\$lock" ]] || for i in \$(seq 1 18); do echo "  - Upgrading symfony/pkg\$i (v7.4.21 => v7.4.23)"; done
+  exit 0
+fi
+printf '%s' "\$lock" > vendor/.lockhash
+exit 0
 STUB
-  cat > "$T/bin/node" <<'STUB'
+  cat > "$T/bin/node" <<STUB
 #!/usr/bin/env bash
-echo v24.0.0
+cat "$T/flags/system_node" 2>/dev/null || echo v24.0.0
 STUB
   cat > "$T/bin/npm" <<STUB
 #!/usr/bin/env bash
-echo "npm \$*" >> "$T/calls.log"
+echo "npm \$* node=\$(node -v)" >> "$T/calls.log"
 if [[ "\$1" == "ci" ]]; then mkdir -p node_modules; fi
 if [[ "\$1" == "run" && "\$2" == "build" ]]; then
+  v=\$(node -v); v=\${v#v}; [[ \${v%%.*} -ge 20 ]] || { echo "vite: Node.js 20.19+ or 22.12+ is required (found \$(node -v))" >&2; exit 1; }
   [[ -f "$T/flags/build_fails" ]] && exit 1
   out=dist; for ((i=1;i<=\$#;i++)); do [[ "\${!i}" == "--outDir" ]] && { j=\$((i+1)); out="\${!j}"; }; done
   mkdir -p "\$out"; echo "<html>\$LIFEOS_BUILD_ID</html>" > "\$out/index.html"
@@ -96,6 +107,8 @@ STUB
   "${g[@]}" add -A; "${g[@]}" commit -q -m c1; C1=$("${g[@]}" rev-parse HEAD)
   echo 'v2' > "$T/seed/frontend/app.txt"; touch "$T/seed/backend/database/migrations/2026_01_01_000000_new_table.php"
   "${g[@]}" add -A; "${g[@]}" commit -q -m c2; C2=$("${g[@]}" rev-parse HEAD)
+  echo '{"v":3}' > "$T/seed/backend/composer.lock"; echo 'v3' > "$T/seed/frontend/app.txt"
+  "${g[@]}" add -A; "${g[@]}" commit -q -m c3; C3=$("${g[@]}" rev-parse HEAD)
   "${g[@]}" remote add origin "$T/origin.git"; "${g[@]}" push -q origin main
   "${g[@]}" checkout -q -b side "$C1"; echo side > "$T/seed/side.txt"; "${g[@]}" add -A; "${g[@]}" commit -q -m side; SIDE=$("${g[@]}" rev-parse HEAD)
   "${g[@]}" push -q origin side; "${g[@]}" checkout -q main
@@ -110,6 +123,18 @@ DB_PASSWORD="se:cr\et"' > "$T/app/backend/.env"
   mkdir -p "$T/app/frontend/dist"; echo old > "$T/app/frontend/dist/index.html"; mkdir -p "$T/app/backend/vendor" "$T/app/frontend/node_modules"
   : > "$T/calls.log"; : > "$T/order.log"
   chown -R nobody:nogroup "$T" 2>/dev/null || true; chmod -R a+rwX "$T"
+}
+# NVM like the deploy user's: sourcing nvm.sh defines `nvm`; `nvm use 24` puts a Node 24 first on PATH. flags: nvm_no_node (not installed), nvm_node (version it provides).
+enable_nvm() {
+  mkdir -p "$T/home/.nvm" "$T/nvm-bin"
+  cat > "$T/home/.nvm/nvm.sh" <<NVM
+nvm() { if [ "\$1" = use ]; then [ -f "$T/flags/nvm_no_node" ] && return 3; PATH="$T/nvm-bin:\$PATH"; export PATH; return 0; fi; return 0; }
+NVM
+  cat > "$T/nvm-bin/node" <<NODE
+#!/usr/bin/env bash
+cat "$T/flags/nvm_node" 2>/dev/null || echo v24.22.2
+NODE
+  chmod -R a+rwX "$T/home" "$T/nvm-bin"; chmod a+x "$T/nvm-bin/node"
 }
 teardown() { [[ -n "$T" ]] && rm -rf "$T"; T=""; }
 
@@ -155,7 +180,7 @@ teardown
 echo "== dry run"
 setup; run deploy --sha "$C2" --dry-run
 check "dry run succeeds" test $RC -eq 0
-check "dry run changes nothing (HEAD, no install/build/migrate/reload)" bash -c "[ '$(head_sha)' = '$C1' ] && ! grep -vE 'dry-run|migrate:status' '$T/calls.log' | grep -qE 'composer|npm|migrate|systemctl'"
+check "dry run changes nothing (HEAD, no install/build/migrate/reload)" bash -c "[ '$(head_sha)' = '$C1' ] && ! grep -vE 'dry-run|migrate:status|^npm -v ' '$T/calls.log' | grep -qE 'composer|npm|migrate|systemctl'"
 check "dry run reports the vendor/lock state" has "pending package operation" "$OUT"
 check "dry run lists the migration file" has "migration file changed" "$OUT"
 teardown
@@ -221,6 +246,47 @@ teardown
 setup; run rollback --sha "$C2"; check "rollback to a newer commit refused (must use deploy)" bash -c "[ $RC -ne 0 ] && grep -q 'use .deploy' '$OUT'"
 run deploy --sha "$C2"; run deploy --sha "$C1"
 check "deploy to an older commit refused (must use rollback)" bash -c "[ $RC -ne 0 ] && grep -q 'use .rollback' '$OUT'"
+teardown
+
+echo "== Node.js: the failed first deploy (system Node 18 first on PATH, NVM Node 24 for the deploy user)"
+setup; echo v18.19.1 > "$T/flags/system_node"; enable_nvm; run deploy --sha "$C2"
+check "NVM's Node 24 is selected explicitly, so the build succeeds even though /usr/bin/node is 18" test $RC -eq 0
+check "…npm ci and the build ran under Node 24, never under 18" bash -c "grep -q 'npm run build.*node=v24.22.2' '$T/calls.log' && ! grep -q 'node=v18' '$T/calls.log'"
+check "…the Node in use is logged" has "Node.js v24.22.2" "$OUT"
+teardown
+setup; echo v18.19.1 > "$T/flags/system_node"; run deploy --sha "$C2"
+check "Node 18 and no NVM: refused before anything changes" bash -c "[ $RC -ne 0 ] && [ '$(head_sha)' = '$C1' ]"
+check "…with a clear message" has "Node.js 24 is required" "$OUT"
+check "…composer, npm and the build never ran" bash -c "! grep -qE 'composer|npm' '$T/calls.log'"
+run check; check "…and 'check' reports the same, so the server can be verified without deploying" test $RC -ne 0
+teardown
+setup; echo v18.19.1 > "$T/flags/system_node"; enable_nvm; touch "$T/flags/nvm_no_node"; run deploy --sha "$C2"
+check "NVM present but Node 24 not installed in it: refused, nothing changed" bash -c "[ $RC -ne 0 ] && [ '$(head_sha)' = '$C1' ] && ! grep -qE 'composer|npm' '$T/calls.log'"
+check "…telling the admin what to run" has "nvm install 24" "$OUT"
+teardown
+setup; enable_nvm; echo v20.19.0 > "$T/flags/nvm_node"; run deploy --sha "$C2"
+check "Any other major (20) is refused as well" bash -c "[ $RC -ne 0 ] && [ '$(head_sha)' = '$C1' ]"
+teardown
+setup; run deploy --sha "$C2"
+check "A system Node that already is 24 (no NVM) still works" test $RC -eq 0
+teardown
+
+echo "== after a failed build: Composer, frontend and PHP are left consistent"
+setup; touch "$T/flags/build_fails"; run deploy --sha "$C2"
+check "build failure with vendor/ behind composer.lock: reverted to the previous commit" bash -c "[ $RC -ne 0 ] && [ '$(head_sha)' = '$C1' ]"
+check "…composer announced its 18 pending operations before installing" has "18 package operation(s) to apply" "$OUT"
+check "…vendor/ matches composer.lock of the restored commit" bash -c "[ \"\$(cat '$T/app/backend/vendor/.lockhash')\" = \"\$(sha256sum '$T/app/backend/composer.lock' | cut -d' ' -f1)\" ]"
+check "…the log says so" has "Composer consistent" "$OUT"
+check "…the live frontend was never replaced" bash -c "grep -q old '$T/app/frontend/dist/index.html' && [ ! -d '$T/app/frontend/dist.new' ] && grep -q 'Frontend intact' '$OUT'"
+check "…PHP-FPM and the queue worker were refreshed because vendor/ had changed" bash -c "grep -q 'systemctl reload' '$T/calls.log' && grep -q 'systemctl restart' '$T/calls.log'"
+check "…history records the reverted failure" has "failed-reverted" "$T/state/history.log"
+teardown
+setup; run deploy --sha "$C2"; : > "$T/calls.log"; touch "$T/flags/build_fails"; run deploy --sha "$C3"
+check "failure after a deploy that changed composer.lock: code reverted to the commit that was live" bash -c "[ $RC -ne 0 ] && [ '$(head_sha)' = '$C2' ]"
+check "…vendor/ was reinstalled for the restored lock, not left on the failed target's" bash -c "has_line() { grep -q \"\$1\" '$OUT'; }; has_line 'differs from composer.lock after the revert' && has_line 'reinstalling from the lock' && [ \"\$(cat '$T/app/backend/vendor/.lockhash')\" = \"\$(sha256sum '$T/app/backend/composer.lock' | cut -d' ' -f1)\" ]"
+teardown
+setup; run deploy --sha "$C2"; : > "$T/calls.log"; touch "$T/flags/health"; echo ok > "$T/flags/health"; run deploy --sha "$C3"
+check "a later healthy deploy runs composer for the new lock and refreshes PHP once" bash -c "[ $RC -eq 0 ] && grep -c 'systemctl reload' '$T/calls.log' | grep -qx 1"
 teardown
 
 echo "== rollback"

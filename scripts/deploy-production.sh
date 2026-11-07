@@ -26,6 +26,8 @@ QUEUE_SERVICE="${QUEUE_SERVICE:-lifeos-queue}"
 HEALTH_RETRIES="${HEALTH_RETRIES:-10}"
 HEALTH_DELAY="${HEALTH_DELAY:-3}"
 MIN_PG_CLIENT_MAJOR="${MIN_PG_CLIENT_MAJOR:-16}"
+NODE_MAJOR="${NODE_MAJOR:-24}"          # the frontend toolchain needs a modern Node; Ubuntu's own /usr/bin/node is 18 (too old for Vite)
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
 BACKEND="$APP_DIR/backend"
 FRONTEND="$APP_DIR/frontend"
@@ -34,6 +36,7 @@ LOG_FILE="$STATE_DIR/deploy.log"
 MODE=""; TARGET_SHA=""; DRY_RUN=0
 PHASE="init"            # init -> pre-migration (safe to revert automatically) -> post-migration (manual decision)
 PREV_SHA=""; BACKUP_FILE=""; PGPASS_TMP=""; STARTED_AT=$(date -u +%FT%TZ); HANDLED=0
+VENDOR_CHANGED=0        # set when composer install had real work to do, so a revert knows PHP processes may hold old classes
 
 ts()  { date -u +%FT%TZ; }
 log() { printf '%s [%s] %s\n' "$(ts)" "$$" "$*"; }
@@ -93,11 +96,33 @@ on_exit() {
 trap 'log "error at line $LINENO"' ERR
 trap on_exit EXIT
 
+# Package operations `composer install` would still perform: 0 means vendor/ matches composer.lock exactly.
+vendor_pending_ops() {
+  local ops
+  ops=$(cd "$BACKEND" && composer install --no-dev --dry-run --no-scripts --no-interaction --no-progress 2>&1 | grep -cE '^ *- (Installing|Upgrading|Downgrading|Removing)' || true)
+  printf '%s' "${ops:-0}"
+}
+
 revert_code() {
   log "Reverting code to $PREV_SHA (git reset --keep: refuses to overwrite local changes)"
   git -C "$APP_DIR" reset --keep "$PREV_SHA"
-  if git -C "$APP_DIR" diff --name-only "$TARGET_SHA" "$PREV_SHA" | grep -qE '^backend/composer\.(lock|json)$'; then
+  # Composer: never assume vendor/ still matches the restored lock file. A deploy that failed after `composer install` leaves vendor/ at
+  # whatever the lock demanded at that moment (the same lock when only the frontend changed, a different one otherwise): measure, then repair.
+  local ops; ops=$(vendor_pending_ops)
+  if (( ops > 0 )); then
+    log "vendor/ differs from composer.lock after the revert ($ops operation(s)): reinstalling from the lock"
     (cd "$BACKEND" && composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader) || return 1
+    ops=$(vendor_pending_ops)
+    (( ops == 0 )) || { log "WARNING: vendor/ still differs from composer.lock ($ops operation(s))"; return 1; }
+  fi
+  log "Composer consistent: vendor/ matches composer.lock at ${PREV_SHA:0:12}"
+  # Frontend: the live dist/ is only replaced after a successful build, so a failed deploy must leave it exactly as it was.
+  if [[ -f "$FRONTEND/dist/index.html" ]]; then log "Frontend intact: the live dist/ was never replaced"; else log "WARNING: frontend/dist/index.html is missing — the live site has no frontend"; fi
+  # PHP-FPM and the queue worker may have loaded classes from the vendor/ that composer changed before the failure: refresh them (non-fatal).
+  if (( VENDOR_CHANGED )); then
+    log "Refreshing $PHP_FPM_SERVICE and $QUEUE_SERVICE (vendor/ changed before the failure)"
+    sudo -n /usr/bin/systemctl reload "$PHP_FPM_SERVICE" || log "WARNING: could not reload $PHP_FPM_SERVICE"
+    sudo -n /usr/bin/systemctl restart "$QUEUE_SERVICE" || log "WARNING: could not restart $QUEUE_SERVICE"
   fi
 }
 
@@ -109,6 +134,25 @@ env_value() { # read KEY from backend/.env without sourcing it (never echoed)
   printf '%s' "$v"
 }
 git_app() { git -C "$APP_DIR" "$@"; }
+
+# Non-interactive SSH sessions do not load NVM, so `node` on PATH is the system one (Ubuntu 24.04 ships Node 18, which cannot build the
+# frontend). Select NODE_MAJOR from NVM explicitly and refuse to continue on any other major — before anything is changed.
+use_node() {
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    local rc=0
+    set +eu
+    # shellcheck disable=SC1091
+    . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
+    nvm use --silent "$NODE_MAJOR" >/dev/null 2>&1 || rc=$?
+    set -eu
+    (( rc == 0 )) || die "Node.js $NODE_MAJOR is not installed in NVM ($NVM_DIR): run 'nvm install $NODE_MAJOR' as $EXPECT_USER, then 'nvm alias default $NODE_MAJOR'"
+  fi
+  command -v node >/dev/null 2>&1 || die "node not found: install Node.js $NODE_MAJOR with NVM for $EXPECT_USER ($NVM_DIR)"
+  local version major; version=$(node -v 2>/dev/null || true); major=${version#v}; major=${major%%.*}
+  [[ "$major" == "$NODE_MAJOR" ]] || die "Node.js $NODE_MAJOR is required but $(command -v node) is ${version:-unknown} (NVM not loaded or not set up for $EXPECT_USER); nothing was changed"
+  command -v npm >/dev/null 2>&1 || die "npm not found next to Node.js $version"
+  log "Node.js $version ($(command -v node)), npm $(npm -v)"
+}
 
 # ---------- pre-flight (read-only) ----------
 preflight() {
@@ -122,10 +166,7 @@ preflight() {
   [[ -w "$APP_DIR" && -w "$FRONTEND" ]] || die "$FRONTEND must be writable by $EXPECT_USER (dist is built beside the live copy)"
   mkdir -p "$BACKUP_DIR"; chmod 700 "$BACKUP_DIR"
   [[ -w "$BACKUP_DIR" ]] || die "backup directory $BACKUP_DIR is not writable"
-  if ! command -v node >/dev/null 2>&1 && [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
-    set +u; # shellcheck disable=SC1090,SC1091
-    . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1; nvm use --silent default >/dev/null 2>&1 || true; set -u
-  fi
+  use_node
   for c in git php composer node npm curl flock pg_dump pg_restore pg_isready sha256sum sudo; do need "$c"; done
   local pgmajor; pgmajor=$(pg_dump --version | grep -oE '[0-9]+' | head -n1)
   (( pgmajor >= MIN_PG_CLIENT_MAJOR )) || die "pg_dump $pgmajor is older than the server (need >= $MIN_PG_CLIENT_MAJOR): install postgresql-client-$MIN_PG_CLIENT_MAJOR"
@@ -209,8 +250,7 @@ main_deploy() {
   log "Plan: $MODE ${PREV_SHA:0:12} -> ${TARGET_SHA:0:12} | composer install: always | frontend build: $((frontend_build > 0)) (dist built from tree ${built_tree:0:12}, wanted ${frontend_tree:0:12})"
   git_app log --oneline --no-decorate "$PREV_SHA..$TARGET_SHA" 2>/dev/null | head -n 20 || true
   if (( DRY_RUN )); then
-    local ops
-    ops=$(cd "$BACKEND" && composer install --no-dev --dry-run --no-scripts --no-interaction --no-progress 2>&1 | grep -cE '^ *- (Installing|Upgrading|Downgrading|Removing)' || true)
+    local ops; ops=$(vendor_pending_ops)
     log "vendor/ vs composer.lock of the CURRENT checkout: $ops pending package operation(s) (composer install will apply them)"
     log "Dry run: stopping here. Nothing was changed (the fetch only updated remote-tracking refs)."
     if [[ "$MODE" == "deploy" ]]; then changed backend/database/migrations | sed 's/^/  migration file changed: /' || true; fi
@@ -222,7 +262,9 @@ main_deploy() {
   if [[ "$MODE" == "deploy" ]]; then git_app merge --ff-only --quiet "$TARGET_SHA"; else git_app reset --keep --quiet "$TARGET_SHA"; fi
   [[ "$(git_app rev-parse HEAD)" == "$TARGET_SHA" ]] || die "checkout did not land on $TARGET_SHA"
 
-  log "composer install (from composer.lock, no dev, no update)"
+  local vendor_ops; vendor_ops=$(vendor_pending_ops)
+  if (( vendor_ops > 0 )); then VENDOR_CHANGED=1; fi
+  log "composer install (from composer.lock, no dev, no update): $vendor_ops package operation(s) to apply"
   (cd "$BACKEND" && composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader)
 
   if (( frontend_build > 0 )); then
