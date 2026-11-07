@@ -3267,3 +3267,19 @@ Frontend only. No backend, API, validation or business-logic change; every field
 
 ## Not verified
 Real iPhone/Safari (keyboard behaviour, zoom-on-focus, home-indicator spacing, momentum scrolling): Chromium touch emulation only. The 16px rule that prevents the zoom is asserted in CSS and in the browser.
+
+---
+
+# V54 — Faster CI: sharded browser tests
+
+Measured on PR #51/#53: `Browser (Playwright)` took 28–35 minutes while every other job took 1–2 minutes.
+
+## Why it was slow
+Not retries (0 in a full run), not waiting and not setup (~2 minutes): the suite is **serial by design** (one demo account, one single-threaded `php -S` server, `workers: 1`) and holds 293 tests / ~22 minutes of work locally (~34 minutes on a CI runner, ~1.55x slower). The accessibility scans alone are 25% of it (six ~52 s tests per project-language-theme combination); `date-pickers` is 18%.
+
+## What changed (no test removed, skipped or loosened)
+- `scripts/e2e-shards.mjs` + `e2e/shard-weights.json`: splits the suite into 6 shards by measured duration (greedy, deterministic); each shard is serial inside and has its own database and server on its own runner. Unit = (spec file, project); a spec file with no recorded weight still runs (default weight); `src/tests/e2eShards.test.ts` fails if any pair could be left out or the matrix size drifts.
+- `playwright.config.ts`: `E2E_DESKTOP_FILES` / `E2E_MOBILE_FILES` restrict each project's spec files (unset = everything, as before). `workers`, `retries: 1`, test and expect timeouts are unchanged; the 45 s/10 s limits stay (a slower shard is a real signal, not something to hide with longer timeouts).
+- `ci.yml`: matrix of 6 shards (`fail-fast: false`, 25-minute job timeout), the dev-server picker run as its own parallel job, and a **gate job named `Browser (Playwright)`** that fails unless all of them succeeded (`if: always()`, so a cancelled or skipped shard is a failure, never a pass). Shared setup moved to `.github/actions/e2e-setup` with a Chromium download cache.
+- Concurrency: a new push to a PR cancels that PR's older run only; pushes to `main` never cancel anything (each gets its own group), so the deploy workflow always finds a full result for the commit.
+- No `continue-on-error`, no coverage reduction, no backend, `.env`, Docker or n8n change.

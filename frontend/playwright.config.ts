@@ -24,6 +24,17 @@ const isolated = {
 }
 process.env.E2E_BACKEND_ENV = JSON.stringify(isolated)
 
+/**
+ * CI shards (scripts/e2e-shards.mjs): E2E_DESKTOP_FILES / E2E_MOBILE_FILES list the spec files each project may run in this shard
+ * (comma-separated names). Unset = everything, which is what a normal local run does. An empty list runs nothing for that project.
+ */
+function only(variable: string) {
+  const list = process.env[variable]
+  if (list === undefined) return undefined
+  const files = list.split(',').map(f => f.trim()).filter(Boolean)
+  return files.length ? files.map(f => `**/${f}`) : ['**/__no-spec-in-this-shard__']
+}
+
 export default defineConfig({
   testDir: './e2e',
   globalSetup: './e2e/global-setup.ts',
@@ -41,8 +52,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'mobile', use: { ...devices['Pixel 7'], reducedMotion: 'reduce', colorScheme: 'dark' } },
+    { name: 'desktop', testMatch: only('E2E_DESKTOP_FILES'), use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+    { name: 'mobile', testMatch: only('E2E_MOBILE_FILES'), use: { ...devices['Pixel 7'], reducedMotion: 'reduce', colorScheme: 'dark' } },
   ],
   webServer: [
     {
