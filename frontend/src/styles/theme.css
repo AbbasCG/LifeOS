@@ -5,8 +5,9 @@
   --color-surface: #ffffff;
   --color-surface-muted: #eef2f8;
   --color-text: #18243a;
-  /* Muted text and the primary colour meet WCAG AA (4.5:1) on every light surface, tinted ones included. */
-  --color-text-muted: #5a6478;
+  /* Muted text and the primary colour meet WCAG AA (4.5:1) on every light surface, tinted ones included.
+     The muted colour is measured on the darkest tint the aurora field puts behind a heading (#d3d5f9): 4.7:1. */
+  --color-text-muted: #515c70;
   --color-border: #e2e8f0;
 
   --color-primary: #5355d8;
