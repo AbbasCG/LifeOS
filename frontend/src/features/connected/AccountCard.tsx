@@ -7,6 +7,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 import type { WriteState } from '../../lib/calendarWrite'
+import { accountState, useAccountStateLabel } from '../../lib/accountState'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
 export type SyncRunInfo = { details?: { skipped?: number }; id: number; mode: 'full' | 'incremental'; status: 'running' | 'success' | 'partial' | 'failed' | 'rate_limited' | 'revoked'; trigger: string; started_at: string; finished_at: string | null; duration_ms: number | null; upserted: number; removed: number; moved: number; error: string | null }
@@ -51,8 +52,8 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
   const when = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : t('Never', 'أبداً')
   const clock = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
   const waiting = account.retry_after ? new Date(account.retry_after) : null
-  const state = account.status === 'revoked' ? 'revoked' : account.scopes_ok === false ? 'scope' : waiting ? 'waiting' : account.status === 'error' ? 'error' : 'ok'
-  const stateLabel = { ok: t('Connected', 'متصل'), error: t('Sync problem', 'مشكلة مزامنة'), revoked: t('Access revoked', 'أُلغي الوصول'), scope: t('Permission missing', 'إذن ناقص'), waiting: t('Waiting for provider', 'بانتظار المزوّد') }[state]
+  const state = accountState(account)
+  const stateLabel = useAccountStateLabel()(state)
   const hint = {
     ok: null,
     revoked: t('Access ended (revoked, password changed or expired). Reconnect to resume — your selections are kept.', 'انتهى الوصول (أُلغي أو تغيّرت كلمة المرور أو انتهت صلاحيته). أعد الربط للمتابعة — اختياراتك محفوظة.'),

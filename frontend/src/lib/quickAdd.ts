@@ -9,6 +9,8 @@ export const openQuickAdd = () => window.dispatchEvent(new Event(QUICK_ADD))
 export const openQuickAddByVoice = () => window.dispatchEvent(new CustomEvent(QUICK_ADD, { detail: { voice: true } }))
 
 export type When = 'today' | 'tomorrow' | 'week' | 'nextweek' | 'none'
+/** What the Quick Add date tiles hold: one of the quick choices, or a day picked on the calendar. */
+export type QuickWhen = When | 'custom'
 export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
 /** Due date for a quick choice: 17:00 today (23:00 once 17:00 has passed) or 17:00 tomorrow, Sunday 17:00 for "this week", or the coming Monday 17:00. */
@@ -22,6 +24,13 @@ export function dueFor(when: When, now = new Date()): string | null {
     : today
   // After 17:00, "today" means tonight (23:00) rather than a deadline that has already passed.
   if (when === 'today' && Date.parse(accountInstant(day, 17)) <= now.getTime()) return accountInstant(day, 23)
+  return accountInstant(day, 17)
+}
+
+/** A day picked on the calendar ('YYYY-MM-DD'): 17:00 that day, or 23:00 tonight when it is today and 17:00 has passed. Empty or invalid: no date. */
+export function dueForDay(day: string, now = new Date()): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+  if (day === accountDay(now)) return dueFor('today', now)
   return accountInstant(day, 17)
 }
 
