@@ -27,6 +27,15 @@ you review + merge a PR ─► CI on the merge commit (Laravel sqlite+pgsql, Rea
 - A **failed, cancelled or skipped CI never deploys** (the workflow condition and the resolver both check the conclusion). The deploy for that run is
   gone for good; fix forward with a new PR, or deploy a green SHA by hand.
 
+**Protection of `main` in force** (repository ruleset "LifeOS — Main Protection", enforcement `active`, no bypass actors; read from the GitHub API on
+2026-11-08, re-check it with `gh api repos/AbbasCG/LifeOS/rules/branches/main`): no branch deletion, no force-push, a pull request is required (0 approvals,
+all review threads resolved), and the branch must be up to date with `main` and pass `Laravel (pgsql)`, `Laravel (sqlite)`, `React`, `Browser (Playwright)`
+and `Deploy tooling`. The settings of the `production` environment (required reviewers, deployment-branch rule) cannot be read with the repository API
+token used for these checks — confirm them on the Environments settings page.
+
+A merge that only changes documentation is deployed too: the server fast-forwards, `composer install` is a no-op, the frontend is not rebuilt (its source tree
+is unchanged), and PHP-FPM is reloaded and the queue worker restarted (step 7 above).
+
 Automatic decision table (implemented in `scripts/deploy-resolve.sh`, 81 offline checks):
 
 | Situation | Result |
