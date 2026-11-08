@@ -19,7 +19,7 @@ class AppCredential extends Model
 
     protected function casts(): array
     {
-        return ['client_secret' => 'encrypted', 'enabled' => 'boolean', 'rotated_at' => 'immutable_datetime'];
+        return ['client_secret' => 'encrypted', 'enabled' => 'boolean', 'rotated_at' => 'immutable_datetime', 'connections_blocked_at' => 'immutable_datetime'];
     }
 
     /** @return BelongsTo<User, $this> */

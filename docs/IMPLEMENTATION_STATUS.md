@@ -3527,3 +3527,10 @@ Why: after P2–P9 the owner opened the site and What's new was empty. Three man
 - **Screen:** `/admin/releases` gets "Who sees it", a Test accounts panel and "Why it is not shown yet".
 - **Tests:** `RolloutTest` (14: every endpoint and the notification by stage, defaults, unknown stage, authorisation, audit, test accounts, blockers, eligible counts), 4 new Vitest cases, 1 new Playwright scenario (desktop and phone). `ReleaseLifecycleTest` passes a person to `isVisible`/`visibleRows`.
 - **Unchanged:** workflows, deploy scripts, content files, fingerprints, behaviour of releases that are live.
+
+# V75 — Connected Accounts master plan, PR 1: provider configuration (done at the owner's request in the Integrations area)
+
+- **Server:** `PATCH credentials/{provider}/enabled` (switch for NEW connections), `POST credentials/{provider}/test` (offline configuration check), `GET audit` (the configuration change log); the list gains `docs_url`, `scopes`, `suggested_redirect_uri`, `connections_allowed`, `secret_unreadable`, `updated_at`, `updated_by`. `connect()` refuses a switched-off provider, the hub list shows `disabled`, the catalogue state `disabled`. An unreadable stored secret no longer breaks the list and can be repaired by entering it again. One additive migration (`connections_blocked_at`). Three audit actions.
+- **Screen:** `ProviderConfiguration` (new file), mounted on the `integrations` settings route for administrators; a `disabled` pill in the hub. Texts in ar, en and nl.
+- **Tests:** `ProviderConfigurationTest` (15, PHPUnit), `provider-config.test.tsx` (11), `e2e/provider-config.spec.ts` (4 runs: axe, no sideways overflow, the secret is nowhere in the page, storage or URL afterwards).
+- **Not in this PR:** OAuth connection UX (PR 2), per-connection permissions and their enforcement (PR 3), sync direction and conflict policies (PR 4), end-to-end QA (PR 5).

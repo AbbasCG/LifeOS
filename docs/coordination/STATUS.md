@@ -40,6 +40,7 @@ Next slices: **S1 `ai_usage`** — blocked on H-001 (needs the Integrations trac
 
 | Date | Branch | Commit / PR | Update |
 |---|---|---|---|
+| 2026-11-09 | `claude/integrations-provider-config` | PR (Connected Accounts plan, PR 1 of 5; written by the Smart session at the owner's request, see H-019) | Provider configuration screen for administrators (set up, rotate, switch off new connections, offline test, change log), `disabled` state, repair of an unreadable secret. One additive migration. |
 | 2026-11-08 | `claude/integrations-core` | PR #61, merge `be6d81b` (head `e33beb8`) | Phase 2 merged and deployed: registry (14 manifests) + `GET /api/integrations/catalog`, credential vault and `users.is_admin` (`lifeos:make-admin`), OAuth state store, token-refresh lock, signed webhooks, outbound policy, log redaction. Existing connectors unchanged; the new state store is not yet wired into the connect routes. |
 
 Planned by that track (per its Phase 1 report): Phase 3 Hub UI · Phase 4 Google/Microsoft onto the core · Phase 5 Todoist/GitHub/Notion/Trello/Telegram · Phase 6 custom systems · Phase 7 n8n and AI-provider registry · Phase 8 security review.

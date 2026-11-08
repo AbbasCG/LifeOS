@@ -14,7 +14,7 @@ import { FeedSubscribe } from '../connected/FeedSubscribe'
 import { WriteAccess } from '../connected/WriteAccess'
 import type { WriteData } from '../../lib/calendarWrite'
 
-export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
+export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned' | 'disabled'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; accounts: ConnectedAccount[] }
 type Hub = { providers: HubProvider[]; categories: { key: string; providers: HubProvider[] }[]; ai_connected_data: boolean }
 
 const ICONS: Record<string, typeof CalendarDays> = { calendars: CalendarDays, tasks: ListChecks, productivity: NotebookPen, email: Mail, future: Sparkles }
@@ -65,7 +65,7 @@ export default function IntegrationsSettings() {
   const providerList = data ? [...new Map([...data.providers, ...data.categories.flatMap(c => c.providers)].map(p => [p.provider, p])).values()] : []
   const detail = info?.kind === 'account' ? providerList.flatMap(p => p.accounts.map(a => ({ a, p }))).find(x => x.a.id === info.id) : undefined
   const aboutProvider = info?.kind === 'provider' ? providerList.find(p => p.provider === info.provider) : undefined
-  const pillText = (status: HubProvider['status']) => ({ available: t('Available', 'متاح'), needs_configuration: t('Setup needed', 'يتطلب إعداداً'), planned: t('Soon', 'قريباً') }[status])
+  const pillText = (status: HubProvider['status']) => ({ available: t('Available', 'متاح'), needs_configuration: t('Setup needed', 'يتطلب إعداداً'), planned: t('Soon', 'قريباً'), disabled: t('Off', 'متوقف') }[status])
   const none = !!data && data.providers.every(p => p.accounts.length === 0)
 
   const accountRow = (account: ConnectedAccount, provider: HubProvider) => {

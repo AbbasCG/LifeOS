@@ -119,6 +119,9 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
             Route::get('credentials', [IntegrationAdminController::class, 'index']);
             Route::put('credentials/{provider}', [IntegrationAdminController::class, 'update'])->where('provider', '[a-z][a-z0-9_]{1,39}')->middleware('password.confirm:,900');
             Route::delete('credentials/{provider}', [IntegrationAdminController::class, 'destroy'])->where('provider', '[a-z][a-z0-9_]{1,39}')->middleware('password.confirm:,900');
+            Route::patch('credentials/{provider}/enabled', [IntegrationAdminController::class, 'enabled'])->where('provider', '[a-z][a-z0-9_]{1,39}')->middleware('password.confirm:,900');
+            Route::post('credentials/{provider}/test', [IntegrationAdminController::class, 'test'])->where('provider', '[a-z][a-z0-9_]{1,39}');
+            Route::get('audit', [IntegrationAdminController::class, 'audit']);
         });
         Route::post('integrations/{provider}/connect', [IntegrationController::class, 'connect'])->whereIn('provider', IntegrationController::PROVIDERS)->middleware('throttle:auth');
         Route::get('integrations/{provider}/callback', [IntegrationController::class, 'callback'])->whereIn('provider', IntegrationController::PROVIDERS)->middleware('throttle:integrations');

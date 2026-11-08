@@ -631,7 +631,7 @@ progress::-moz-progress-bar { background: var(--bar, var(--color-primary)); bord
 .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 650; white-space: nowrap; }
 .pill-available { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
 .pill-needs_configuration { background: color-mix(in srgb, var(--color-warning) 14%, transparent); color: var(--color-warning); }
-.pill-planned { background: var(--color-surface-muted); color: var(--color-text-muted); }
+.pill-planned, .pill-disabled { background: var(--color-surface-muted); color: var(--color-text-muted); }
 .integration-card.state-planned { opacity: .85; border-style: dashed; }
 .provider-mark.google_tasks { background: linear-gradient(135deg, #1a73e8, #fbbc04); }
 .provider-mark.microsoft_todo { background: linear-gradient(135deg, #2564cf, #6aa6ff); }

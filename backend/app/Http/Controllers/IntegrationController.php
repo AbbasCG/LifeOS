@@ -11,6 +11,7 @@ use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\Calendar\TokenSet;
 use App\Integrations\Calendar\WritableCalendar;
 use App\Integrations\ConnectedCatalog;
+use App\Integrations\Vault\CredentialVault;
 use App\Models\CalendarAccount;
 use App\Models\ExternalTask;
 use App\Models\SyncRun;
@@ -48,7 +49,7 @@ class IntegrationController extends Controller
             'category' => $provider->category() === 'tasks' ? 'tasks' : 'calendars',
             'implemented' => true,
             'configured' => $provider->isConfigured(),
-            'status' => $provider->isConfigured() ? 'available' : 'needs_configuration',
+            'status' => ! $provider->isConfigured() ? 'needs_configuration' : (app(CredentialVault::class)->connectionsAllowed($provider->name()) ? 'available' : 'disabled'),
             'scopes' => $provider->scopeSummary(),
             'env_keys' => $provider->envKeys(),
             'redirect_uri' => $provider->redirectUri(),
@@ -71,6 +72,9 @@ class IntegrationController extends Controller
         abort_unless($driver !== null, 404);
         if (! $driver->isConfigured()) {
             throw ValidationException::withMessages(['provider' => ["{$driver->label()} is not configured on this server yet. An administrator must add OAuth client credentials."]]);
+        }
+        if (! app(CredentialVault::class)->connectionsAllowed($provider)) {
+            throw ValidationException::withMessages(['provider' => ["New {$driver->label()} connections are switched off by an administrator. Accounts that are already connected keep working."]]);
         }
         $state = Str::random(40);
         $verifier = Str::random(96);
