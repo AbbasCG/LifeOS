@@ -15,14 +15,15 @@ if it is wrong, add a row to `HANDOFFS.md`.
 
 ## Smart Experience
 
-| Date | Branch | Commit / PR | Update |
+| Date (UTC) | Branch | Commit / PR | Update |
 |---|---|---|---|
-| 2026-11-08 | `claude/smart-release-core` | PR (P2 of Product Experience 2.0) | Release core: content registry, release lifecycle (healthy deploy + administrator approval), feature gate, `/api/discovery`, notification category `updates`. Shows nothing yet; activation is off by default (H-009). See `docs/DISCOVERY.md`. |
-| 2026-11-08 | `claude/coordination-docs` | this PR | Coordination files proposed. |
-| 2026-11-08 | `claude/quick-capture-multilang` | PR #60, merge `e77fc1d` | Quick Capture reads day (tomorrow / day after), time and length in English, Arabic and Dutch, with an "Understood:" preview; days and clock times use the account zone. |
+| 2026-11-08 06:19 | `claude/smart-release-core` | PR (P2 of Product Experience 2.0) | Release core: content registry, release lifecycle (healthy deploy + administrator approval), feature gate, `/api/discovery`, notification category `updates`. Shows nothing yet; activation is off by default (H-009). See `docs/DISCOVERY.md`. |
+| 2026-11-08 02:25 | `claude/smart-mobile-p2` | PR #64, merge `ebc7d3c` (head `5829e95`) | **S2 part 2 merged:** discard guard on sheets (`BottomSheet dirty`, task form, Quick Add), tab-list keyboard (`radioGroups`), Quick Add date tile as a radio. CI green (12/12); 160 Playwright cases passed locally. |
+| 2026-11-08 02:00 | `claude/smart-mobile-p1` | PR #63, merge `4388a10` (head `3fef911`) | **S2 part 1 merged and deployed (#33 success):** dictated "next week" lights the date tile, priority tile contrast, focus rings, switch accessible name (H-005), 44 px targets. |
+| 2026-11-08 01:30 | `claude/coordination-docs` | PR #62, merge `3c06419` | Coordination files. |
+| 2026-11-08 00:20 | `claude/quick-capture-multilang` | PR #60, merge `e77fc1d` | Quick Capture reads day, time and length in English, Arabic and Dutch, with an "Understood:" preview. |
 
-Next slices (plan, nothing started): **S1 `ai_usage`** (record and show AI usage) · **S2 mobile P1 batch** (next-week hint tile, selected-priority contrast, dirty-sheet guard,
-label-in-name, focus ring, tap targets, tablist keys) · **S3 Quick Capture v2** (typed and dictated text share one reader; weekdays, "next week", "the Nth", priorities). Detail: `HANDOFFS.md` H-001 to H-004.
+Next slices: **S1 `ai_usage`** — blocked on H-001 (needs the Integrations track's ack: it touches `backend/app/Integrations/Ai/*`). Owner's decisions: usage tracking only, no token cap. **S3 Quick Capture v2** — one `readIntent` for typed and dictated text (weekdays, "next week", "the Nth", priorities, the Arabic comma); no dependency on the Integrations track, not started.
 
 ## Integrations Hub  (initial entry written from GitHub history by Smart Experience — the Integrations session corrects it)
 
