@@ -43,17 +43,30 @@ export type AdminPreview = {
   features: { id: string; category: string; name: Texts; description: Texts; route: string; requires: string[]; tour: string | null }[]
   tours: { id: string; title: Texts; steps: { target: string; title: Texts; body: Texts }[] }[]
 }
+/** Who may see an approved, live release: administrators only (a preview), administrators and test accounts, or everyone. */
+export type Rollout = 'admin' | 'internal' | 'general'
+export const ROLLOUTS: Rollout[] = ['admin', 'internal', 'general']
+/** Why an approved update is not (yet) shown to people; empty when it is. */
+export type Blocker = 'activation_off' | 'not_registered' | 'not_live' | 'withdrawn' | 'not_approved' | 'content_changed'
 export type AdminRelease = {
+  rollout: Rollout; blockers: Blocker[]
   key: string; date: string; revision: number; importance: 'normal' | 'important'; title: Texts; items: number
   registered: boolean; review_status: 'draft' | 'approved' | 'withdrawn' | null; deploy_status: 'live' | 'absent' | null; deployed_sha: string | null
   content_hash: string; approved_hash: string | null; live_since: string | null; reviewed_at: string | null; visible: boolean; auto_approved?: boolean; preview: AdminPreview
 }
 export type ReleaseStats = {
+  /** How many accounts the stage includes (a number, nobody is named). */
+  rollout: Rollout; eligible: number
   key: string; seen: number; dismissed: number; snoozed: number; helpful: number; unhelpful: number
   features: { id: string; tried: number; tour: { id: string; version: number; started: number; completed: number; skipped: number } | null; hints: { id: string; shown: number; dismissed: number }[] }[]
 }
 export type DiscoveryStats = { accounts: number; releases: ReleaseStats[] }
 export const adminStatsPath = '/api/admin/discovery/stats'
+export type Tester = { id: number; name: string | null; email: string | null }
+export const adminTestersPath = '/api/admin/discovery/testers'
+export const setRollout = (key: string, stage: Rollout) => api(`${adminReleasesPath}/${key}/rollout`, 'PUT', { stage })
+export const addTester = (email: string) => api<{ data: Tester }>(adminTestersPath, 'POST', { email })
+export const removeTester = (id: number) => api(`${adminTestersPath}/${id}`, 'DELETE')
 export type Activation = { enabled: boolean; status: string; detail: string; auto_approve?: boolean }
 export const adminReleasesPath = '/api/admin/discovery/releases'
 export const approveRelease = (key: string, contentHash: string) => api(`${adminReleasesPath}/${key}/approve`, 'POST', { content_hash: contentHash })

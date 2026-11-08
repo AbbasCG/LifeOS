@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { PageHead } from '../../components/visual'
 import { Dialog, EmptyState, ErrorMessage, Skeleton } from '../../components/ui/Shared'
@@ -9,7 +9,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useSensitiveAction } from '../../lib/sensitive'
 import { ApiError } from '../../lib/api'
-import { adminReleasesPath, adminStatsPath, approveRelease, withdrawRelease, type Activation, type AdminRelease, type DiscoveryStats, type ReleaseStats, type Texts } from '../../lib/discovery'
+import { addTester, adminReleasesPath, adminStatsPath, adminTestersPath, approveRelease, removeTester, ROLLOUTS, setRollout, withdrawRelease, type Activation, type AdminRelease, type Blocker, type DiscoveryStats, type ReleaseStats, type Rollout, type Tester, type Texts } from '../../lib/discovery'
 
 type Lang = 'ar' | 'nl' | 'en'
 
@@ -44,6 +44,9 @@ export default function ReleaseAdminPage() {
       : t(`Updates are on, but the deploy is not confirmed yet (${a.status}). ${a.detail}`, `التحديثات مفعّلة لكن النشر غير مؤكد بعد (${a.status}). ${a.detail}`, `Updates staan aan, maar de deploy is nog niet bevestigd (${a.status}). ${a.detail}`)
 
   function open(release: AdminRelease, action: 'approve' | 'withdraw') { setRead(false); setProblem(''); setDeciding({ release, action }) }
+  async function changeRollout(release: AdminRelease, stage: Rollout) {
+    try { await setRollout(release.key, stage); toast(t('Who sees this update was changed.', 'تغيّر من يرى هذا التحديث.', 'Wie deze update ziet is gewijzigd.'), 'success'); reload(); stats.reload?.() } catch (e) { toast((e as Error).message, 'error') }
+  }
   async function decide() {
     if (!deciding) return
     setBusy(true); setProblem('')
@@ -68,7 +71,8 @@ export default function ReleaseAdminPage() {
       {data.activation.auto_approve && <p className="muted small" role="note">{t('Updates are approved automatically when a healthy deploy registers them (the pull request that added the text was the review). Withdraw one here to stop it; a withdrawn update is never approved again by itself.', 'تُعتمد التحديثات تلقائيًا حين يسجّلها نشر سليم (مراجعة الـPR الذي أضاف النص هي المراجعة). اسحب أحدها من هنا لإيقافه؛ والتحديث المسحوب لا يُعتمد مجددًا من تلقاء نفسه.', 'Updates worden automatisch goedgekeurd zodra een gezonde deploy ze registreert (de pull request met de tekst was de controle). Trek er hier een in om hem te stoppen; een ingetrokken update wordt nooit uit zichzelf opnieuw goedgekeurd.')}</p>}
       {data.data.length === 0
         ? <EmptyState title={t('No updates in the running code', 'لا توجد تحديثات في الكود العامل', 'Geen updates in de draaiende code')}>{t('Release notes are files in the code; when one ships it appears here as a draft.', 'ملاحظات الإصدار ملفات في الكود؛ عند شحن أحدها يظهر هنا كمسودة.', 'Releasenotes zijn bestanden in de code; zodra er een meekomt, verschijnt die hier als concept.')}</EmptyState>
-        : data.data.map(r => <ReleaseCard key={r.key} release={r} stats={stats.data?.data.releases.find(x => x.key === r.key)} accounts={stats.data?.data.accounts} review={reviewLabel(r)} deploy={deployLabel(r)} blocked={cannotApprove(r)} onApprove={() => open(r, 'approve')} onWithdraw={() => open(r, 'withdraw')} />)}
+        : data.data.map(r => <ReleaseCard key={r.key} release={r} stats={stats.data?.data.releases.find(x => x.key === r.key)} accounts={stats.data?.data.accounts} review={reviewLabel(r)} deploy={deployLabel(r)} blocked={cannotApprove(r)} onApprove={() => open(r, 'approve')} onWithdraw={() => open(r, 'withdraw')} onRollout={stage => void changeRollout(r, stage)} />)}
+      <Testers />
     </>}
     {deciding && <Dialog title={deciding.action === 'approve' ? t('Approve this update?', 'اعتماد هذا التحديث؟', 'Deze update goedkeuren?') : t('Withdraw this update?', 'سحب هذا التحديث؟', 'Deze update intrekken?')} onClose={() => !busy && setDeciding(null)}>
       <p><strong>{deciding.release.preview.title.en}</strong> <span className="muted small">({deciding.release.key})</span></p>
@@ -90,7 +94,7 @@ export default function ReleaseAdminPage() {
   </section>
 }
 
-function ReleaseCard({ release: r, stats, accounts, review, deploy, blocked, onApprove, onWithdraw }: { release: AdminRelease; stats?: ReleaseStats; accounts?: number; review: string; deploy: string; blocked: string | null; onApprove: () => void; onWithdraw: () => void }) {
+function ReleaseCard({ release: r, stats, accounts, review, deploy, blocked, onApprove, onWithdraw, onRollout }: { release: AdminRelease; stats?: ReleaseStats; accounts?: number; review: string; deploy: string; blocked: string | null; onApprove: () => void; onWithdraw: () => void; onRollout: (stage: Rollout) => void }) {
   const t = useText(), [lang, setLang] = useState<Lang>('en'), p = r.preview
   const changed = r.review_status === 'approved' && r.approved_hash !== r.content_hash
   const pick = (x: Texts | undefined | null) => x?.[lang] ?? ''
@@ -103,6 +107,12 @@ function ReleaseCard({ release: r, stats, accounts, review, deploy, blocked, onA
       <li className={`ra-chip${r.visible ? ' on' : ''}`}>{r.visible ? t('Visible to people', 'ظاهر للناس', 'Zichtbaar voor mensen') : t('Not visible', 'غير ظاهر', 'Niet zichtbaar')}</li>
       {r.importance === 'important' && <li className="ra-chip warn">{t('Important', 'مهم', 'Belangrijk')}</li>}
     </ul>
+    {r.blockers.length > 0 && <div className="ra-blockers" role="note"><strong>{t('Why it is not shown yet', 'لماذا لا يظهر بعد', 'Waarom het nog niet getoond wordt')}</strong>
+      <ul>{r.blockers.map(b => <li key={b}>{blockerText(b, t)}</li>)}</ul></div>}
+    <label className="ra-rollout"><span>{t('Who sees it', 'من يراه', 'Wie het ziet')}</span>
+      <select value={r.rollout} disabled={!r.registered} onChange={e => onRollout(e.target.value as Rollout)}>
+        {ROLLOUTS.map(stage => <option key={stage} value={stage}>{rolloutLabel(stage, t)}</option>)}
+      </select></label>
     {changed && <p className="error" role="alert">{t('The text changed after it was approved, so the approval no longer applies and nobody sees it. Review and approve again.', 'تغيّر النص بعد اعتماده، فلم ينطبق الاعتماد ولا يراه أحد. راجعه واعتمده من جديد.', 'De tekst is na het goedkeuren veranderd; de goedkeuring geldt niet meer en niemand ziet hem. Kijk opnieuw na en keur opnieuw goed.')}</p>}
     <p className="muted small">{t('Fingerprint', 'البصمة', 'Vingerafdruk')}: <code dir="ltr">{r.content_hash.slice(0, 16)}…</code></p>
     <details className="ra-preview">
@@ -129,6 +139,50 @@ function ReleaseCard({ release: r, stats, accounts, review, deploy, blocked, onA
   </article>
 }
 
+const rolloutLabel = (stage: Rollout, t: ReturnType<typeof useText>) => stage === 'admin' ? t('Administrators only (preview)', 'المدراء فقط (معاينة)', 'Alleen beheerders (voorbeeld)')
+  : stage === 'internal' ? t('Administrators and test accounts', 'المدراء وحسابات الاختبار', 'Beheerders en testaccounts') : t('Everyone', 'الجميع', 'Iedereen')
+
+function blockerText(b: Blocker, t: ReturnType<typeof useText>): string {
+  switch (b) {
+    case 'activation_off': return t('Updates are switched off on the server (DISCOVERY_AUTO_ACTIVATE).', 'التحديثات متوقفة على الخادم (DISCOVERY_AUTO_ACTIVATE).', 'Updates staan uit op de server (DISCOVERY_AUTO_ACTIVATE).')
+    case 'not_registered': return t('Waiting for a healthy deploy to register it.', 'بانتظار أن يسجّله نشر سليم.', 'Wacht tot een gezonde deploy het registreert.')
+    case 'not_live': return t('It is no longer in the running code.', 'لم يعد في الكود العامل.', 'Het zit niet meer in de draaiende code.')
+    case 'withdrawn': return t('It was withdrawn.', 'سُحب.', 'Het is ingetrokken.')
+    case 'not_approved': return t('It is not approved yet.', 'لم يُعتمد بعد.', 'Het is nog niet goedgekeurd.')
+    case 'content_changed': return t('The text changed after it was approved.', 'تغيّر النص بعد اعتماده.', 'De tekst is na het goedkeuren veranderd.')
+  }
+}
+
+/** The test accounts of the "administrators and test accounts" stage. Only administrators ever load this. */
+function Testers() {
+  const t = useText(), toast = useToast()
+  const { data, error, reload } = useApi<{ data: Tester[] }>(adminTestersPath)
+  const [email, setEmail] = useState(''), [busy, setBusy] = useState(false)
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    if (!email.trim()) return
+    setBusy(true)
+    try { await addTester(email.trim()); setEmail(''); reload() } catch (err) { toast((err as Error).message, 'error') } finally { setBusy(false) }
+  }
+  async function remove(tester: Tester) {
+    try { await removeTester(tester.id); reload() } catch (err) { toast((err as Error).message, 'error') }
+  }
+  return <section className="panel ra-testers" aria-labelledby="ra-testers-title">
+    <h2 id="ra-testers-title">{t('Test accounts', 'حسابات الاختبار', 'Testaccounts')}</h2>
+    <p className="muted small">{t('Updates set to “Administrators and test accounts” are shown to these accounts and to administrators, and to nobody else.', 'التحديثات المضبوطة على «المدراء وحسابات الاختبار» تظهر لهذه الحسابات وللمدراء ولا أحد غيرهم.', 'Updates die op “Beheerders en testaccounts” staan, zien deze accounts en beheerders, en niemand anders.')}</p>
+    <ErrorMessage error={error} />
+    {data && (data.data.length === 0
+      ? <p className="muted small">{t('No test accounts yet.', 'لا توجد حسابات اختبار بعد.', 'Nog geen testaccounts.')}</p>
+      : <ul className="ra-tester-list">{data.data.map(x => <li key={x.id}><span>{x.name} <span className="muted small" dir="ltr">{x.email}</span></span>
+        <button type="button" className="quiet" onClick={() => void remove(x)} aria-label={t(`Remove ${x.email}`, `إزالة ${x.email}`, `${x.email} verwijderen`)}>{t('Remove', 'إزالة', 'Verwijderen')}</button></li>)}</ul>)}
+    <form className="ra-tester-form" onSubmit={e => void add(e)}>
+      <label><span className="small">{t('E-mail of the account', 'بريد الحساب', 'E-mailadres van het account')}</span>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="off" dir="ltr" /></label>
+      <button type="submit" className="primary" disabled={busy || !email.trim()}>{t('Add', 'إضافة', 'Toevoegen')}</button>
+    </form>
+  </section>
+}
+
 /** How people received the update: counts only, never who. */
 function Reception({ stats: s, accounts, release }: { stats: ReleaseStats; accounts: number; release: AdminRelease }) {
   const t = useText(), { language: lang } = useLanguage()
@@ -137,7 +191,7 @@ function Reception({ stats: s, accounts, release }: { stats: ReleaseStats; accou
   return <section className="ra-reception" aria-label={t('How people received it', 'كيف استقبله الناس', 'Hoe mensen het ontvingen')}>
     <h3>{t('How people received it', 'كيف استقبله الناس', 'Hoe mensen het ontvingen')}</h3>
     {nothing ? <p className="muted small">{t('Nobody has seen it yet.', 'لم يره أحد بعد.', 'Niemand heeft het nog gezien.')}</p> : <dl className="ra-stats">
-      <div><dt>{t('Seen', 'شاهدوه', 'Gezien')}</dt><dd>{t(`${s.seen} of ${accounts} accounts`, `${s.seen} من ${accounts} حسابًا`, `${s.seen} van ${accounts} accounts`)}</dd></div>
+      <div><dt>{t('Seen', 'شاهدوه', 'Gezien')}</dt><dd>{t(`${s.seen} of ${s.eligible ?? accounts} accounts`, `${s.seen} من ${s.eligible ?? accounts} حسابًا`, `${s.seen} van ${s.eligible ?? accounts} accounts`)}</dd></div>
       <div><dt>{t('Dismissed', 'أغلقوه', 'Weggedrukt')}</dt><dd>{s.dismissed}</dd></div>
       <div><dt>{t('Postponed now', 'مؤجَّل الآن', 'Nu uitgesteld')}</dt><dd>{s.snoozed}</dd></div>
       <div><dt>{t('Helpful', 'مفيد', 'Nuttig')}</dt><dd>{s.helpful}</dd></div>

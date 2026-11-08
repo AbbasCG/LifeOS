@@ -24,7 +24,7 @@ class DiscoveryStateService
     public function exists(User $user, string $type, string $key): bool
     {
         return match ($type) {
-            'release' => $this->releases->isVisible($key),
+            'release' => $this->releases->isVisible($key, $user),
             'feature' => ($feature = $this->registry->feature($key)) !== null && $this->reachable($user, $feature),
             'tour' => $this->tourReachable($user, $key),
             'hint' => ($owner = $this->registry->hintFeature($key)) !== null && $this->reachable($user, $this->registry->feature($owner)),
@@ -35,7 +35,7 @@ class DiscoveryStateService
     /** @param  array<string, mixed>  $feature */
     private function reachable(User $user, array $feature): bool
     {
-        return $this->releases->isVisible($feature['since']) && $this->gate->check($user, $feature['requires'])['reason'] !== 'admin_only';
+        return $this->releases->isVisible($feature['since'], $user) && $this->gate->check($user, $feature['requires'])['reason'] !== 'admin_only';
     }
 
     private function tourReachable(User $user, string $id): bool

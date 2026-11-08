@@ -2,6 +2,8 @@
 
 namespace App\Services\Discovery;
 
+use App\Models\DiscoveryTester;
+use App\Models\ProductRelease;
 use App\Models\User;
 use App\Models\UserDiscoveryState;
 use Illuminate\Database\Eloquent\Builder;
@@ -30,6 +32,7 @@ class DiscoveryStats
     private function release(string $key): array
     {
         $scope = $this->registry->scope($key);
+        $row = ProductRelease::where('key', $key)->first();
         $announcement = $this->states('release', $key, 1);
         $features = [];
         foreach ($scope['features'] as $feature) {
@@ -49,7 +52,7 @@ class DiscoveryStats
         }
 
         return [
-            'key' => $key,
+            'key' => $key, 'rollout' => $row?->rollout ?? ProductRelease::ROLLOUT_GENERAL, 'eligible' => $this->eligible($row),
             'seen' => (clone $announcement)->whereNotNull('seen_at')->count(),
             'dismissed' => (clone $announcement)->whereNotNull('dismissed_at')->count(),
             'snoozed' => (clone $announcement)->where('snoozed_until', '>', now())->count(),
@@ -57,6 +60,26 @@ class DiscoveryStats
             'unhelpful' => (clone $announcement)->where('helpful', false)->count(),
             'features' => $features,
         ];
+    }
+
+    /**
+     * How many accounts could be shown this release: those its stage includes, and who had an account when it was published (later accounts find it in the
+     * history only, see ReleaseService::announcement). A number only; no account is named. 0 while the release is not registered.
+     */
+    private function eligible(?ProductRelease $row): int
+    {
+        if (! $row) {
+            return 0;
+        }
+        $published = $row->published_at ?? $row->live_since;
+        $users = User::query()->when($published, fn (Builder $q) => $q->where('created_at', '<=', $published));
+
+        return match ($row->rollout) {
+            ProductRelease::ROLLOUT_GENERAL => $users->count(),
+            ProductRelease::ROLLOUT_INTERNAL => $users->where(fn (Builder $q) => $q->where('is_admin', true)->orWhereIn('id', DiscoveryTester::query()->select('user_id')))->count(),
+            ProductRelease::ROLLOUT_ADMIN => $users->where('is_admin', true)->count(),
+            default => 0,
+        };
     }
 
     /** @return Builder<UserDiscoveryState> */

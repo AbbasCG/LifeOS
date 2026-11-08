@@ -110,6 +110,10 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
             Route::get('stats', [AdminReleaseController::class, 'stats']);
             Route::post('releases/{key}/approve', [AdminReleaseController::class, 'approve'])->middleware('password.confirm:,900');
             Route::post('releases/{key}/withdraw', [AdminReleaseController::class, 'withdraw']);
+            Route::put('releases/{key}/rollout', [AdminReleaseController::class, 'rollout']);
+            Route::get('testers', [AdminReleaseController::class, 'testers']);
+            Route::post('testers', [AdminReleaseController::class, 'addTester']);
+            Route::delete('testers/{user}', [AdminReleaseController::class, 'removeTester'])->whereNumber('user');
         });
         Route::middleware(EnsureIntegrationAdmin::class)->prefix('admin/integrations')->group(function (): void {
             Route::get('credentials', [IntegrationAdminController::class, 'index']);

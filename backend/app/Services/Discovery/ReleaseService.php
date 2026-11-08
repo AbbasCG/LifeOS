@@ -2,6 +2,7 @@
 
 namespace App\Services\Discovery;
 
+use App\Models\DiscoveryTester;
 use App\Models\InboxNotification;
 use App\Models\ProductRelease;
 use App\Models\User;
@@ -21,11 +22,18 @@ use Illuminate\Support\Collection;
  * text that was approved (equal fingerprints), so neither a merge, nor a green CI run, nor a draft, nor an edit made after the
  * approval can put an announcement in front of anyone. The activation switch (config discovery.auto_activate) is a real kill
  * switch: while it is off nothing is shown, whatever the table holds.
+ *
+ * Staged rollout: an approved, live release is shown to the people its `rollout` stage names (administrators only, administrators and test accounts, or
+ * everyone). The stage is enforced here, on the server, for every answer about a person (announcement, history, tips, the Discovery Center, tours, states,
+ * "Try now") and therefore also for the notification, which is only ever sent for an announcement that person was about to be shown.
  */
 class ReleaseService
 {
     /** @var Collection<string, ProductRelease>|null */
     private ?Collection $visible = null;
+
+    /** @var array<int, bool> whether an account is a test account, per request */
+    private array $testers = [];
 
     public function __construct(private DiscoveryRegistry $registry, private FeatureGate $gate, private DeployConfirmation $deploy, private Notifier $notifier) {}
 
@@ -60,7 +68,7 @@ class ReleaseService
                 }
                 if (! $dryRun) {
                     $created = ProductRelease::create(['key' => $key, 'revision' => $release['revision'], 'importance' => $release['importance'], 'review_status' => ProductRelease::DRAFT,
-                        'content_hash' => $this->registry->fingerprint($key), 'deploy_status' => ProductRelease::LIVE, 'deployed_sha' => $sha, 'live_since' => $now, 'last_confirmed_at' => $now]);
+                        'rollout' => $this->defaultRollout(), 'content_hash' => $this->registry->fingerprint($key), 'deploy_status' => ProductRelease::LIVE, 'deployed_sha' => $sha, 'live_since' => $now, 'last_confirmed_at' => $now]);
                     if ($auto) {
                         $this->autoApprove($created);
                     }
@@ -102,6 +110,68 @@ class ReleaseService
         $this->visible = null;
 
         return $result;
+    }
+
+    // ---- staged rollout ----
+
+    private function defaultRollout(): string
+    {
+        $stage = (string) config('discovery.default_rollout', ProductRelease::ROLLOUT_GENERAL);
+
+        return in_array($stage, ProductRelease::ROLLOUTS, true) ? $stage : ProductRelease::ROLLOUT_GENERAL;
+    }
+
+    /** Whether the stage of this release includes this person. An unknown stage reaches nobody (fails closed). */
+    public function reaches(ProductRelease $row, User $user): bool
+    {
+        return match ($row->rollout) {
+            ProductRelease::ROLLOUT_GENERAL => true,
+            ProductRelease::ROLLOUT_INTERNAL => (bool) $user->is_admin || $this->isTester($user),
+            ProductRelease::ROLLOUT_ADMIN => (bool) $user->is_admin,
+            default => false,
+        };
+    }
+
+    public function isTester(User $user): bool
+    {
+        return $this->testers[$user->id] ??= DiscoveryTester::where('user_id', $user->id)->exists();
+    }
+
+    /** Changes who may see a release. Allowed for any release the running code contains; it takes effect at once and needs no deploy. */
+    public function setRollout(string $key, string $stage): ProductRelease
+    {
+        if (! in_array($stage, ProductRelease::ROLLOUTS, true)) {
+            throw new ReleaseStateException('rollout_unknown', 'Unknown stage.', 422);
+        }
+        $row = ProductRelease::where('key', $key)->first() ?? throw new ReleaseStateException('release_unknown', 'No such release.', 404);
+        $row->forceFill(['rollout' => $stage])->save();
+        $this->visible = null;
+
+        return $row;
+    }
+
+    /** @return list<string> the reasons this release is not shown to people now (empty when it is), for the administrator screen */
+    private function blockers(string $key, ?ProductRelease $row): array
+    {
+        $out = [];
+        if (! config('discovery.auto_activate')) {
+            $out[] = 'activation_off';
+        }
+        if (! $row) {
+            return [...$out, 'not_registered'];
+        }
+        if ($row->deploy_status !== ProductRelease::LIVE) {
+            $out[] = 'not_live';
+        }
+        if ($row->review_status === ProductRelease::WITHDRAWN) {
+            $out[] = 'withdrawn';
+        } elseif ($row->review_status !== ProductRelease::APPROVED) {
+            $out[] = 'not_approved';
+        } elseif ($row->approved_hash === null || ! hash_equals($row->approved_hash, (string) $this->registry->fingerprint($key))) {
+            $out[] = 'content_changed';
+        }
+
+        return $out;
     }
 
     // ---- administrator decisions ----
@@ -196,6 +266,7 @@ class ReleaseService
             $out[] = ['key' => $key, 'date' => $release['date'], 'revision' => $release['revision'], 'importance' => $release['importance'], 'title' => $release['title'], 'items' => count($release['items']),
                 'registered' => $row !== null, 'review_status' => $row?->review_status, 'deploy_status' => $row?->deploy_status, 'deployed_sha' => $row?->deployed_sha,
                 'content_hash' => $this->registry->fingerprint($key), 'approved_hash' => $row?->approved_hash, 'preview' => $this->preview($key),
+                'rollout' => $row?->rollout ?? $this->defaultRollout(), 'blockers' => $this->blockers($key, $row),
                 'live_since' => $row?->live_since?->toIso8601String(), 'reviewed_at' => $row?->reviewed_at?->toIso8601String(), 'visible' => (bool) $row?->isVisible(),
                 'auto_approved' => $row !== null && $row->review_status === ProductRelease::APPROVED && $row->reviewed_by === null];
         }
@@ -205,8 +276,14 @@ class ReleaseService
 
     // ---- what a person sees ----
 
-    /** @return Collection<string, ProductRelease> visible rows whose content is present and unchanged since it was approved, newest release first */
-    public function visibleRows(): Collection
+    /** @return Collection<string, ProductRelease> the rows this person may see: approved, live, content unchanged since approval, and their stage includes them */
+    public function visibleRows(User $user): Collection
+    {
+        return $this->approvedRows()->filter(fn (ProductRelease $row) => $this->reaches($row, $user));
+    }
+
+    /** @return Collection<string, ProductRelease> approved and live rows whose content is present and unchanged since it was approved, whoever may see them */
+    private function approvedRows(): Collection
     {
         if ($this->visible !== null) {
             return $this->visible;
@@ -221,9 +298,9 @@ class ReleaseService
             ->map(fn (array $r, string $key) => $rows[$key]);
     }
 
-    public function isVisible(string $key): bool
+    public function isVisible(string $key, User $user): bool
     {
-        return $this->visibleRows()->has($key);
+        return $this->visibleRows($user)->has($key);
     }
 
     /**
@@ -237,7 +314,7 @@ class ReleaseService
         $language = Localized::of($user->preferences());
         $candidates = [];
         $updateRequired = false;
-        foreach ($this->visibleRows() as $key => $row) {
+        foreach ($this->visibleRows($user) as $key => $row) {
             $release = $this->registry->release($key);
             if (! in_array($surface, $release['audiences'], true)) {
                 continue;
@@ -291,7 +368,7 @@ class ReleaseService
         $language = Localized::of($user->preferences());
         $context = $this->context($user);
         $out = [];
-        foreach ($this->visibleRows() as $key => $row) {
+        foreach ($this->visibleRows($user) as $key => $row) {
             $release = $this->registry->release($key);
             if (! in_array($surface, $release['audiences'], true)) {
                 continue;
@@ -348,7 +425,7 @@ class ReleaseService
         foreach ($release['items'] as $item) {
             $feature = isset($item['feature']) ? $this->registry->feature($item['feature']) : null;
             // An item may name only a feature of this release or of one that is already published.
-            if ($feature && $feature['since'] !== $release['key'] && ! $this->isVisible($feature['since'])) {
+            if ($feature && $feature['since'] !== $release['key'] && ! $this->isVisible($feature['since'], $user)) {
                 continue;
             }
             $access = $feature ? $this->gate->check($user, $feature['requires']) : ['available' => true, 'reason' => null];
@@ -394,7 +471,7 @@ class ReleaseService
         $hintsOn = (bool) (($user->preferences()['discovery']['hints_enabled'] ?? true));
         $new = [];
         $due = [];
-        foreach ($this->visibleRows() as $key => $row) {
+        foreach ($this->visibleRows($user) as $key => $row) {
             $published = $row->published_at ?? $row->live_since;
             foreach ($this->registry->features() as $feature) {
                 if ($feature['since'] !== $key || ! in_array($surface, $feature['audiences'], true) || $client < $feature['client_version']) {
@@ -456,7 +533,7 @@ class ReleaseService
         $features = $this->states($user, 'feature');
         $tours = $this->states($user, 'tour');
         $rows = [];
-        foreach ($this->visibleRows() as $key => $row) {
+        foreach ($this->visibleRows($user) as $key => $row) {
             $published = $row->published_at ?? $row->live_since;
             foreach ($this->registry->features() as $feature) {
                 if ($feature['since'] !== $key) {

@@ -103,3 +103,15 @@
 .disc-detail p { margin: 0; line-height: 1.6; }
 .disc-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--color-text); font-weight: 600; }
 @media (prefers-reduced-motion: no-preference) { .discover-card, .disc-rec { transition: border-color 0.15s, transform 0.15s; } .discover-card:hover { transform: translateY(-1px); } }
+
+/* Staged rollout and test accounts (administrators). */
+.ra-rollout { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ra-rollout select, .ra-tester-form input { min-block-size: 44px; font-size: 16px; padding-inline: 10px; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); color: inherit; }
+.ra-blockers { padding: 10px 14px; border-radius: 12px; border: 1px solid var(--color-warning, #b45309); background: var(--color-surface-muted); }
+.ra-blockers ul { margin: 6px 0 0; padding-inline-start: 1.2rem; }
+.ra-testers { display: grid; gap: var(--space-3, 12px); }
+.ra-testers h2 { margin: 0; font-size: 1.1rem; }
+.ra-tester-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ra-tester-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ra-tester-form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2, 8px); }
+.ra-tester-form label { display: grid; gap: 4px; }

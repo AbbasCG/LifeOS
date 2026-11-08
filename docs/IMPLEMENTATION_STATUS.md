@@ -3521,6 +3521,13 @@ Why: after P2–P9 the owner opened the site and What's new was empty. Three man
 - **Rules kept:** nothing starts by itself, one optional tip per session, finished tours are not replayed unasked, motion respects `prefers-reduced-motion`.
 - **Tests:** +10 Vitest (`discover.test.tsx`: 15), +1 Playwright scenario (axe, no sideways overflow, desktop and phone). Bundle unchanged (the page is a lazy chunk).
 
+# V74 — Product Experience 2.0: staged rollout of releases (Smart Experience track)
+
+- **Server:** migration `2026_11_08_210001` adds `product_releases.rollout` (default `general`, so every existing release keeps its audience) and `discovery_testers`. `ReleaseService::visibleRows($user)` / `isVisible($key, $user)` now take the person; every discovery answer and the notification pass through it. New config `discovery.default_rollout` (`DISCOVERY_DEFAULT_ROLLOUT`, default `general`). Endpoints for the stage and for test accounts (administrators; changes need two-factor), three new audit actions, `blockers` and `rollout` on the administrator list, `eligible` and `rollout` in the statistics.
+- **Screen:** `/admin/releases` gets "Who sees it", a Test accounts panel and "Why it is not shown yet".
+- **Tests:** `RolloutTest` (14: every endpoint and the notification by stage, defaults, unknown stage, authorisation, audit, test accounts, blockers, eligible counts), 4 new Vitest cases, 1 new Playwright scenario (desktop and phone). `ReleaseLifecycleTest` passes a person to `isVisible`/`visibleRows`.
+- **Unchanged:** workflows, deploy scripts, content files, fingerprints, behaviour of releases that are live.
+
 # V75 — Connected Accounts master plan, PR 1: provider configuration (done at the owner's request in the Integrations area)
 
 - **Server:** `PATCH credentials/{provider}/enabled` (switch for NEW connections), `POST credentials/{provider}/test` (offline configuration check), `GET audit` (the configuration change log); the list gains `docs_url`, `scopes`, `suggested_redirect_uri`, `connections_allowed`, `secret_unreadable`, `updated_at`, `updated_by`. `connect()` refuses a switched-off provider, the hub list shows `disabled`, the catalogue state `disabled`. An unreadable stored secret no longer breaks the list and can be repaired by entering it again. One additive migration (`connections_blocked_at`). Three audit actions.

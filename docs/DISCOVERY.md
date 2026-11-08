@@ -191,3 +191,20 @@ Frontend only: no migration, no endpoint, no new package, no change to the conte
 - **Details:** a dialog (the app's own `Dialog`: focus trap, Escape closes, focus returns) with the description, the area, the image when the content has one, "Try now" and the tour. A feature that cannot be used says why instead of offering a button.
 - **Unchanged rules:** opening the page never starts a tour or a tip; a finished tour is only replayed when asked; "Watch again" is not a new "try".
 - **Not included, on purpose:** an "updated" mark (the content has no field that says a feature changed, and none was invented), a "how to use" text and a "benefit" text (also not in the content), and "related to the current page" (the page opens from the menu, so there is no current page to relate to).
+
+## Staged rollout, test accounts and why an update is not shown (P7 of the second round)
+
+Who may see an approved, live release is decided by the **server**, per release, in three stages (`product_releases.rollout`). This is a different thing from the *audience* in the content file, which is the screen (web or mobile).
+
+| Stage | Who sees it |
+|---|---|
+| `admin` | administrators only (a preview) |
+| `internal` | administrators and the **test accounts** (`discovery_testers`, one row per account, nothing else) |
+| `general` | everyone (**the default, and the stage every release that is live today keeps**, so nothing that people see changes) |
+
+- **Enforcement:** one place, `ReleaseService::visibleRows($user)`. The announcement, the history, the tips and "New" marks, the Discovery Center, a tour, recording a state and "Try now" all go through it, so a person outside the stage gets the same answer as for something that does not exist (empty lists, 404). The **notification** is only ever sent for an announcement that person was about to be shown, so a test release notifies nobody outside its stage. Widening the stage later notifies the newly included people once (the existing de-duplication key); narrowing it does not recall a notification already sent. An unknown value in the table reaches nobody.
+- **Default for new releases:** `DISCOVERY_DEFAULT_ROLLOUT` (`general` unless changed; a bad value means `general`). Setting it to `admin` or `internal` makes every newly registered release start as a preview until an administrator widens it on `/admin/releases`.
+- **Administrator screen:** "Who sees it" per release (takes effect at once, no deploy), a **Test accounts** panel (add by e-mail, remove), and "**Why it is not shown yet**" with plain reasons: switched off on the server, waiting for a healthy deploy, no longer in the running code, withdrawn, not approved, text changed after approval. Already there from before: the exact text in all three languages, the deployed commit and time, approve/withdraw.
+- **Endpoints** (administrators; changes also need two-factor): `PUT /api/admin/discovery/releases/{key}/rollout`, `GET|POST /api/admin/discovery/testers`, `DELETE /api/admin/discovery/testers/{user}`. Each change is written to the audit log (`release_rollout_changed`, `discovery_tester_added`, `discovery_tester_removed`; ids and stages only, no text, a repeat that changes nothing is not logged).
+- **Numbers:** each release's statistics gain `eligible` (how many accounts its stage includes and that existed when it was published) and `rollout`. Counts only; no account is named.
+- **Not changed:** the lifecycle (draft / approved / withdrawn, live / absent), the fingerprint binding, the kill switch, the deploy marker, the workflows (a deploy still runs only for a successful CI run on `main`: `deploy-resolve.test.sh` covers it), and the content files.
