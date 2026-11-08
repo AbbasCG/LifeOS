@@ -5,7 +5,7 @@ import { useToast } from '../../lib/toast'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { formatDay } from '../../lib/dateTime'
-import { recordState, tryFeature, type DiscoveryItem, type Release } from '../../lib/discovery'
+import { recordState, startTour, tryFeature, type DiscoveryItem, type Release } from '../../lib/discovery'
 import { ReleaseBody } from './ReleaseBody'
 
 /**
@@ -29,7 +29,7 @@ export default function WhatsNewSheet({ release, onDone }: { release: Release; o
     setBusy(item.feature)
     try {
       const answer = await tryFeature(item.feature)
-      if (answer.available && answer.route) { finish('dismissed'); navigate(answer.route) }
+      if (answer.available && answer.route) { finish('dismissed'); navigate(answer.route); if (answer.tour) startTour(answer.tour) }
       else toast(t('This is not available for your account right now.', 'هذه الميزة غير متاحة لحسابك الآن.', 'Dit is nu niet beschikbaar voor je account.'), 'info')
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(null) }
   }

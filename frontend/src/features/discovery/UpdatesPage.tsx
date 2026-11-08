@@ -8,7 +8,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { formatDay } from '../../lib/dateTime'
-import { recordState, releasesPath, tryFeature, type DiscoveryItem, type HistoryRelease } from '../../lib/discovery'
+import { recordState, releasesPath, startTour, tryFeature, type DiscoveryItem, type HistoryRelease } from '../../lib/discovery'
 import { ReleaseBody } from './ReleaseBody'
 
 /** The update history: every published release for this screen, newest first. Reading it counts as seeing the announcements in it. */
@@ -34,7 +34,7 @@ export default function UpdatesPage() {
     setBusy(item.feature)
     try {
       const answer = await tryFeature(item.feature)
-      if (answer.available && answer.route) navigate(answer.route)
+      if (answer.available && answer.route) { navigate(answer.route); if (answer.tour) startTour(answer.tour) }
       else toast(t('This is not available for your account right now.', 'هذه الميزة غير متاحة لحسابك الآن.', 'Dit is nu niet beschikbaar voor je account.'), 'info')
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(null) }
   }

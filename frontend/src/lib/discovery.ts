@@ -35,6 +35,8 @@ export type Bootstrap = { announcement: Release | null; update_required: boolean
 export type NewFeature = { id: string; route: string; name: string }
 export type Hint = { id: string; feature: string; target: string; route: string; text: string }
 export type Guide = { new: NewFeature[]; hints: Hint[] }
+export type TourStep = { target: string; route: string | null; reveal: 'sidebar' | null; placement: 'auto' | 'top' | 'bottom' | 'start' | 'end'; optional: boolean; title: string; body: string }
+export type Tour = { id: string; version: number; title: string; steps: TourStep[]; state: { step_index: number; completed: boolean; skipped: boolean } }
 export type StateAction = 'seen' | 'snoozed' | 'dismissed' | 'helpful' | 'unhelpful'
 
 /** An installed app or a phone-sized screen is "mobile"; this only chooses which announcements are meant for this screen. */
@@ -46,11 +48,15 @@ export const discoveryQuery = () => `surface=${surface()}&client=${DISCOVERY_CLI
 
 export const loadBootstrap = () => api<{ data: Bootstrap }>(`/api/discovery/bootstrap?${discoveryQuery()}`).then(r => r.data)
 export const releasesPath = () => `/api/discovery/releases?${discoveryQuery()}`
-export const recordState = (type: 'release' | 'feature' | 'tour' | 'hint', key: string, action: StateAction | 'started' | 'completed' | 'skipped') =>
-  api(`/api/discovery/states/${type}/${key}`, 'PUT', { action, surface: surface() })
+export const recordState = (type: 'release' | 'feature' | 'tour' | 'hint', key: string, action: StateAction | 'started' | 'completed' | 'skipped' | 'step', stepIndex?: number) =>
+  api(`/api/discovery/states/${type}/${key}`, 'PUT', { action, surface: surface(), ...(stepIndex === undefined ? {} : { step_index: stepIndex }) })
 export const tryFeature = (id: string) =>
   api<{ data: { available: boolean; reason: string | null; route: string | null; tour: string | null } }>(`/api/discovery/features/${id}/try?${discoveryQuery()}`, 'POST').then(r => r.data)
 
+export const loadTour = (id: string) => api<{ data: Tour }>(`/api/discovery/tours/${id}`).then(r => r.data)
+/** Starts a tour from anywhere (a "Try now" button, the update history). The tour host listens for it. */
+export const START_TOUR = 'lifeos:start-tour'
+export const startTour = (id: string) => window.dispatchEvent(new CustomEvent(START_TOUR, { detail: { id } }))
 export const loadGuide = () => api<{ data: Guide }>(`/api/discovery/guide?${discoveryQuery()}`).then(r => r.data)
 export const setHintsEnabled = (enabled: boolean) => api('/api/settings', 'PUT', { discovery: { hints_enabled: enabled } })
 

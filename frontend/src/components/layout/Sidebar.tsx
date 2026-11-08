@@ -30,7 +30,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       <div className="brand">LifeOS<span>◈</span><button className="mobile-close icon-button" onClick={onClose} aria-label={ar ? 'إغلاق' : 'Close'}><X size={20} /></button></div>
       {groups.map(group => <nav key={group.en || 'main'} aria-label={group.en ? (ar ? group.ar : group.en) : (ar ? 'الرئيسية' : 'Main')}>
         {group.en && <p className="nav-group">{ar ? group.ar : group.en}</p>}
-        {group.items.map(({ to, en, ar: label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} onClick={onClose} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>{({ isActive }) => <>{isActive && <m.span layoutId="nav-active" className="nav-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={19} /><span>{ar ? label : en}</span><NewBadge to={to} /></>}</NavLink>)}
+        {group.items.map(({ to, en, ar: label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} data-tour={to === '/' ? 'nav-today' : `nav${to.replace(/\//g, '-')}`} onClick={onClose} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>{({ isActive }) => <>{isActive && <m.span layoutId="nav-active" className="nav-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={19} /><span>{ar ? label : en}</span><NewBadge to={to} /></>}</NavLink>)}
       </nav>)}
       {installer.canInstall ? <button className="install-button" onClick={() => void installer.install()}><Download size={17} />{ar ? 'تثبيت التطبيق' : 'Install app'}</button> : !installer.installed && <InstallLink className="install-button" />}
       <ErrorMessage error={signOutError} />

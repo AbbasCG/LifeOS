@@ -102,6 +102,18 @@ describe('the What’s New announcement', () => {
     expect(await screen.findByRole('dialog', { name: 'Smarter capture' })).toBeInTheDocument()
   })
 
+  it('"Try now" starts the feature’s tour when the server names one', async () => {
+    const started = vi.fn()
+    window.addEventListener('lifeos:start-tour', started)
+    server({ bootstrap: { announcement: release(), update_required: false, counts: { unseen_updates: 1 }, preferences: { hints_enabled: true } }, tryAnswer: { data: { available: true, reason: null, route: '/tasks', tour: 'quick-tour' } } })
+    shell(<DiscoveryHost />)
+    await idle()
+    fireEvent.click(await screen.findByRole('button', { name: 'Try now' }))
+    await waitFor(() => expect(started).toHaveBeenCalledTimes(1))
+    expect((started.mock.calls[0][0] as CustomEvent).detail).toEqual({ id: 'quick-tour' })
+    window.removeEventListener('lifeos:start-tour', started)
+  })
+
   it('"Try now" asks the server and goes to the page it names; an unavailable feature stays put', async () => {
     server({ bootstrap: { announcement: release(), update_required: false, counts: { unseen_updates: 1 }, preferences: { hints_enabled: true } } })
     shell(<DiscoveryHost />)
