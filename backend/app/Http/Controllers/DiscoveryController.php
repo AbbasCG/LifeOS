@@ -90,6 +90,20 @@ class DiscoveryController extends Controller
         ]]);
     }
 
+    /** The Discovery Center: every feature this person can discover or replay. Broken content gives an empty list, never an error. */
+    public function features(Request $request): JsonResponse
+    {
+        [$surface, $client] = $this->context($request);
+        try {
+            $features = $this->releases->catalogue($request->user(), $surface, $client);
+        } catch (InvalidDiscoveryContentException $e) {
+            report($e);
+            $features = [];
+        }
+
+        return response()->json(['data' => $features]);
+    }
+
     /** The update history: every approved, live release for this surface, newest first. */
     public function releases(Request $request): JsonResponse
     {

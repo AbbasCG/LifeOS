@@ -323,14 +323,7 @@ class ReleaseService
                 'is_new' => $feature && ! $tried && $published && $published->addDays($feature['new_days'])->isFuture(),
                 'link' => $item['link'] ?? null,
             ];
-            $image = $item['image'] ?? $feature['image'] ?? null;
-            if ($image) {
-                $built['image'] = ['src' => $image['src'], 'alt' => Localized::pick($image['alt'], $language)];
-            }
-            $video = $item['video'] ?? $feature['video'] ?? null;
-            if ($video) {
-                $built['video'] = array_filter(['src' => $video['src'], 'poster' => $video['poster'], 'captions' => $video['captions'] ?? null, 'label' => Localized::pick($video['label'], $language)]);
-            }
+            $built += $this->media($item['image'] ?? $feature['image'] ?? null, $item['video'] ?? $feature['video'] ?? null, $language);
             $items[] = $built;
         }
 
@@ -382,6 +375,72 @@ class ReleaseService
         }
 
         return ['new' => $new, 'hints' => $due];
+    }
+
+    /**
+     * The image and video of an item or feature, in the person's language (alternative texts and labels).
+     *
+     * @param  array<string, mixed>|null  $image
+     * @param  array<string, mixed>|null  $video
+     * @return array<string, mixed>
+     */
+    private function media(?array $image, ?array $video, string $language): array
+    {
+        $out = [];
+        if ($image) {
+            $out['image'] = ['src' => $image['src'], 'alt' => Localized::pick($image['alt'], $language)];
+        }
+        if ($video) {
+            $out['video'] = array_filter(['src' => $video['src'], 'poster' => $video['poster'], 'captions' => $video['captions'] ?? null, 'label' => Localized::pick($video['label'], $language)]);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Everything this person can discover: the features of live, approved releases, newest release first, each with what they can do with it now (try it,
+     * replay its tour) and why not when they cannot. Features for administrators only do not exist for anyone else. Nothing from a draft, a withdrawn or an
+     * unapproved release, whatever the request says.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function catalogue(User $user, string $surface, int $client): array
+    {
+        $language = Localized::of($user->preferences());
+        $features = $this->states($user, 'feature');
+        $tours = $this->states($user, 'tour');
+        $rows = [];
+        foreach ($this->visibleRows() as $key => $row) {
+            $published = $row->published_at ?? $row->live_since;
+            foreach ($this->registry->features() as $feature) {
+                if ($feature['since'] !== $key) {
+                    continue;
+                }
+                $access = $this->gate->check($user, $feature['requires']);
+                if ($access['reason'] === 'admin_only') {
+                    continue;
+                }
+                $onSurface = in_array($surface, $feature['audiences'], true);
+                $canTry = $access['available'] && $onSurface && $client >= $feature['client_version'];
+                $tourId = $feature['tour'];
+                $tourState = $tourId ? ($tours[$tourId] ?? null) : null;
+                $tried = ($features[$feature['id']] ?? null)?->tried_at !== null;
+                $rows[] = [
+                    'date' => $this->registry->release($key)['date'],
+                    'feature' => [
+                        'id' => $feature['id'], 'category' => $feature['category'], 'name' => Localized::pick($feature['name'], $language), 'description' => Localized::pick($feature['description'], $language),
+                        'route' => $feature['route'], 'release' => $key, 'date' => $this->registry->release($key)['date'],
+                        'can_try' => $canTry, 'unavailable_reason' => $canTry ? null : ($access['reason'] ?? ($onSurface ? 'update_required' : 'platform')),
+                        'tour' => $canTry ? $tourId : null,
+                        'tour_done' => (bool) ($tourState && $tourState->version === ($this->registry->tour($tourId)['version'] ?? 1) && $tourState->completed_at !== null),
+                        'tried' => $tried, 'is_new' => ! $tried && $published && $published->addDays($feature['new_days'])->isFuture(),
+                    ] + $this->media($feature['image'] ?? null, $feature['video'] ?? null, $language),
+                ];
+            }
+        }
+        usort($rows, fn (array $a, array $b) => [$b['date'], $a['feature']['category'], $a['feature']['name']] <=> [$a['date'], $b['feature']['category'], $b['feature']['name']]);
+
+        return array_map(fn (array $r) => $r['feature'], $rows);
     }
 
     /** @return Collection<string, UserDiscoveryState> this person's states of one kind, keyed by subject key (the current version of each) */
