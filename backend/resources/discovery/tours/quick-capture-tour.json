@@ -1,0 +1,25 @@
+{
+  "id": "quick-capture-tour",
+  "version": 1,
+  "title": {
+    "en": "Quick Capture",
+    "ar": "الالتقاط السريع",
+    "nl": "Snel vastleggen"
+  },
+  "steps": [
+    {
+      "target": "quick-add",
+      "placement": "auto",
+      "title": {
+        "en": "Add a task in one go",
+        "ar": "أضف مهمة دفعة واحدة",
+        "nl": "Voeg een taak in één keer toe"
+      },
+      "body": {
+        "en": "Open Quick add and write or dictate the task with its day, time and length. LifeOS shows what it understood before you save.",
+        "ar": "افتح الإضافة السريعة واكتب المهمة أو أمْلِها مع يومها ووقتها ومدتها. يعرض LifeOS ما فهمه قبل أن تحفظ.",
+        "nl": "Open Snel toevoegen en schrijf of dicteer de taak met dag, tijd en duur. LifeOS laat zien wat het begrepen heeft voordat je opslaat."
+      }
+    }
+  ]
+}
