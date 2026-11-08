@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Integrations\Calendar\CalendarProviders;
 use App\Integrations\Manifest\ManifestRegistry;
 use App\Integrations\StatusResolver;
+use App\Integrations\Vault\CredentialVault;
 use App\Models\CalendarAccount;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class IntegrationCatalogController extends Controller
             $setupReady = $manifest->isAvailable() && (! $manifest->requiresAdminSetup() || ($implementation && $implementation->isConfigured()));
             $rows = ($accounts[$manifest->id()] ?? collect())->map(fn (CalendarAccount $account) => $account->summary() + ['state' => $this->status->forAccount($account)])->values();
             $providers[] = $manifest->toPublic() + [
-                'state' => $this->status->forProvider($manifest, $setupReady, $rows->pluck('state')->all()),
+                'state' => $this->status->forProvider($manifest, $setupReady, $rows->pluck('state')->all(), app(CredentialVault::class)->connectionsAllowed($manifest->id())),
                 'setup_ready' => $setupReady,
                 'accounts' => $rows,
             ];

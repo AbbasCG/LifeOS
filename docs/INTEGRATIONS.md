@@ -126,3 +126,24 @@ Hub UI (Phase 3); moving Google/Microsoft/Todoist onto the new state store and c
 (Phase 5); custom systems such as EMC and Tharaa and the administrator screens for outbound rules and webhook endpoints (Phase 6);
 n8n bridge and AI-provider key management (Phase 7). The deployment needs no `.env`, Docker, n8n or PostgreSQL configuration change; the
 five migrations are additive and run through the normal deploy (verified `pg_dump` first).
+
+## Provider configuration screen (Connected Accounts master plan, PR 1 of 5)
+
+Settings → Integrations shows, **to administrators only**, a *Provider configuration* panel (below the connected accounts). It is the screen for the vault described above, so an OAuth client no longer needs SSH or a `.env` edit.
+
+What an administrator does, once per provider:
+1. At the provider (Google Cloud, Microsoft Entra, Todoist), create the OAuth app. This is still required once; LifeOS cannot create it for you. The panel links to the provider's documentation.
+2. In the panel, press *Set up*. Copy the **redirect address** it shows (generated from the site's own trusted address; it cannot be typed) and register it at the provider exactly as shown.
+3. Paste the **client id** and **client secret**, save (a password confirmation may be asked; two-factor must be on). The secret is stored encrypted, is not shown again, and the page clears it from memory as soon as it was sent.
+4. Press *Test configuration*. It checks, **without contacting the provider**, that a client id exists, the secret can be read with the current key, the redirect address is the one this site expects, and a sign-in address can be built. Only a real sign-in proves that the provider accepts the client.
+
+Other controls:
+- **Switch off new connections** (`PATCH /api/admin/integrations/credentials/{provider}/enabled`): people can no longer start a connection to that provider; the catalogue shows it as `disabled`. Accounts that are already connected keep syncing and refreshing, and nothing is deleted. It also works for a provider configured only through `.env` (a row with no client id or secret is created; the environment values are never copied). Saving credentials again does not switch it back on; removing the saved client keeps it off.
+- **Remove saved client**: deletes the database record (the environment values, if any, are used again).
+- **Rotating a secret**: create the new secret at the provider, paste it, save and test, then delete the old one at the provider. Connected accounts keep working throughout (their tokens are separate from the client secret).
+- **Secret cannot be read** (the server's `APP_KEY` changed without `APP_PREVIOUS_KEYS`): the panel says so and asks for the secret again; entering it repairs the record. Before this change an unreadable secret made the administrator list fail with a server error.
+- **Change log**: the latest changes (who, what, which provider, when) from the audit log: `integration_credentials_set`, `integration_credentials_removed`, `integration_provider_enabled`, `integration_provider_disabled`, `integration_config_tested`. An entry never holds a secret, a client id, an address or an IP.
+
+Security rules kept: administrator + two-factor for every change (`EnsureIntegrationAdmin`), a recent password confirmation for save, remove and the switch, the secret is `encrypted`-cast, hidden from serialisation and never in a response, a log or the browser's storage; the compatibility path (`.env`) is read as before and never copied into the database; `APP_KEY` and the other system secrets are not touched.
+
+New migration `2026_11_09_100001` adds `integration_app_credentials.connections_blocked_at` (nullable; every existing row stays unblocked).

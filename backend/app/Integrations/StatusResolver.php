@@ -36,13 +36,18 @@ class StatusResolver
     /**
      * @param  list<array{state: string, detail: string}>  $accountStates
      */
-    public function forProvider(ProviderManifest $manifest, bool $setupReady, array $accountStates): string
+    public function forProvider(ProviderManifest $manifest, bool $setupReady, array $accountStates, bool $connectionsAllowed = true): string
     {
         if (! $manifest->isAvailable()) {
             return 'planned';
         }
         if ($accountStates === []) {
-            return $manifest->requiresAdminSetup() && ! $setupReady ? 'requires_setup' : 'disconnected';
+            if ($manifest->requiresAdminSetup() && ! $setupReady) {
+                return 'requires_setup';
+            }
+
+            // Switched off by an administrator: nobody can start a connection (accounts that exist keep the states below).
+            return $connectionsAllowed ? 'disconnected' : 'disabled';
         }
         $states = array_column($accountStates, 'state');
 

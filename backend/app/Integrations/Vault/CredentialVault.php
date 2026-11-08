@@ -20,6 +20,9 @@ class CredentialVault
     /** @var array<string, AppCredential|false> per-process cache */
     private array $rows = [];
 
+    /** @var array<string, AppCredential|false> per-process cache of the row whatever its flags are (for the switch and for "last changed") */
+    private array $anyRows = [];
+
     public function __construct(private ManifestRegistry $manifests) {}
 
     /**
@@ -75,31 +78,104 @@ class CredentialVault
             'has_secret' => $source !== 'none',
             'redirect_uri' => $source === 'database' && $row->redirect_uri ? $row->redirect_uri : ($env['redirect'] ?? null),
             'rotated_at' => $row?->rotated_at?->toIso8601String(),
+            // Provider configuration screen: the switch for new connections, when and by whom this was last changed, and the address to register with the provider.
+            'connections_allowed' => $this->connectionsAllowed($provider),
+            // A secret is stored but cannot be read with the current key (APP_KEY changed): the administrator must enter it again.
+            'secret_unreadable' => $row !== null && $row->getRawOriginal('client_secret') !== null && ! $this->readable($row),
+            'updated_at' => ($any = $this->anyRow($provider))?->updated_at?->toIso8601String(),
+            'updated_by' => $any?->setBy?->name,
+            'suggested_redirect_uri' => $this->suggestedRedirectUri($provider),
         ];
+    }
+
+    /** The redirect address LifeOS expects for a provider, built from the trusted site address (the same rule the form is validated against). */
+    public function suggestedRedirectUri(string $provider): string
+    {
+        return rtrim((string) config('app.frontend_url'), '/')."/api/integrations/{$provider}/callback";
+    }
+
+    /** Whether a person may start a NEW connection to this provider (already connected accounts are not affected by this switch). */
+    public function connectionsAllowed(string $provider): bool
+    {
+        return $this->anyRow($provider)?->connections_blocked_at === null;
+    }
+
+    public function setConnectionsAllowed(string $provider, bool $allowed, User $admin): bool
+    {
+        $row = AppCredential::firstOrNew(['provider_key' => $provider]);
+        $was = $row->connections_blocked_at === null;
+        $row->connections_blocked_at = $allowed ? null : ($row->connections_blocked_at ?? now());
+        $row->set_by = $admin->id;
+        $row->save();
+        unset($this->rows[$provider], $this->anyRows[$provider]);
+
+        return $was !== $allowed;
+    }
+
+    /**
+     * Whether the stored secret can be read back with the current key (false after APP_KEY changed without APP_PREVIOUS_KEYS). Environment values need no decryption.
+     * Nothing about the secret leaves this method but yes or no.
+     */
+    public function secretReadable(string $provider): bool
+    {
+        $row = $this->row($provider);
+
+        return $row ? $this->readable($row) : $this->source($provider) === 'environment';
+    }
+
+    private function anyRow(string $provider): ?AppCredential
+    {
+        if (! array_key_exists($provider, $this->anyRows)) {
+            try {
+                $this->anyRows[$provider] = AppCredential::with('setBy:id,name')->where('provider_key', $provider)->first() ?? false;
+            } catch (QueryException) {
+                return null;
+            }
+        }
+
+        return $this->anyRows[$provider] ?: null;
     }
 
     public function store(string $provider, string $clientId, ?string $clientSecret, ?string $redirectUri, User $admin): AppCredential
     {
         $row = AppCredential::firstOrNew(['provider_key' => $provider]);
+        // A stored secret that cannot be decrypted any more (APP_KEY changed) would make Eloquent fail while comparing the old value with the new one: clear it first, so entering the secret again repairs the record.
+        if ($row->exists && $row->getRawOriginal('client_secret') !== null && ! $this->readable($row)) {
+            AppCredential::whereKey($row->getKey())->update(['client_secret' => null]);
+            $row->refresh();
+        }
         $row->client_id = $clientId;
         if ($clientSecret !== null && $clientSecret !== '') {
             $row->client_secret = $clientSecret;
             $row->rotated_at = now();
         }
         $row->redirect_uri = $redirectUri ?: null;
-        $row->enabled = true;
+        if (! $row->exists) {
+            $row->enabled = true;
+        }
         $row->set_by = $admin->id;
         $row->save();
-        unset($this->rows[$provider]);
+        unset($this->rows[$provider], $this->anyRows[$provider]);
 
         return $row;
     }
 
     public function forget(string $provider): bool
     {
-        unset($this->rows[$provider]);
+        unset($this->rows[$provider], $this->anyRows[$provider]);
+        $row = AppCredential::where('provider_key', $provider)->first();
+        if (! $row) {
+            return false;
+        }
+        // A provider an administrator switched off stays switched off: only its credentials are removed, the row (and the switch) stay.
+        if ($row->connections_blocked_at !== null) {
+            $had = $row->client_id !== null || $row->getRawOriginal('client_secret') !== null;
+            $row->forceFill(['client_id' => null, 'client_secret' => null, 'redirect_uri' => null, 'rotated_at' => null])->save();
 
-        return AppCredential::where('provider_key', $provider)->delete() > 0;
+            return $had;
+        }
+
+        return $row->delete() > 0;
     }
 
     public function hasSecret(string $provider): bool
@@ -168,6 +244,16 @@ class CredentialVault
 
     private function complete(AppCredential $row): bool
     {
-        return $row->client_id !== null && $row->client_id !== '' && $row->client_secret !== null && $row->client_secret !== '';
+        return $row->client_id !== null && $row->client_id !== '' && $this->readable($row);
+    }
+
+    /** Whether the stored secret exists and can be read with the current key. A secret that cannot be decrypted counts as missing: it must not take the screen (or a sign-in) down. */
+    private function readable(AppCredential $row): bool
+    {
+        try {
+            return $row->client_secret !== null && $row->client_secret !== '';
+        } catch (Throwable) {
+            return false;
+        }
     }
 }
