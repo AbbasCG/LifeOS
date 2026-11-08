@@ -24,8 +24,8 @@ abstract class DiscoveryTestCase extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        // The activation switch is on for these tests (its default, off, has tests of its own).
-        config(['discovery.auto_activate' => true]);
+        // Activation is on for these tests, and approval is by hand unless a test (AutoApproveTest) turns the automatic approval on.
+        config(['discovery.auto_activate' => true, 'discovery.auto_approve' => false]);
         $this->content = sys_get_temp_dir().'/lifeos-discovery-'.bin2hex(random_bytes(6));
         foreach (['releases', 'features', 'tours'] as $dir) {
             mkdir($this->content.'/'.$dir, 0777, true);

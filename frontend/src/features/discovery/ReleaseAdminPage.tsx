@@ -65,6 +65,7 @@ export default function ReleaseAdminPage() {
     <ErrorMessage error={error} />
     {loading ? <Skeleton lines={4} /> : data && <>
       <p className={`ra-activation${data.activation.enabled && data.activation.status === 'confirmed' ? ' on' : ''}`} role="status">{activationText(data.activation)}</p>
+      {data.activation.auto_approve && <p className="muted small" role="note">{t('Updates are approved automatically when a healthy deploy registers them (the pull request that added the text was the review). Withdraw one here to stop it; a withdrawn update is never approved again by itself.', 'تُعتمد التحديثات تلقائيًا حين يسجّلها نشر سليم (مراجعة الـPR الذي أضاف النص هي المراجعة). اسحب أحدها من هنا لإيقافه؛ والتحديث المسحوب لا يُعتمد مجددًا من تلقاء نفسه.', 'Updates worden automatisch goedgekeurd zodra een gezonde deploy ze registreert (de pull request met de tekst was de controle). Trek er hier een in om hem te stoppen; een ingetrokken update wordt nooit uit zichzelf opnieuw goedgekeurd.')}</p>}
       {data.data.length === 0
         ? <EmptyState title={t('No updates in the running code', 'لا توجد تحديثات في الكود العامل', 'Geen updates in de draaiende code')}>{t('Release notes are files in the code; when one ships it appears here as a draft.', 'ملاحظات الإصدار ملفات في الكود؛ عند شحن أحدها يظهر هنا كمسودة.', 'Releasenotes zijn bestanden in de code; zodra er een meekomt, verschijnt die hier als concept.')}</EmptyState>
         : data.data.map(r => <ReleaseCard key={r.key} release={r} stats={stats.data?.data.releases.find(x => x.key === r.key)} accounts={stats.data?.data.accounts} review={reviewLabel(r)} deploy={deployLabel(r)} blocked={cannotApprove(r)} onApprove={() => open(r, 'approve')} onWithdraw={() => open(r, 'withdraw')} />)}
@@ -97,7 +98,7 @@ function ReleaseCard({ release: r, stats, accounts, review, deploy, blocked, onA
   return <article className="panel ra-card" aria-labelledby={`ra-${r.key}`}>
     <h2 id={`ra-${r.key}`}>{p.title.en} <span className="muted small">{r.key}</span></h2>
     <ul className="ra-status" aria-label={t('Status', 'الحالة', 'Status')}>
-      <li className={`ra-chip ${r.review_status ?? 'none'}`}>{review}</li>
+      <li className={`ra-chip ${r.review_status ?? 'none'}`}>{review}{r.auto_approved && ` · ${t('automatically', 'تلقائيًا', 'automatisch')}`}</li>
       <li className="ra-chip">{deploy}</li>
       <li className={`ra-chip${r.visible ? ' on' : ''}`}>{r.visible ? t('Visible to people', 'ظاهر للناس', 'Zichtbaar voor mensen') : t('Not visible', 'غير ظاهر', 'Niet zichtbaar')}</li>
       {r.importance === 'important' && <li className="ra-chip warn">{t('Important', 'مهم', 'Belangrijk')}</li>}

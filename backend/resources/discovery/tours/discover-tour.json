@@ -1,0 +1,26 @@
+{
+  "id": "discover-tour",
+  "version": 1,
+  "title": {
+    "en": "Discover",
+    "ar": "اكتشف",
+    "nl": "Ontdekken"
+  },
+  "steps": [
+    {
+      "target": "nav-discover",
+      "reveal": "sidebar",
+      "placement": "auto",
+      "title": {
+        "en": "Everything new, in one place",
+        "ar": "كل جديد في مكان واحد",
+        "nl": "Alles nieuws op één plek"
+      },
+      "body": {
+        "en": "Open Discover to see each feature, try it, and watch its short tour again whenever you like.",
+        "ar": "افتح «اكتشف» لترى كل ميزة وتجرّبها وتشاهد جولتها القصيرة مجددًا متى شئت.",
+        "nl": "Open Ontdekken om elke functie te zien, uit te proberen en de korte rondleiding opnieuw te bekijken wanneer je wilt."
+      }
+    }
+  ]
+}

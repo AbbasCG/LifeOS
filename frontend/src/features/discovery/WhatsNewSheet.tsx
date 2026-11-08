@@ -5,7 +5,7 @@ import { useToast } from '../../lib/toast'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { formatDay } from '../../lib/dateTime'
-import { recordState, startTour, tryFeature, type DiscoveryItem, type Release } from '../../lib/discovery'
+import { getUnseenUpdates, recordState, setUnseenUpdates, startTour, tryFeature, type DiscoveryItem, type Release } from '../../lib/discovery'
 import { ReleaseBody } from './ReleaseBody'
 
 /**
@@ -21,6 +21,8 @@ export default function WhatsNewSheet({ release, onDone }: { release: Release; o
     if (finished.current) return
     finished.current = true
     void recordState('release', release.key, action).catch(() => {})
+    // Seen or dismissed: one update fewer waiting. (Postponing keeps it waiting.)
+    if (action === 'dismissed') setUnseenUpdates(getUnseenUpdates() - 1)
     onDone()
   }
 

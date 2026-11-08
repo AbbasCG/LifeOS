@@ -15,7 +15,7 @@ class ReconcileReleases extends Command
     {
         $result = $releases->reconcile((bool) $this->option('dry-run'));
         $this->line(sprintf('%s: %s', $result['status'], $result['detail']));
-        foreach (['registered', 'updated', 'absent'] as $group) {
+        foreach (['registered', 'approved', 'updated', 'absent'] as $group) {
             if ($result[$group] !== []) {
                 $this->line(sprintf('  %s: %s', $group, implode(', ', $result[$group])));
             }

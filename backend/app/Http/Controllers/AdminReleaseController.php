@@ -30,7 +30,7 @@ class AdminReleaseController extends Controller
             return response()->json(['message' => 'The announcement files in the running code are invalid: '.$e->getMessage(), 'code' => 'content_invalid'], 503);
         }
 
-        return response()->json(['data' => $list, 'activation' => ['enabled' => $state['enabled'], 'status' => $state['status'], 'detail' => $state['detail']]]);
+        return response()->json(['data' => $list, 'activation' => ['enabled' => $state['enabled'], 'status' => $state['status'], 'detail' => $state['detail'], 'auto_approve' => (bool) config('discovery.auto_approve')]]);
     }
 
     /** How the updates were received, as counts only (see DiscoveryStats). Content problems give an empty list, never an error. */

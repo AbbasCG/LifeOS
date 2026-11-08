@@ -87,7 +87,9 @@ describe('the What’s New announcement', () => {
     shell(<DiscoveryHost />)
     await idle()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(calls).toHaveLength(0)   // it does not even ask again
+    // It still asks, so the menu's count of unseen updates is right, but it shows and records nothing.
+    expect(calls.filter(c => c.method === 'GET' && /discovery\/bootstrap/.test(c.url))).toHaveLength(1)
+    expect(calls.some(c => c.method !== 'GET')).toBe(false)
   })
 
   it('does not interrupt typing, and shows up once the person stops', async () => {

@@ -10,11 +10,20 @@ return [
     'path' => env('DISCOVERY_PATH'),
 
     /*
-     * Activation is OFF until the owner has checked that the account running the scheduler can read the deploy-success marker
-     * (`php artisan lifeos:discovery:check-marker` reports it, read-only). While it is off no release is ever registered, so
-     * nothing can be shown to users: the safe default.
+     * Updates reach people automatically: once a healthy deploy has written its success marker (`php artisan lifeos:discovery:check-marker` reports
+     * whether the account running the scheduler can read it, read-only), the scheduler registers the release notes that shipped with the code. If the
+     * marker cannot be read or does not match the running code, nothing is registered and nothing is shown: failing closed is automatic too.
+     * This is also the kill switch: DISCOVERY_AUTO_ACTIVATE=false stops everything at once (what is already registered stays hidden).
      */
-    'auto_activate' => (bool) env('DISCOVERY_AUTO_ACTIVATE', false),
+    'auto_activate' => (bool) env('DISCOVERY_AUTO_ACTIVATE', true),
+
+    /*
+     * A release registered by a healthy deploy is approved at once, without a person clicking. The review is the pull request that added the text: only
+     * merged code (CI green, deployed, marker confirmed) can reach this point, the text is bound to its fingerprint (a later edit is a new approval, which this
+     * also grants once that edit is deployed), and a release an administrator has WITHDRAWN is never approved again by this. Set DISCOVERY_AUTO_APPROVE=false to go
+     * back to approving each release by hand on /admin/releases.
+     */
+    'auto_approve' => (bool) env('DISCOVERY_AUTO_APPROVE', true),
 
     // Written by scripts/deploy-production.sh only after the health checks passed; holds the 40-character commit that is live.
     'deploy_marker' => env('DISCOVERY_DEPLOY_MARKER', '/var/lib/lifeos-deploy/current.sha'),

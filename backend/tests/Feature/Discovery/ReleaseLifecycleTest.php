@@ -38,9 +38,15 @@ class ReleaseLifecycleTest extends DiscoveryTestCase
         $this->actingAs($this->member())->getJson('/api/discovery/bootstrap')->assertJsonPath('data.announcement', null);
     }
 
-    public function test_the_shipped_default_is_off(): void
+    public function test_the_shipped_defaults_are_automatic_and_both_switches_remain(): void
     {
-        $this->assertFalse((bool) (require base_path('config/discovery.php'))['auto_activate']);
+        // Read from the files, not from the environment, so a developer's or the server's own .env cannot change what this proves.
+        $config = (string) file_get_contents(base_path('config/discovery.php'));
+        $this->assertStringContainsString("env('DISCOVERY_AUTO_ACTIVATE', true)", $config, 'updates reach people by themselves unless the switch is turned off');
+        $this->assertStringContainsString("env('DISCOVERY_AUTO_APPROVE', true)", $config);
+        $example = (string) file_get_contents(base_path('.env.example'));
+        $this->assertStringContainsString("DISCOVERY_AUTO_ACTIVATE=true\n", $example);
+        $this->assertStringContainsString("DISCOVERY_AUTO_APPROVE=true\n", $example);
     }
 
     #[DataProvider('unconfirmed')]

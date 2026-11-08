@@ -1,0 +1,17 @@
+{
+  "id": "discovery-center",
+  "category": "general",
+  "since": "2026-11-08-discover",
+  "route": "/discover",
+  "tour": "discover-tour",
+  "name": {
+    "en": "Discover: every feature in one place",
+    "ar": "اكتشف: كل الميزات في مكان واحد",
+    "nl": "Ontdekken: alle functies op één plek"
+  },
+  "description": {
+    "en": "Browse features by topic, search them, try one with a click and watch its guided tour again any time. A feature that is not available to you says why.",
+    "ar": "تصفّح الميزات بحسب الموضوع وابحث فيها وجرّب أي ميزة بنقرة وشاهد جولتها الإرشادية مجددًا في أي وقت. والميزة غير المتاحة لك تذكر السبب.",
+    "nl": "Blader door functies per onderwerp, zoek ze, probeer er een met één klik en bekijk de rondleiding steeds opnieuw. Een functie die voor jou niet beschikbaar is, zegt waarom."
+  }
+}

@@ -198,20 +198,28 @@ class AnnouncementTest extends DiscoveryTestCase
         $this->assertSame('en Title', $notes[0]->title);
         $this->assertSame('/updates?release=r-one', $notes[0]->link);
         $this->assertSame('release:r-one:'.$user->id, $notes[0]->deduplication_key);
-        // Dismissing and a later app start do not create another.
+        // Reading it clears the notification, and a later app start does not bring it back.
         $this->putJson('/api/discovery/states/release/r-one', ['action' => 'dismissed']);
+        $this->assertSame(0, InboxNotification::where('user_id', $user->id)->count());
         $this->bootstrap();
-        $this->assertSame(1, InboxNotification::where('user_id', $user->id)->count());
+        $this->assertSame(0, InboxNotification::where('user_id', $user->id)->count());
     }
 
-    public function test_a_normal_release_sends_no_notification(): void
+    public function test_a_normal_release_notifies_too_and_reading_it_clears_the_notification(): void
     {
         $this->publishable(['importance' => 'normal']);
         $this->goLive();
         $user = $this->member();
+        $other = $this->member();
         $this->actingAs($user);
         $this->bootstrap()->assertJsonPath('data.announcement.key', 'r-one');
-        $this->assertSame(0, InboxNotification::where('user_id', $user->id)->count());
+        $this->assertSame(1, InboxNotification::where('user_id', $user->id)->count());
+        InboxNotification::create(['user_id' => $user->id, 'category' => 'tasks', 'kind' => 'reminder', 'title' => 'An unrelated reminder', 'deduplication_key' => 'task:1']);
+        InboxNotification::create(['user_id' => $other->id, 'category' => 'updates', 'kind' => 'release', 'title' => 'Somebody else', 'deduplication_key' => 'release:r-one:'.$other->id]);
+        // Seeing it (the update history marks what it lists as seen) clears this person's notification and nothing else.
+        $this->putJson('/api/discovery/states/release/r-one', ['action' => 'seen'])->assertOk();
+        $this->assertSame(['An unrelated reminder'], InboxNotification::where('user_id', $user->id)->pluck('title')->all());
+        $this->assertSame(1, InboxNotification::where('user_id', $other->id)->count());
     }
 
     public function test_the_updates_category_can_be_switched_off_and_is_then_respected(): void

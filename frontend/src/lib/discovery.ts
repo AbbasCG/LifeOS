@@ -46,7 +46,7 @@ export type AdminPreview = {
 export type AdminRelease = {
   key: string; date: string; revision: number; importance: 'normal' | 'important'; title: Texts; items: number
   registered: boolean; review_status: 'draft' | 'approved' | 'withdrawn' | null; deploy_status: 'live' | 'absent' | null; deployed_sha: string | null
-  content_hash: string; approved_hash: string | null; live_since: string | null; reviewed_at: string | null; visible: boolean; preview: AdminPreview
+  content_hash: string; approved_hash: string | null; live_since: string | null; reviewed_at: string | null; visible: boolean; auto_approved?: boolean; preview: AdminPreview
 }
 export type ReleaseStats = {
   key: string; seen: number; dismissed: number; snoozed: number; helpful: number; unhelpful: number
@@ -54,7 +54,7 @@ export type ReleaseStats = {
 }
 export type DiscoveryStats = { accounts: number; releases: ReleaseStats[] }
 export const adminStatsPath = '/api/admin/discovery/stats'
-export type Activation = { enabled: boolean; status: string; detail: string }
+export type Activation = { enabled: boolean; status: string; detail: string; auto_approve?: boolean }
 export const adminReleasesPath = '/api/admin/discovery/releases'
 export const approveRelease = (key: string, contentHash: string) => api(`${adminReleasesPath}/${key}/approve`, 'POST', { content_hash: contentHash })
 export const withdrawRelease = (key: string) => api(`${adminReleasesPath}/${key}/withdraw`, 'POST')
@@ -98,6 +98,13 @@ export const subscribeNew = (l: () => void) => { listeners.add(l); return () => 
 export const getNewFeatures = () => newFeatures
 /** The path of a content route ("/tasks?add=task" is "/tasks"). */
 export const routePath = (route: string) => route.split(/[?#]/)[0]
+
+// ---- updates this person has not seen yet, shown as a count on the menu's "What's new" ----
+let unseen = 0
+const unseenListeners = new Set<() => void>()
+export const setUnseenUpdates = (n: number) => { unseen = Math.max(0, n); unseenListeners.forEach(l => l()) }
+export const subscribeUnseen = (l: () => void) => { unseenListeners.add(l); return () => { unseenListeners.delete(l) } }
+export const getUnseenUpdates = () => unseen
 
 const HINT_SHOWN = 'lifeos-discovery-hint'
 /** One hint per browser session, like announcements: a second one waits for the next visit. */

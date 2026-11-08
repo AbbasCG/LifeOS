@@ -2,8 +2,11 @@
 
 namespace Tests\Feature\Discovery;
 
+use App\Models\InboxNotification;
+use App\Models\ProductRelease;
 use App\Models\UserSetting;
 use App\Services\Discovery\DiscoveryRegistry;
+use App\Services\Discovery\ReleaseService;
 
 /**
  * The release content that ships in resources/discovery, once an administrator has approved it and the deploy is confirmed: it must really
@@ -83,6 +86,48 @@ class ShippedContentTest extends DiscoveryTestCase
         }
         $guide = $this->getJson('/api/discovery/guide')->assertOk()->json('data');
         $this->assertNotNull($guide);
+    }
+
+    /** The point of it all: whatever content ships with the code reaches people by itself after a healthy deploy, with nothing for anybody to click. */
+    public function test_after_a_healthy_deploy_everything_shipped_shows_up_by_itself(): void
+    {
+        config(['discovery.auto_approve' => true]);
+        $registry = app(DiscoveryRegistry::class);
+        $keys = array_keys($registry->releases());
+        $this->deploy();
+        $person = $this->memberIn('ar');
+        $admin = $this->admin();
+        $this->artisan('lifeos:discovery:reconcile')->assertSuccessful();
+        $this->app->forgetInstance(ReleaseService::class);
+        $this->freshControllers();
+
+        foreach ($keys as $key) {
+            $row = ProductRelease::where('key', $key)->firstOrFail();
+            $this->assertSame('approved', $row->review_status, "{$key} is approved by the deploy");
+            $this->assertSame($registry->fingerprint($key), $row->approved_hash);
+        }
+        $this->actingAs($person);
+        $bootstrap = $this->getJson('/api/discovery/bootstrap')->assertOk()->json('data');
+        $this->assertNotNull($bootstrap['announcement'], 'something is announced on opening the site');
+        $this->assertSame(count($keys), $bootstrap['counts']['unseen_updates'], 'every release is waiting, counted on the menu');
+        $this->assertCount(count($keys), $this->getJson('/api/discovery/releases')->json('data'), 'the history lists them all');
+
+        // What is for administrators only is not shown to anybody else, and is shown to an administrator.
+        $itemsOf = fn () => collect($this->getJson('/api/discovery/releases')->json('data'))->flatMap(fn ($r) => $r['items'])->pluck('feature')->filter()->all();
+        $this->assertNotContains('approve-updates', $itemsOf());
+        $this->actingAs($admin);
+        $this->assertContains('approve-updates', $itemsOf());
+
+        // Reading clears the notification.
+        $this->actingAs($person);
+        $before = InboxNotification::where('user_id', $person->id)->where('kind', 'release')->count();
+        $this->assertGreaterThan(0, $before);
+        $this->getJson('/api/discovery/releases')->assertOk();   // the history page loads...
+        foreach ($keys as $key) {
+            $this->putJson("/api/discovery/states/release/{$key}", ['action' => 'seen'])->assertOk();   // ...and marks what it lists as seen
+        }
+        $this->assertSame(0, InboxNotification::where('user_id', $person->id)->where('kind', 'release')->count());
+        $this->assertSame(0, $this->getJson('/api/discovery/bootstrap')->json('data.counts.unseen_updates'));
     }
 
     public function test_every_target_inside_the_shipped_content_exists_in_the_app(): void

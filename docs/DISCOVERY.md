@@ -117,17 +117,11 @@ changes are kept if sign-out fails. `php artisan lifeos:discovery:validate` chec
 the history in all three languages, is announced once, that "Try now" works for an ordinary account, that every route, link and tour target exists in the app, and that each
 tour opens.
 
-Having the files in the code shows nothing to anyone. To make it visible (every step is the owner's, nothing here is automatic):
+Since the automatic mode (below) nothing has to be switched on or clicked for this to reach people: it is registered and approved by the first healthy deploy that contains it. The one thing
+worth checking once on the server, because it fails closed and silently: `php artisan lifeos:discovery:check-marker`, run as the account that runs the scheduler, must report that the deploy marker is readable
+(Handoff H-009). If `.env` on the server says `DISCOVERY_AUTO_ACTIVATE=false` (an older copy of `.env.example`), remove the line or set it to `true`.
 
-1. Run `php artisan lifeos:discovery:check-marker` on the server as the account that runs the scheduler (Handoff H-009). It must say the marker is readable.
-2. Set `DISCOVERY_AUTO_ACTIVATE=true` in the server's `.env` (default `false`: this is the kill switch) and reload PHP-FPM / config cache as for any `.env` change.
-3. Wait for the next reconcile (every 5 minutes) after a healthy deploy: the release is then registered as a **draft**.
-4. As an administrator with two-factor and a fresh password confirmation, read `GET /api/admin/discovery/releases`, check that `content_hash` is
-   `c851cb5cbd8ad46c17daa3b8aa05faa93f5df9098d66ad1087a0428e15f2671b` (the fingerprint of the files in this commit; if it differs, the text on the server is not the text reviewed here),
-   then approve it, either on the **Approve updates** screen (`/admin/releases`, menu group More, administrators only; see below) or with `POST /api/admin/discovery/releases/2026-11-08-everyday-capture/approve` and that `content_hash`.
-5. People now see it: the announcement once per session, the history at `/updates`, "New" marks and the notification. `…/withdraw` hides it at once.
-
-Any later edit of these files changes the fingerprint and needs a new approval.
+Any later edit of these files changes the fingerprint; the next healthy deploy approves the new text (automatic mode) or it waits for an administrator (`DISCOVERY_AUTO_APPROVE=false`).
 
 ## Drafting release notes and registering them after a deploy (P7)
 
@@ -169,3 +163,20 @@ in the app at a calm moment, many "skipped" tours or "not helpful" ratings mean 
 5. The fingerprint on the screen equals the one in the pull request that introduced the text.
 6. Importance is "important" only if people must be told (it is shown with emphasis).
 After approving, watch the numbers for a day, and withdraw (immediate, no password) if something is wrong.
+
+## Automatic mode: every change reaches What's new by itself
+
+What an owner asked for, and how it works. **Nothing is clicked or switched on per release.**
+
+1. A pull request that adds something people can see also adds its entry: `backend/resources/discovery/releases/<key>.json` (+ `features/*.json`, + a tour if useful), every text in Arabic, Dutch and English
+   (`scripts/release-notes-draft.sh` starts it). **The review of that pull request is the review of the text.** CI refuses unfinished text (`⟦DRAFT⟧`), unknown routes and tour targets.
+2. After merge, CI and the deploy run as always. The deploy script writes its success marker only after the health checks pass.
+3. The scheduler (every 5 minutes; or right after the deploy with `DEPLOY_REGISTER_RELEASES=1`) sees the marker equals the running code, registers the new release and, with `DISCOVERY_AUTO_APPROVE` (default on), **approves it on the
+   fingerprint of the text now in the code**. A release an administrator has withdrawn is never approved again by this; text edited later is approved again once that edit is deployed. If the marker cannot be read or does not match, nothing happens: it fails closed.
+4. People see it on opening the app: the announcement (at a calm moment, once per session), a **count on "What's new" in the menu** (kept up to date even when no sheet may open), the entry in the update history, and an inbox
+   notification for every release (category "updates", which each person can switch off). **Reading it clears the notification**: seeing or dismissing the announcement, or opening the history, deletes that notification for that person only.
+5. Administrators additionally see items of features that require `admin` (for example "Approve updates"); nobody else does.
+
+Control stays with the owner: `/admin/releases` shows each release as "approved automatically" and **withdraw** hides one at once; `DISCOVERY_AUTO_APPROVE=false` goes back to approving each release by hand;
+`DISCOVERY_AUTO_ACTIVATE=false` stops everything. The automatic approval leaves the same record as a click, with nobody as reviewer (no audit row is written, as there is no person to attribute it to).
+`ShippedContentTest::test_after_a_healthy_deploy_everything_shipped_shows_up_by_itself` proves the whole path for whatever content is in the folder.
