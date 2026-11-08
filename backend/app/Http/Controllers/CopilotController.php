@@ -104,7 +104,7 @@ class CopilotController extends Controller
      */
     public function prepareWeeklyDraft(Request $request, WeeklyDraftService $drafts): JsonResponse
     {
-        $data = $request->validate(['language' => 'required|in:en,ar']);
+        $data = $request->validate(['language' => 'required|in:en,ar,nl']);
 
         return response()->json($drafts->prepare($request->user(), $data['language'], false, $request), 201);
     }
@@ -114,7 +114,7 @@ class CopilotController extends Controller
      */
     public function reviewGoal(Request $request, int $id, GoalReviewService $reviews): JsonResponse
     {
-        $data = $request->validate(['language' => 'required|in:en,ar']);
+        $data = $request->validate(['language' => 'required|in:en,ar,nl']);
         $goal = Goal::where('user_id', $request->user()->id)->findOrFail($id);
 
         return response()->json($reviews->reviewGoal($request->user(), $goal, $data['language'], $request), 201);
@@ -188,7 +188,7 @@ class CopilotController extends Controller
         $data = $request->validate([
             'conversation_id' => 'nullable|uuid',
             'message' => 'required_without:choice|nullable|string|max:4000',
-            'language' => 'required|in:en,ar',
+            'language' => 'required|in:en,ar,nl',
             'client_id' => ['nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
             'choice' => 'nullable|array',
             'choice.type' => 'required_with:choice|in:option,alternative',

@@ -3421,3 +3421,15 @@ The server side of What's New and feature discovery. Nothing is shown to anyone 
 ## Not verified
 * That the scheduler's account can read `/var/lib/lifeos-deploy/current.sha` on the server (mode 750, owner `lifeos`): run `lifeos:discovery:check-marker` there before switching activation on.
 * Anything on the production server.
+
+
+# V62 — Dutch as a language you can choose (Smart Experience track)
+
+The small "nl plumbing" that Product Experience 2.0 needs so that announcements and tours can be read in Dutch. No component was rewritten.
+
+* **Front end:** `Language` is `ar | en | nl`. Dutch is read left to right, is remembered like the others and sets `<html lang="nl">`. `useText()(en, ar, nl?)` takes an optional third text: where it is missing a Dutch reader gets the **English** text (never Arabic), so the roughly 60 screens that only have English and Arabic keep working unchanged. Settings offers "Nederlands". Dictation uses `nl-NL` (or the browser's `nl-BE`). The language toggle in the top bar and menu still switches between Arabic and English only.
+* **Back end:** the language checks of settings, the assistant, Copilot messages, goal reviews, weekly drafts and suggestions accept `nl`. The AI provider is told to reply in Dutch; the built-in assistant and every product text fall back to English. Conversations store `nl`.
+* **Tests:** `src/tests/dutch.test.tsx` (direction, memory, fallback, dictation, choosing it in Settings) and `tests/Feature/DutchLanguageTest.php`.
+
+## Not done
+Dutch translations of the screens themselves (Dutch readers see English) and a language menu in the top bar; both can be added screen by screen with the optional third text.

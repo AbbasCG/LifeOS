@@ -74,14 +74,14 @@ export default function PriorityTasks({
                   task.completed ? 'line-through opacity-50' : ''
                 }`}
               >
-                {task.title[language]}
+                {task.title[language === 'ar' ? 'ar' : 'en']}
               </p>
 
               <p
                 className="mt-1 text-xs"
                 style={{ color: 'var(--color-text-muted)' }}
               >
-                {task.category[language]} · {task.estimatedMinutes} min
+                {task.category[language === 'ar' ? 'ar' : 'en']} · {task.estimatedMinutes} min
               </p>
             </div>
 
