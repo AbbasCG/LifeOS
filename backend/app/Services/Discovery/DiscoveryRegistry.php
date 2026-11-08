@@ -28,6 +28,9 @@ class DiscoveryRegistry
     /** Things a tour step may ask the app to reveal before it highlights a target. */
     public const REVEALS = ['sidebar'];
 
+    /** Put on every text of a generated draft (scripts/release-notes-draft.sh): text that still carries it is unfinished and is refused. */
+    public const DRAFT_MARK = '⟦DRAFT⟧';
+
     public const SLUG = '/^[a-z0-9][a-z0-9-]{1,62}$/D';
 
     private const ROUTE = '#^/(?!/)[A-Za-z0-9/_-]*(\?[A-Za-z0-9=&_-]*)?$#D';
@@ -439,6 +442,9 @@ class DiscoveryRegistry
             $text = $value[$language];
             if (! is_string($text) || trim($text) === '' || mb_strlen($text) > $max) {
                 throw new InvalidDiscoveryContentException("{$where} ({$language}) must be a non-empty text of at most {$max} characters.");
+            }
+            if (str_contains($text, self::DRAFT_MARK)) {
+                throw new InvalidDiscoveryContentException("{$where} ({$language}) still has the draft marker ".self::DRAFT_MARK.': write the real text before it can ship.');
             }
             $out[$language] = trim($text);
         }

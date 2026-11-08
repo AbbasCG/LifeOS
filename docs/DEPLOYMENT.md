@@ -282,6 +282,13 @@ Recommended, **as an administrator decision on the server** (this repository cha
 `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/up` prints `200`, export `HEALTH_REQUIRE_UP=1` for the deploy user's environment (where the other
 `deploy-production.sh` variables are set). To go back, remove it. A deploy that then fails on `/up` stops with exit 3 exactly like any unhealthy release.
 
+### Optional hook: register release notes right after a healthy deploy
+
+`DEPLOY_REGISTER_RELEASES=1` (default `0`, like `HEALTH_REQUIRE_UP`) makes the script run `php artisan lifeos:discovery:reconcile --no-interaction` after the health checks passed and
+`current.sha` was written, in `deploy` and `rollback` alike (a rollback lets the app mark releases that left the code as absent). It never approves anything; a failure is logged as
+`WARNING: lifeos:discovery:reconcile failed` and the deploy still ends `ok`; an unhealthy release (exit 3) and `--dry-run` never reach it. It changes no production setting by itself:
+turning it on is an administrator's environment change. Details and the release-notes draft script: `docs/DISCOVERY.md`.
+
 ## Residual risks (read before enabling)
 
 - Real server behaviour (PHP-FPM pool user, Nginx root, systemd unit names, published PostgreSQL port, sudo rules, `pg_dump` version) is **NOT VERIFIED** — the

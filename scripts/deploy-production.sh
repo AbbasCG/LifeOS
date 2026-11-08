@@ -28,6 +28,7 @@ HEALTH_DELAY="${HEALTH_DELAY:-3}"
 MIN_PG_CLIENT_MAJOR="${MIN_PG_CLIENT_MAJOR:-16}"
 DIST_PUBLIC="${DIST_PUBLIC:-1}"          # 1: make the built frontend readable by the web server (a different user) and require it to be reachable
 HEALTH_REQUIRE_UP="${HEALTH_REQUIRE_UP:-0}"  # 1: /up must answer 200 through the web server (see docs/DEPLOYMENT.md, Nginx)
+DEPLOY_REGISTER_RELEASES="${DEPLOY_REGISTER_RELEASES:-0}"  # 1: after a healthy release, register the shipped release notes as DRAFTS at once (never approves; see docs/DISCOVERY.md)
 NODE_MAJOR="${NODE_MAJOR:-24}"          # the frontend toolchain needs a modern Node; Ubuntu's own /usr/bin/node is 18 (too old for Vite)
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
@@ -278,6 +279,19 @@ health_check() {
   return 1
 }
 
+# Optional hook (DEPLOY_REGISTER_RELEASES=1). Right after a healthy release and its success marker, let the app register the release notes that shipped with
+# this code as DRAFTS now, instead of at the scheduler's next run (every 5 minutes). It only registers: an administrator still approves the exact text, and
+# DISCOVERY_AUTO_ACTIVATE still decides whether anything can be shown. A failure here never fails, reverts or marks unhealthy a release that passed its checks.
+register_releases() {
+  [[ "$DEPLOY_REGISTER_RELEASES" == "1" ]] || return 0
+  log "Registering shipped release notes as drafts (lifeos:discovery:reconcile)"
+  if (cd "$BACKEND" && php artisan lifeos:discovery:reconcile --no-interaction); then
+    log "  release notes registered"
+  else
+    log "  WARNING: lifeos:discovery:reconcile failed; the release itself is healthy and the scheduler will retry within 5 minutes"
+  fi
+}
+
 main_deploy() {
   # composer install always runs (it is a no-op when vendor/ already matches composer.lock, and it repairs a vendor/ that has drifted behind the
   # lock — e.g. security updates committed but never installed). The frontend is rebuilt whenever dist/ was not built from this exact
@@ -363,6 +377,7 @@ main_deploy() {
   fi
   printf '%s\n' "$TARGET_SHA" > "$STATE_DIR/current.sha"
   record "ok"
+  register_releases
   log "DONE: $MODE to $TARGET_SHA"
 }
 

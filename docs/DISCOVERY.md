@@ -129,6 +129,18 @@ Having the files in the code shows nothing to anyone. To make it visible (every 
 
 Any later edit of these files changes the fingerprint and needs a new approval.
 
+## Drafting release notes and registering them after a deploy (P7)
+
+**Draft.** `scripts/release-notes-draft.sh [--since <rev|YYYY-MM-DD>] [--until <rev>] [--out <file>]` reads git only (no network, no token, no server) and prints the skeleton of a
+release file from the pull requests merged since the last release (default: the day after the newest release file): one item per user-facing pull request, with its English
+title and a guessed type; CI, docs, tests and deploy work are left out and listed on stderr. It is a **draft** and cannot ship by accident: every text carries `⟦DRAFT⟧` and the file has
+a `_draft` key, and the content loader refuses both, so a draft copied into `backend/resources/discovery/` unfinished fails `lifeos:discovery:validate` and CI (and shows nothing to anybody).
+The script refuses to write inside the content folder. Writing the Arabic, Dutch and English text, naming features and tours, and reviewing it in a pull request stay human work.
+
+**Registering after a deploy (optional).** `DEPLOY_REGISTER_RELEASES=1` in the deploy user's environment makes `scripts/deploy-production.sh`, after a healthy release and once the
+success marker is written, run `php artisan lifeos:discovery:reconcile`, so the shipped release is registered as a draft at once instead of at the scheduler's next run (every 5
+minutes). It only registers: approval and `DISCOVERY_AUTO_ACTIVATE` are untouched, a failure of the hook is a warning and never fails or reverts a healthy release, and unhealthy releases and dry runs
+register nothing. Default off. The deploy script that runs is the one already on the server, so a new hook takes effect from the deploy after the one that brings it.
 ## Approving updates on screen (P9)
 
 `/admin/releases` ("Approve updates", menu group More, shown to administrators only; everybody else sees "Administrators only" and nothing is requested from the server) lists every release in
