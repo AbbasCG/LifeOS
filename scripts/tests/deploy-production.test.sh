@@ -30,6 +30,7 @@ echo "php \$*" >> "$T/calls.log"
 case "\$*" in
   *"migrate:status"*) if [[ -f "$T/flags/pending" ]]; then echo "  2026_01_01_000000_new_table ........ Pending"; else echo " INFO  No pending migrations."; fi ;;
   *"artisan migrate --force"*) echo "MIGRATE" >> "$T/order.log"; [[ -f "$T/flags/migrate_fails" ]] && exit 1 ;;
+  *"lifeos:discovery:reconcile"*) echo "RECONCILE marker=\$([[ -f "$T/state/current.sha" ]] && cat "$T/state/current.sha" || echo none)" >> "$T/order.log"; [[ -f "$T/flags/reconcile_fails" ]] && exit 1 ;;
 esac
 exit 0
 STUB
@@ -143,7 +144,7 @@ run() { # run <args…>; sets OUT file and RC
   OUT="$T/out.txt"
   # NVM_DIR is set explicitly: GitHub's runner image (and many dev machines) export their own, which would leak a real NVM into the test.
   as_deployer env PATH="$T/bin:$PATH" HOME="$T/home" NVM_DIR="$T/home/.nvm" APP_DIR="$T/app" STATE_DIR="$T/state" EXPECT_USER="$(as_deployer id -un)" APP_URL=https://example.test \
-    HEALTH_RETRIES=2 HEALTH_DELAY=0 "$SCRIPT" "$@" > "$OUT" 2>&1
+    HEALTH_RETRIES=2 HEALTH_DELAY=0 ${EXTRA_ENV:-} "$SCRIPT" "$@" > "$OUT" 2>&1
   RC=$?
 }
 head_sha() { git -C "$T/app" rev-parse HEAD; }
@@ -334,6 +335,29 @@ check "rollback succeeds" test $RC -eq 0
 check "code is back on the previous commit" test "$(head_sha)" = "$C1"
 check "rollback never migrates or backs up the database" bash -c "! grep -qE 'BACKUP|MIGRATE' '$T/order.log' && ! grep -q 'migrate --force' '$T/calls.log'"
 check "frontend rebuilt for the old commit" grep -q "$C1" "$T/app/frontend/dist/index.html"
+teardown
+
+echo "== optional hook: register the shipped release notes as drafts after a healthy release"
+setup; run deploy --sha "$C2"
+check "off by default: nothing is registered" bash -c "! grep -q RECONCILE '$T/order.log' && ! grep -q 'discovery:reconcile' '$T/calls.log'"
+teardown
+setup; EXTRA_ENV="DEPLOY_REGISTER_RELEASES=1" run deploy --sha "$C2"
+check "enabled: the release succeeds and notes are registered" bash -c "[ $RC -eq 0 ] && grep -q '^RECONCILE' '$T/order.log' && grep -q 'release notes registered' '$OUT'"
+check "…only after the success marker was written (it names this commit)" grep -q "^RECONCILE marker=$C2" "$T/order.log"
+check "…as drafts: the hook never approves or activates anything" bash -c "! grep -qiE 'approve|withdraw|AUTO_ACTIVATE' '$T/calls.log'"
+teardown
+setup; touch "$T/flags/reconcile_fails"; EXTRA_ENV="DEPLOY_REGISTER_RELEASES=1" run deploy --sha "$C2"
+check "a failing registration never fails a healthy release" bash -c "[ $RC -eq 0 ] && [ \"\$(cat '$T/state/current.sha')\" = '$C2' ] && grep -q 'result=ok' '$T/state/history.log'"
+check "…it is logged as a warning and the scheduler is named as the retry" bash -c "grep -q 'WARNING: lifeos:discovery:reconcile failed' '$OUT' && grep -q 'scheduler will retry' '$OUT'"
+teardown
+setup; echo api500 > "$T/flags/health"; EXTRA_ENV="DEPLOY_REGISTER_RELEASES=1" run deploy --sha "$C2"
+check "an unhealthy release registers nothing" bash -c "[ $RC -eq 3 ] && ! grep -q RECONCILE '$T/order.log'"
+teardown
+setup; EXTRA_ENV="DEPLOY_REGISTER_RELEASES=1" run deploy --sha "$C2" --dry-run
+check "a dry run registers nothing" bash -c "[ $RC -eq 0 ] && ! grep -q RECONCILE '$T/order.log'"
+teardown
+setup; run deploy --sha "$C2"; : > "$T/order.log"; EXTRA_ENV="DEPLOY_REGISTER_RELEASES=1" run rollback --sha "$C1"
+check "a rollback registers too (the app then marks releases that left the code as absent)" bash -c "[ $RC -eq 0 ] && grep -q '^RECONCILE marker=$C1' '$T/order.log'"
 teardown
 
 echo "== SSH forced command"
