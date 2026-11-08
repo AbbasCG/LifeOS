@@ -14,7 +14,7 @@ export default function MobileNav() {
   return <nav className="mobile-nav" aria-label={t('Primary', 'التنقل الرئيسي')}>
     {tab('/', t('Today', 'اليوم'), LayoutDashboard)}
     {tab('/tasks', t('Tasks', 'المهام'), CheckSquare)}
-    <button type="button" className="tab-add" onClick={openQuickAdd} aria-label={t('Quick add', 'إضافة سريعة')}><span><Plus size={26} /></span></button>
+    <button type="button" className="tab-add" data-hint="quick-add" onClick={openQuickAdd} aria-label={t('Quick add', 'إضافة سريعة')}><span><Plus size={26} /></span></button>
     {tab('/calendar', t('Calendar', 'التقويم'), CalendarDays)}
     {tab('/focus', t('Focus', 'التركيز'), Focus)}
   </nav>

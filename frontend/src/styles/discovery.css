@@ -23,3 +23,13 @@
 .rel-rate { display: flex; align-items: center; gap: var(--space-2, 8px); border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-3, 12px); }
 .rel-rate button[aria-pressed="true"] { background: var(--color-surface-muted); outline: 2px solid var(--color-primary); }
 @media (prefers-reduced-motion: no-preference) { .rel-card { transition: outline-color 0.2s; } }
+
+/* Feature discovery: the "New" mark in the menu and the hint bubble. */
+.new-badge { margin-inline-start: auto; font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--color-primary); color: var(--color-on-primary); }
+.hint-bubble { position: fixed; z-index: 60; inline-size: min(300px, calc(100vw - 24px)); padding: var(--space-3, 12px) var(--space-4, 16px); padding-inline-end: 40px;
+  border-radius: 14px; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); box-shadow: 0 10px 30px rgb(0 0 0 / 0.18); }
+.hint-bubble p { margin: 0 0 var(--space-3, 12px); line-height: 1.5; }
+.hint-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
+.hint-close { position: absolute; inset-block-start: 6px; inset-inline-end: 6px; }
+.hints-setting .inline { display: flex; align-items: center; gap: 8px; }
+@media (prefers-reduced-motion: no-preference) { .hint-bubble { animation: hint-in 0.18s ease-out; } @keyframes hint-in { from { opacity: 0; transform: translateY(4px); } } }

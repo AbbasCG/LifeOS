@@ -3447,3 +3447,10 @@ The screens for the release core (V61). **Nothing appears until an administrator
 
 ## Not done
 "Try now" opens the page but does not start a tour yet (P5); New badges and hints (P4); the Discovery Center (P6). The Dutch texts of the rest of the app are still English.
+
+# V64 — Product Experience 2.0, P4: feature discovery (Smart Experience track)
+
+- **Server:** `GET /api/discovery/guide` returns, for the signed-in person, the features still new to them (a feature is "new" for `new_days`, 14 by default, from the day its release went live, until they try it) and the hints that are due. Only features of live, approved releases that the account may use, on this surface and for this client version, are listed; a hint that was seen or dismissed is never returned again; with `discovery.hints_enabled` off no hints are returned (badges stay). Broken content answers an empty list, never an error.
+- **Screens:** a "New" mark in the menu (`NewBadge`), cleared by opening the feature's screen (which records the first try); a small non-modal `HintBubble` next to an element marked `data-hint="…"` (or `data-tour`), shown by `HintHost`. The arbiter: one hint per browser session, only on the screen the hint belongs to, only when its target is visible, only at a calm moment (not while typing, not over a dialog or a focus session), never taking focus; Escape or "Got it" ends it for good; "Turn off tips" saves the preference. A switch in Settings turns tips on again.
+- **Tests:** `GuideTest` (8, PHPUnit), `feature-discovery.test.tsx` (7, Vitest), `e2e/feature-discovery.spec.ts` (3 × desktop/mobile, axe included).
+- No content ships yet, so nothing new is visible in production until a reviewed release is approved.

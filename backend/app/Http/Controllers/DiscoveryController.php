@@ -47,6 +47,20 @@ class DiscoveryController extends Controller
         ]]);
     }
 
+    /** "New" badges and the contextual hints that are due; empty when content is broken, never an error. */
+    public function guide(Request $request): JsonResponse
+    {
+        [$surface, $client] = $this->context($request);
+        try {
+            $guide = $this->releases->guide($request->user(), $surface, $client);
+        } catch (InvalidDiscoveryContentException $e) {
+            report($e);
+            $guide = ['new' => [], 'hints' => []];
+        }
+
+        return response()->json(['data' => $guide]);
+    }
+
     /** The update history: every approved, live release for this surface, newest first. */
     public function releases(Request $request): JsonResponse
     {

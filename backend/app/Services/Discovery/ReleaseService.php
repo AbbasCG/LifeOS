@@ -340,6 +340,50 @@ class ReleaseService
         ];
     }
 
+    /**
+     * Feature discovery for this person: the features that are still new to them (for "New" badges) and the contextual hints that
+     * are due. A hint is due once: a seen or dismissed hint never returns. Nothing is returned for features of unpublished releases,
+     * for administrators only, for another surface, or for a tab too old to have the screen; hints are empty when the person turned them off.
+     *
+     * @return array{new: list<array<string, mixed>>, hints: list<array<string, mixed>>}
+     */
+    public function guide(User $user, string $surface, int $client): array
+    {
+        $language = Localized::of($user->preferences());
+        $features = $this->states($user, 'feature');
+        $hints = $this->states($user, 'hint');
+        $hintsOn = (bool) (($user->preferences()['discovery']['hints_enabled'] ?? true));
+        $new = [];
+        $due = [];
+        foreach ($this->visibleRows() as $key => $row) {
+            $published = $row->published_at ?? $row->live_since;
+            foreach ($this->registry->features() as $feature) {
+                if ($feature['since'] !== $key || ! in_array($surface, $feature['audiences'], true) || $client < $feature['client_version']) {
+                    continue;
+                }
+                if (! $this->gate->check($user, $feature['requires'])['available']) {
+                    continue;
+                }
+                $state = $features[$feature['id']] ?? null;
+                if ($published && ! $state?->tried_at && $published->addDays($feature['new_days'])->isFuture()) {
+                    $new[] = ['id' => $feature['id'], 'route' => $feature['route'], 'name' => Localized::pick($feature['name'], $language)];
+                }
+                if (! $hintsOn) {
+                    continue;
+                }
+                foreach ($feature['hints'] as $hint) {
+                    $seen = $hints[$hint['id']] ?? null;
+                    if ($seen?->seen_at || $seen?->dismissed_at) {
+                        continue;
+                    }
+                    $due[] = ['id' => $hint['id'], 'feature' => $feature['id'], 'target' => $hint['target'], 'route' => $hint['route'], 'text' => Localized::pick($hint['text'], $language)];
+                }
+            }
+        }
+
+        return ['new' => $new, 'hints' => $due];
+    }
+
     /** @return Collection<string, UserDiscoveryState> this person's states of one kind, keyed by subject key (the current version of each) */
     public function states(User $user, string $type): Collection
     {
