@@ -1,0 +1,21 @@
+{
+  "id": "github",
+  "category": "developer",
+  "auth": "oauth2_pkce",
+  "status": "planned",
+  "name": {
+    "en": "GitHub",
+    "ar": "GitHub"
+  },
+  "description": {
+    "en": "Planned: turn issues and pull requests assigned to you into tasks, with signed webhooks for instant updates.",
+    "ar": "مخطط: تحويل القضايا وطلبات الدمج المسندة إليك إلى مهام مع Webhooks موقّعة لتحديثات فورية."
+  },
+  "scopes": [],
+  "capabilities": [
+    "read_issues",
+    "webhooks"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true
+}

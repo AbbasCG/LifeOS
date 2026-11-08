@@ -2,6 +2,7 @@
 
 namespace App\Integrations\Calendar;
 
+use App\Integrations\Vault\CredentialVault;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -45,7 +46,8 @@ abstract class OAuthProvider implements ConnectedProvider
      */
     protected function config(): array
     {
-        return (array) config('services.'.$this->configKey(), []);
+        // Administrator-set credentials (encrypted, database) take precedence over the environment values in services.*.
+        return app(CredentialVault::class)->overlay($this->configKey(), (array) config('services.'.$this->configKey(), []));
     }
 
     public function isConfigured(): bool

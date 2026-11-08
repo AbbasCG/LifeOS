@@ -1,0 +1,21 @@
+{
+  "id": "custom",
+  "category": "custom",
+  "auth": "custom",
+  "status": "planned",
+  "name": {
+    "en": "Custom system",
+    "ar": "نظام مخصص"
+  },
+  "description": {
+    "en": "Planned: connect an in-house system (such as EMC or Tharaa) through OAuth, an API key or webhooks, depending on what it supports.",
+    "ar": "مخطط: اربط نظامًا داخليًا (مثل EMC أو Tharaa) عبر OAuth أو مفتاح API أو Webhooks بحسب ما يدعمه."
+  },
+  "scopes": [],
+  "capabilities": [
+    "custom_api",
+    "webhooks"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true
+}

@@ -1,0 +1,20 @@
+{
+  "id": "anthropic",
+  "category": "ai",
+  "auth": "api_key",
+  "status": "planned",
+  "name": {
+    "en": "Claude (Anthropic)",
+    "ar": "Claude (Anthropic)"
+  },
+  "description": {
+    "en": "Planned: use your organisation's Anthropic API key for the assistant. A Claude subscription is not an API key.",
+    "ar": "مخطط: استخدم مفتاح Anthropic API الخاص بمؤسستك للمساعد. اشتراك Claude ليس مفتاح API."
+  },
+  "scopes": [],
+  "capabilities": [
+    "assistant"
+  ],
+  "multi_account": false,
+  "requires_admin_setup": true
+}

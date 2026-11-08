@@ -24,7 +24,11 @@ class RouteSecurityTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const PUBLIC = ['POST api/forgot-password', 'POST api/login', 'POST api/register', 'POST api/reset-password', 'POST api/two-factor-challenge'];
+    /**
+     * The sign-in family, plus the webhook receiver: it has no user session by design and is authenticated by an HMAC signature
+     * instead (see WebhookTest, which covers signature, replay, size and disabled-endpoint behaviour).
+     */
+    private const PUBLIC = ['POST api/forgot-password', 'POST api/login', 'POST api/register', 'POST api/reset-password', 'POST api/two-factor-challenge', 'POST api/webhooks/{publicId}'];
 
     /**
      * @return array<string, array{string, string}> "METHOD uri" => [method, uri with parameters filled in]

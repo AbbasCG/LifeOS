@@ -1,0 +1,40 @@
+{
+  "id": "google",
+  "category": "calendars",
+  "auth": "oauth2_pkce",
+  "status": "available",
+  "name": {
+    "en": "Google Calendar",
+    "ar": "تقويم Google"
+  },
+  "description": {
+    "en": "Read your Google Calendar events into LifeOS. Optional write-back lets LifeOS add events you confirm.",
+    "ar": "اقرأ أحداث تقويم Google داخل LifeOS. والكتابة الراجعة اختيارية: تضيف LifeOS الأحداث التي تؤكدها فقط."
+  },
+  "scopes": [
+    {
+      "id": "calendar.readonly",
+      "required": true,
+      "label": {
+        "en": "Read your calendar events",
+        "ar": "قراءة أحداث التقويم"
+      }
+    },
+    {
+      "id": "calendar.events",
+      "required": false,
+      "label": {
+        "en": "Create and edit events you confirm",
+        "ar": "إنشاء وتعديل الأحداث التي تؤكدها"
+      }
+    }
+  ],
+  "capabilities": [
+    "read_events",
+    "incremental_sync",
+    "write_events"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true,
+  "docs_url": "https://developers.google.com/calendar/api"
+}

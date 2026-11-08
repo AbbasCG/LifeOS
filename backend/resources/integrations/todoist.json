@@ -1,0 +1,31 @@
+{
+  "id": "todoist",
+  "category": "tasks",
+  "auth": "oauth2",
+  "status": "available",
+  "name": {
+    "en": "Todoist",
+    "ar": "Todoist"
+  },
+  "description": {
+    "en": "Import your Todoist projects and tasks. Todoist does not support PKCE, so the connection uses the signed state check only.",
+    "ar": "استورد مشاريع ومهام Todoist. لا يدعم Todoist آلية PKCE، لذا يعتمد الربط على التحقق من state فقط."
+  },
+  "scopes": [
+    {
+      "id": "data:read",
+      "required": true,
+      "label": {
+        "en": "Read your projects and tasks",
+        "ar": "قراءة المشاريع والمهام"
+      }
+    }
+  ],
+  "capabilities": [
+    "read_tasks",
+    "incremental_sync"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true,
+  "docs_url": "https://developer.todoist.com/"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "n8n",
+  "category": "automation",
+  "auth": "webhook",
+  "status": "planned",
+  "name": {
+    "en": "n8n",
+    "ar": "n8n"
+  },
+  "description": {
+    "en": "Planned and optional: send signed LifeOS events to your own n8n workflows. LifeOS works fully without n8n.",
+    "ar": "مخطط واختياري: إرسال أحداث LifeOS موقّعة إلى مسارات n8n الخاصة بك. يعمل LifeOS بالكامل دون n8n."
+  },
+  "scopes": [],
+  "capabilities": [
+    "outbound_events",
+    "inbound_webhooks"
+  ],
+  "multi_account": false,
+  "requires_admin_setup": false
+}

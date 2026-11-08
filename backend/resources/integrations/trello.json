@@ -1,0 +1,20 @@
+{
+  "id": "trello",
+  "category": "productivity",
+  "auth": "oauth2",
+  "status": "planned",
+  "name": {
+    "en": "Trello",
+    "ar": "Trello"
+  },
+  "description": {
+    "en": "Planned: import cards from the boards you choose.",
+    "ar": "مخطط: استيراد البطاقات من اللوحات التي تختارها."
+  },
+  "scopes": [],
+  "capabilities": [
+    "read_cards"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true
+}

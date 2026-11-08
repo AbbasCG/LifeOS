@@ -1,0 +1,21 @@
+{
+  "id": "ics",
+  "category": "calendars",
+  "auth": "ics",
+  "status": "available",
+  "name": {
+    "en": "Calendar link (ICS)",
+    "ar": "رابط تقويم (ICS)"
+  },
+  "description": {
+    "en": "Subscribe to any calendar that publishes a private .ics link. Read-only; no account or sign-in needed.",
+    "ar": "اشترك في أي تقويم ينشر رابط .ics خاصًا. للقراءة فقط ولا يحتاج حسابًا أو تسجيل دخول."
+  },
+  "scopes": [],
+  "capabilities": [
+    "read_events",
+    "feed_polling"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": false
+}
