@@ -152,3 +152,20 @@ the server still demands what it always did: an administrator with two-factor au
 a release that is part of a healthy deploy, and text that has not changed (409 `content_changed`: the dialog closes and the list reloads with the new text, nothing is approved). The button is disabled with the reason when the release is
 not registered yet, already approved with this text, or the account has no two-factor authentication. A release whose text changed after approval is flagged and offers "Approve the new text". **Withdraw** hides an approved release at once
 (no password needed, as before). The screen decides nothing by itself and changes no server setting: `DISCOVERY_AUTO_ACTIVATE` and the deploy marker stay the owner's.
+
+## How updates are received, and a checklist before approving (P8)
+
+**Numbers.** `GET /api/admin/discovery/stats` (administrators only; reading needs no second factor) and the "How people received it" block on each card of `/admin/releases` show **counts and nothing
+else**: accounts that saw, dismissed, postponed or rated (helpful / not helpful) the announcement; accounts that tried each feature; per tour (current version only) how many started, finished and skipped;
+per tip how many saw and dismissed it. No name, e-mail, account id or device is in the answer, nothing new is stored for it (the counts come from the per-person states that exist anyway:
+keys and timestamps), and a test fails if an identity ever appears in it. If the numbers cannot be loaded the page works as before. Use them to judge an update after the fact: low "seen" means people were not
+in the app at a calm moment, many "skipped" tours or "not helpful" ratings mean the wording or the steps need work (edit the files, which needs a new approval).
+
+**Checklist before approving** (the dialog asks you to confirm that you read the text; this is what to read for):
+1. Arabic, Dutch and English each say the same thing, in plain words, with no leftover English in the other two and no `⟦DRAFT⟧` (the loader refuses it anyway).
+2. Every claim is true of what is deployed now: the feature exists on the screens named, for the people who get it (`requires`, `audiences`).
+3. "Try now" goes where the text says (`route`), and each tour step points at something that exists (`ShippedContentTest` checks the routes and targets).
+4. Nothing promises more than shipped (for example "Dutch" means the chosen screens and replies, not every screen).
+5. The fingerprint on the screen equals the one in the pull request that introduced the text.
+6. Importance is "important" only if people must be told (it is shown with emphasis).
+After approving, watch the numbers for a day, and withdraw (immediate, no password) if something is wrong.

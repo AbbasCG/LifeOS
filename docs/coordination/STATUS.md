@@ -17,6 +17,7 @@ if it is wrong, add a row to `HANDOFFS.md`.
 
 | Date (UTC) | Branch | Commit / PR | Update |
 |---|---|---|---|
+| 2026-11-08 | `claude/smart-discovery-stats` | PR (P8 of Product Experience 2.0) | `GET /api/admin/discovery/stats` (counts only: seen, dismissed, rated, tried, tours, tips) and a "How people received it" block on `/admin/releases`; a checklist before approving. Nothing new is stored. See H-017. |
 | 2026-11-08 | `claude/smart-release-admin` | PR (P9 of Product Experience 2.0) | Screen `/admin/releases` for administrators: status, the exact ar/nl/en text, approve (fingerprint + "I read it" + password prompt) and withdraw; `preview` in the admin list; menu entry for administrators only. No server setting changes. See H-016. |
 | 2026-11-08 | `claude/smart-release-tools` | PR (P7 of Product Experience 2.0) | `scripts/release-notes-draft.sh` (draft a release file from merged PRs; cannot ship by accident), optional deploy hook `DEPLOY_REGISTER_RELEASES=1` (register shipped notes as drafts right after a healthy deploy; default off), loader guard for draft markers, tests, docs. See H-015. |
 | 2026-11-08 | `claude/smart-discovery-center` | PR (P6 of Product Experience 2.0) | Discovery Center at `/discover`: `GET /api/discovery/features`, `DiscoverPage` (categories, search, Try now, tour start/replay, reasons), a menu entry in group More, tests. Shows only features of approved releases. |

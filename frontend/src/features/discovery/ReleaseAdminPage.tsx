@@ -6,9 +6,10 @@ import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { useAuth } from '../../contexts/AuthContext'
+import { useLanguage } from '../../contexts/LanguageContext'
 import { useSensitiveAction } from '../../lib/sensitive'
 import { ApiError } from '../../lib/api'
-import { adminReleasesPath, approveRelease, withdrawRelease, type Activation, type AdminRelease, type Texts } from '../../lib/discovery'
+import { adminReleasesPath, adminStatsPath, approveRelease, withdrawRelease, type Activation, type AdminRelease, type DiscoveryStats, type ReleaseStats, type Texts } from '../../lib/discovery'
 
 type Lang = 'ar' | 'nl' | 'en'
 
@@ -21,6 +22,8 @@ export default function ReleaseAdminPage() {
   const t = useText(), toast = useToast(), auth = useAuth(), sensitive = useSensitiveAction()
   // Only an administrator asks: everybody else would get a 403 for nothing.
   const { data, error, loading, reload } = useApi<{ data: AdminRelease[]; activation: Activation }>(auth.user?.is_admin ? adminReleasesPath : null)
+  // The numbers are an extra: if they cannot be loaded the page still works and nothing about approving changes.
+  const stats = useApi<{ data: DiscoveryStats }>(auth.user?.is_admin ? adminStatsPath : null)
   const [deciding, setDeciding] = useState<{ release: AdminRelease; action: 'approve' | 'withdraw' } | null>(null)
   const [read, setRead] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState('')
 
@@ -64,7 +67,7 @@ export default function ReleaseAdminPage() {
       <p className={`ra-activation${data.activation.enabled && data.activation.status === 'confirmed' ? ' on' : ''}`} role="status">{activationText(data.activation)}</p>
       {data.data.length === 0
         ? <EmptyState title={t('No updates in the running code', 'لا توجد تحديثات في الكود العامل', 'Geen updates in de draaiende code')}>{t('Release notes are files in the code; when one ships it appears here as a draft.', 'ملاحظات الإصدار ملفات في الكود؛ عند شحن أحدها يظهر هنا كمسودة.', 'Releasenotes zijn bestanden in de code; zodra er een meekomt, verschijnt die hier als concept.')}</EmptyState>
-        : data.data.map(r => <ReleaseCard key={r.key} release={r} review={reviewLabel(r)} deploy={deployLabel(r)} blocked={cannotApprove(r)} onApprove={() => open(r, 'approve')} onWithdraw={() => open(r, 'withdraw')} />)}
+        : data.data.map(r => <ReleaseCard key={r.key} release={r} stats={stats.data?.data.releases.find(x => x.key === r.key)} accounts={stats.data?.data.accounts} review={reviewLabel(r)} deploy={deployLabel(r)} blocked={cannotApprove(r)} onApprove={() => open(r, 'approve')} onWithdraw={() => open(r, 'withdraw')} />)}
     </>}
     {deciding && <Dialog title={deciding.action === 'approve' ? t('Approve this update?', 'اعتماد هذا التحديث؟', 'Deze update goedkeuren?') : t('Withdraw this update?', 'سحب هذا التحديث؟', 'Deze update intrekken?')} onClose={() => !busy && setDeciding(null)}>
       <p><strong>{deciding.release.preview.title.en}</strong> <span className="muted small">({deciding.release.key})</span></p>
@@ -86,7 +89,7 @@ export default function ReleaseAdminPage() {
   </section>
 }
 
-function ReleaseCard({ release: r, review, deploy, blocked, onApprove, onWithdraw }: { release: AdminRelease; review: string; deploy: string; blocked: string | null; onApprove: () => void; onWithdraw: () => void }) {
+function ReleaseCard({ release: r, stats, accounts, review, deploy, blocked, onApprove, onWithdraw }: { release: AdminRelease; stats?: ReleaseStats; accounts?: number; review: string; deploy: string; blocked: string | null; onApprove: () => void; onWithdraw: () => void }) {
   const t = useText(), [lang, setLang] = useState<Lang>('en'), p = r.preview
   const changed = r.review_status === 'approved' && r.approved_hash !== r.content_hash
   const pick = (x: Texts | undefined | null) => x?.[lang] ?? ''
@@ -116,10 +119,33 @@ function ReleaseCard({ release: r, review, deploy, blocked, onApprove, onWithdra
         {p.tours.map(tour => <div key={tour.id}><h4>{pick(tour.title)}</h4><ol>{tour.steps.map((s, i) => <li key={i}><strong>{pick(s.title)}</strong>: {pick(s.body)} <span className="muted small" dir="ltr">({s.target})</span></li>)}</ol></div>)}
       </div>
     </details>
+    {stats && <Reception stats={stats} accounts={accounts ?? 0} release={r} />}
     <div className="rel-actions">
       <button type="button" className="primary" disabled={blocked !== null} onClick={onApprove}>{r.review_status === 'approved' ? t('Approve the new text', 'اعتماد النص الجديد', 'Nieuwe tekst goedkeuren') : t('Approve', 'اعتماد', 'Goedkeuren')}</button>
       {r.review_status === 'approved' && <button type="button" className="danger" onClick={onWithdraw}>{t('Withdraw', 'سحب', 'Intrekken')}</button>}
     </div>
     {blocked && <p className="muted small" role="note">{blocked}</p>}
   </article>
+}
+
+/** How people received the update: counts only, never who. */
+function Reception({ stats: s, accounts, release }: { stats: ReleaseStats; accounts: number; release: AdminRelease }) {
+  const t = useText(), { language: lang } = useLanguage()
+  const nameOf = (id: string) => release.preview.features.find(f => f.id === id)?.name[lang] ?? id
+  const nothing = s.seen === 0 && s.features.every(f => f.tried === 0 && !f.tour?.started && f.hints.every(h => h.shown === 0))
+  return <section className="ra-reception" aria-label={t('How people received it', 'كيف استقبله الناس', 'Hoe mensen het ontvingen')}>
+    <h3>{t('How people received it', 'كيف استقبله الناس', 'Hoe mensen het ontvingen')}</h3>
+    {nothing ? <p className="muted small">{t('Nobody has seen it yet.', 'لم يره أحد بعد.', 'Niemand heeft het nog gezien.')}</p> : <dl className="ra-stats">
+      <div><dt>{t('Seen', 'شاهدوه', 'Gezien')}</dt><dd>{t(`${s.seen} of ${accounts} accounts`, `${s.seen} من ${accounts} حسابًا`, `${s.seen} van ${accounts} accounts`)}</dd></div>
+      <div><dt>{t('Dismissed', 'أغلقوه', 'Weggedrukt')}</dt><dd>{s.dismissed}</dd></div>
+      <div><dt>{t('Postponed now', 'مؤجَّل الآن', 'Nu uitgesteld')}</dt><dd>{s.snoozed}</dd></div>
+      <div><dt>{t('Helpful', 'مفيد', 'Nuttig')}</dt><dd>{s.helpful}</dd></div>
+      <div><dt>{t('Not helpful', 'غير مفيد', 'Niet nuttig')}</dt><dd>{s.unhelpful}</dd></div>
+      {s.features.map(f => <div key={f.id} className="ra-stat-feature"><dt>{nameOf(f.id)}</dt>
+        <dd>{t(`tried by ${f.tried}`, `جرّبها ${f.tried}`, `geprobeerd door ${f.tried}`)}
+          {f.tour && ` · ${t(`tour: ${f.tour.started} started, ${f.tour.completed} finished, ${f.tour.skipped} skipped`, `الجولة: بدأها ${f.tour.started}، أنهاها ${f.tour.completed}، تخطّاها ${f.tour.skipped}`, `rondleiding: ${f.tour.started} begonnen, ${f.tour.completed} afgerond, ${f.tour.skipped} overgeslagen`)}`}
+          {f.hints.map(h => ` · ${t(`tip ${h.id}: shown ${h.shown}, dismissed ${h.dismissed}`, `تلميح ${h.id}: ظهر ${h.shown}، أُغلق ${h.dismissed}`, `tip ${h.id}: getoond ${h.shown}, weggedrukt ${h.dismissed}`)}`)}
+        </dd></div>)}
+    </dl>}
+  </section>
 }

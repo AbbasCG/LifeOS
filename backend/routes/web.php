@@ -107,6 +107,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('discovery/features/{id}/try', [DiscoveryController::class, 'tryFeature'])->middleware('throttle:discovery');
         Route::middleware(EnsureReleaseAdmin::class)->prefix('admin/discovery')->group(function (): void {
             Route::get('releases', [AdminReleaseController::class, 'index']);
+            Route::get('stats', [AdminReleaseController::class, 'stats']);
             Route::post('releases/{key}/approve', [AdminReleaseController::class, 'approve'])->middleware('password.confirm:,900');
             Route::post('releases/{key}/withdraw', [AdminReleaseController::class, 'withdraw']);
         });

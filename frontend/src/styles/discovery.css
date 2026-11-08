@@ -75,3 +75,10 @@
 .ra-text { padding: 12px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
 .ra-text h3, .ra-text h4 { margin: 0 0 6px; }
 .ra-text ul, .ra-text ol { margin: 0 0 8px; padding-inline-start: 1.2rem; display: grid; gap: 6px; }
+
+.ra-reception h3 { margin: 0 0 6px; font-size: 0.95rem; }
+.ra-stats { margin: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); }
+.ra-stats > div { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface-muted); }
+.ra-stats dt { font-size: 0.8rem; color: var(--color-text); font-weight: 600; }
+.ra-stats dd { margin: 2px 0 0; }
+.ra-stats .ra-stat-feature { grid-column: 1 / -1; }
