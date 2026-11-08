@@ -3433,3 +3433,17 @@ The small "nl plumbing" that Product Experience 2.0 needs so that announcements 
 
 ## Not done
 Dutch translations of the screens themselves (Dutch readers see English) and a language menu in the top bar; both can be added screen by screen with the optional third text.
+
+
+# V63 — Product Experience 2.0, P3: the What's New screen and the update history (Smart Experience track)
+
+The screens for the release core (V61). **Nothing appears until an administrator approves a release** and activation is switched on (`docs/DISCOVERY.md`).
+
+* **Announcement.** `DiscoveryHost` (mounted once in `AppLayout`) asks `GET /api/discovery/bootstrap` when the app is idle and shows `WhatsNewSheet` at the first calm moment: page in front, online, not typing, no dialog or sheet open, no focus session on screen (it retries every 15 s for three minutes). One per browser session. The sheet is the app's `BottomSheet` (a bottom sheet on a phone, a centred dialog on a computer): New / Improved / Fixed / Important groups, optional image or video (no autoplay, controls, captions when given), "Try now" only where the server says the feature can work for this account, "Got it", "Later" (a day, at most twice) and "All updates". Opening records *seen*; closing records *dismissed*.
+* **Update history** at `/updates` (also in the menu under More): every published release for this screen, newest first, opening it counts as seeing them, and a yes/no "Was this useful?" per release (no free text). `?release=<key>` scrolls to one (the notification link).
+* **Older tab.** If the server holds an update this open tab cannot show, a toast offers "Reload"; nothing reloads by itself. `DISCOVERY_CLIENT` in `lib/discovery.ts` is raised by the pull request that ships a feature's screen.
+* **Notification icon** for the `release` kind; styles in `styles/discovery.css` (new file); texts in Arabic, English and Dutch.
+* **Tests.** `src/tests/whats-new.test.tsx` (12) and `e2e/whats-new.spec.ts` (desktop and phone, English and Arabic, axe clean, footer inside the visible screen); the server is stubbed for the discovery endpoints only.
+
+## Not done
+"Try now" opens the page but does not start a tour yet (P5); New badges and hints (P4); the Discovery Center (P6). The Dutch texts of the rest of the app are still English.
