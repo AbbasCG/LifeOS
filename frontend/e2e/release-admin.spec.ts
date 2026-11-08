@@ -22,6 +22,8 @@ async function asAdmin(page: import('@playwright/test').Page, data = [release], 
     await route.fulfill({ response: real, json: { ...(await real.json()), is_admin: true, two_factor_enabled: true } })
   })
   await page.route('**/api/admin/discovery/releases', route => route.fulfill({ json: { data, activation } }))
+  await page.route('**/api/admin/discovery/stats', route => route.fulfill({ json: { data: { accounts: 12, releases: [{ key: release.key, seen: 7, dismissed: 3, snoozed: 1, helpful: 2, unhelpful: 1,
+    features: [{ id: 'quick-capture', tried: 5, tour: { id: 'quick-capture-tour', version: 1, started: 4, completed: 3, skipped: 1 }, hints: [] }] }] } } }))
   await page.route('**/api/admin/discovery/releases/*/approve', route => { posts.push({ url: route.request().url(), body: JSON.parse(route.request().postData() ?? '{}') }); return route.fulfill({ json: { data: { key: release.key, review_status: 'approved', deploy_status: 'live', visible: true } } }) })
   await page.route('**/api/discovery/bootstrap**', route => route.fulfill({ json: { data: { announcement: null, update_required: false, counts: { unseen_updates: 0 }, preferences: { hints_enabled: true } } } }))
   await page.route('**/api/discovery/guide**', route => route.fulfill({ json: { data: { new: [], hints: [] } } }))
@@ -39,6 +41,8 @@ for (const language of ['en', 'ar'] as const) {
     await page.locator('.ra-langs').getByRole('button', { name: 'العربية' }).click()
     await expect(page.locator('.ra-text[lang="ar"]')).toHaveAttribute('dir', 'rtl')
     await expect(page.locator('.ra-text')).toContainText('اكتب مهامك كما تتحدث.')
+    // How people received it: counts, in the page language.
+    await expect(page.locator('.ra-reception')).toContainText(language === 'ar' ? '7 من 12 حسابًا' : '7 of 12 accounts')
     expect(await a11yViolations(page)).toEqual([])
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
   })

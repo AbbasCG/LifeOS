@@ -20,7 +20,7 @@ const release = (over: Partial<AdminRelease> = {}): AdminRelease => ({
 })
 
 type Call = { method: string; url: string; body?: unknown }
-let calls: Call[], user: Record<string, unknown>, list: { data: AdminRelease[]; activation: { enabled: boolean; status: string; detail: string } }, approveAnswers: Response[]
+let stats: Response | null, calls: Call[], user: Record<string, unknown>, list: { data: AdminRelease[]; activation: { enabled: boolean; status: string; detail: string } }, approveAnswers: Response[]
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 function server() {
   calls = []
@@ -28,6 +28,7 @@ function server() {
     const method = init?.method ?? 'GET'
     calls.push({ method, url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined })
     if (url === '/api/user') return json(user)
+    if (/\/api\/admin\/discovery\/stats$/.test(url)) return stats ?? json({ data: { accounts: 12, releases: [{ key: 'r-one', seen: 7, dismissed: 3, snoozed: 1, helpful: 2, unhelpful: 1, features: [{ id: 'quick-capture', tried: 5, tour: { id: 'quick-tour', version: 1, started: 4, completed: 3, skipped: 1 }, hints: [{ id: 'qc-hint', shown: 6, dismissed: 5 }] }] }] } })
     if (/\/api\/admin\/discovery\/releases$/.test(url)) return list === null as never ? json({ message: 'The announcement files in the running code are invalid: x', code: 'content_invalid' }, 503) : json(list)
     if (/\/approve$/.test(url)) return approveAnswers.shift() ?? json({ data: {} })
     if (/\/withdraw$/.test(url)) return json({ data: {} })
@@ -44,7 +45,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.open = false }
   user = { id: 1, name: 'Admin', email: 'a@example.test', is_admin: true, two_factor_enabled: true }
   list = { data: [release()], activation: { enabled: true, status: 'confirmed', detail: 'ok' } }
-  approveAnswers = []
+  approveAnswers = []; stats = null
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -148,5 +149,31 @@ describe('approving updates', () => {
     server()
     shell()
     expect(await screen.findByRole('alert')).toHaveTextContent('announcement files in the running code are invalid')
+  })
+
+  it('shows how people received it: counts only, with the feature, tour and tip numbers', async () => {
+    server()
+    shell()
+    const block = await screen.findByRole('region', { name: 'How people received it' })
+    expect(within(block).getByText('7 of 12 accounts')).toBeInTheDocument()
+    expect(within(block).getByText('Dismissed').nextSibling).toHaveTextContent('3')
+    expect(within(block).getByText('Helpful').nextSibling).toHaveTextContent('2')
+    expect(within(block).getByText('Not helpful').nextSibling).toHaveTextContent('1')
+    expect(within(block).getByText('en Quick capture').nextSibling).toHaveTextContent('tried by 5')
+    expect(within(block).getByText('en Quick capture').nextSibling).toHaveTextContent('tour: 4 started, 3 finished, 1 skipped')
+    expect(within(block).getByText('en Quick capture').nextSibling).toHaveTextContent('tip qc-hint: shown 6, dismissed 5')
+  })
+
+  it('says so when nobody has seen it, and a failing statistics call never gets in the way of approving', async () => {
+    stats = json({ data: { accounts: 3, releases: [{ key: 'r-one', seen: 0, dismissed: 0, snoozed: 0, helpful: 0, unhelpful: 0, features: [{ id: 'quick-capture', tried: 0, tour: null, hints: [] }] }] } })
+    server()
+    shell()
+    expect(await screen.findByText('Nobody has seen it yet.')).toBeInTheDocument()
+    cleanup()
+    stats = json({ message: 'boom' }, 500)
+    server()
+    shell()
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.queryByRole('region', { name: 'How people received it' })).toBeNull()
   })
 })

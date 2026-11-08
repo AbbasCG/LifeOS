@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\AuditLogger;
 use App\Services\Discovery\DeployConfirmation;
+use App\Services\Discovery\DiscoveryStats;
 use App\Services\Discovery\InvalidDiscoveryContentException;
 use App\Services\Discovery\ReleaseService;
 use App\Services\Discovery\ReleaseStateException;
@@ -30,6 +31,19 @@ class AdminReleaseController extends Controller
         }
 
         return response()->json(['data' => $list, 'activation' => ['enabled' => $state['enabled'], 'status' => $state['status'], 'detail' => $state['detail']]]);
+    }
+
+    /** How the updates were received, as counts only (see DiscoveryStats). Content problems give an empty list, never an error. */
+    public function stats(DiscoveryStats $stats): JsonResponse
+    {
+        try {
+            $data = $stats->all();
+        } catch (InvalidDiscoveryContentException $e) {
+            report($e);
+            $data = ['accounts' => 0, 'releases' => []];
+        }
+
+        return response()->json(['data' => $data]);
     }
 
     /** Approves the text with the given fingerprint (read it from the list first): if the text has changed since, the answer is a 409. */
