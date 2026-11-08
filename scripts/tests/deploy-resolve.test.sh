@@ -68,6 +68,10 @@ for c in failure cancelled skipped timed_out neutral ""; do
   check "…skip=true and no SHA" skipped
   check "…without asking GitHub anything" noapi
 done
+# A re-run that fails after an earlier green attempt (CI #153 went red three times): the run that triggered us decides, GitHub's history of older greens does not.
+world; auto RUN_CONCLUSION=failure
+check "a failed CI run is skipped even though an earlier green run exists for the same SHA" skipped
+check "…and the older green run is not even looked up" noapi
 auto RUN_EVENT=pull_request;       check "CI run of a pull_request -> skip" skipped
 auto RUN_BRANCH=feature;           check "CI run of another branch -> skip" skipped
 auto RUN_REPO=someone/LifeOS;      check "CI run from a fork -> skip" skipped
