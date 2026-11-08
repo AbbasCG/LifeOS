@@ -3514,3 +3514,9 @@ Why: after P2–P9 the owner opened the site and What's new was empty. Three man
 - **Content:** release `2026-11-08-discover` (Discover page with a one-step tour on the menu entry; "Approve updates" for administrators only; updates-by-themselves), ar/nl/en.
 - **Tests:** `AutoApproveTest` (7), reworked notification tests, `ShippedContentTest` (+1: the whole path for the shipped content, including administrator-only items and the notification clearing), `unseen-badge.test.tsx` (3), the one-announcement-per-session test now also proves it records nothing.
 - **Owner-visible change of a previous decision** (approval by an administrator before anything is shown): kept as an option (`DISCOVERY_AUTO_APPROVE=false`) and as the **withdraw** control.
+
+# V73 — Product Experience 2.0: advanced Discovery Center (Smart Experience track)
+
+- **Screens:** `/discover` gets explainable suggestions ("Recommended for you", each with its reason), status and area filters, "New" and "Tried" marks, an icon per area, and a details dialog with Try now and the tour. Frontend only; the content, the endpoints, the releases and their fingerprints are untouched.
+- **Rules kept:** nothing starts by itself, one optional tip per session, finished tours are not replayed unasked, motion respects `prefers-reduced-motion`.
+- **Tests:** +10 Vitest (`discover.test.tsx`: 15), +1 Playwright scenario (axe, no sideways overflow, desktop and phone). Bundle unchanged (the page is a lazy chunk).

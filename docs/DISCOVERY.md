@@ -180,3 +180,14 @@ What an owner asked for, and how it works. **Nothing is clicked or switched on p
 Control stays with the owner: `/admin/releases` shows each release as "approved automatically" and **withdraw** hides one at once; `DISCOVERY_AUTO_APPROVE=false` goes back to approving each release by hand;
 `DISCOVERY_AUTO_ACTIVATE=false` stops everything. The automatic approval leaves the same record as a click, with nobody as reviewer (no audit row is written, as there is no person to attribute it to).
 `ShippedContentTest::test_after_a_healthy_deploy_everything_shipped_shows_up_by_itself` proves the whole path for whatever content is in the folder.
+
+## Discovery Center, advanced (P6 of the second round)
+
+Frontend only: no migration, no endpoint, no new package, no change to the content files, to any release or to its fingerprint.
+
+- **Suggestions** (`recommend()` in `lib/discovery.ts`): computed on the device from the catalogue the page already loaded. A feature is suggested only if it can be used now and has not been tried: new ones first, then untried ones in an area where the person already tried something. Each suggestion says why ("New, and you have not tried it yet" / "Because you already use Tasks"). At most three, shown only while no search or filter is active. Nothing is sent anywhere and no AI is involved.
+- **Filters:** by status (all / new / not tried yet / tried) and by area, next to the search. The number of features shown is announced politely.
+- **Marks:** "New" and "Tried" on each card, and an icon per area.
+- **Details:** a dialog (the app's own `Dialog`: focus trap, Escape closes, focus returns) with the description, the area, the image when the content has one, "Try now" and the tour. A feature that cannot be used says why instead of offering a button.
+- **Unchanged rules:** opening the page never starts a tour or a tip; a finished tour is only replayed when asked; "Watch again" is not a new "try".
+- **Not included, on purpose:** an "updated" mark (the content has no field that says a feature changed, and none was invented), a "how to use" text and a "benefit" text (also not in the content), and "related to the current page" (the page opens from the menu, so there is no current page to relate to).

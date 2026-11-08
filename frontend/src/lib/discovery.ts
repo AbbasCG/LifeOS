@@ -134,3 +134,25 @@ export function hintTarget(target: string): HTMLElement | null {
   const r = el.getBoundingClientRect()
   return r.width > 0 && r.height > 0 ? el : null
 }
+
+// ---- Discovery Center: simple, explainable suggestions (no server call, no AI, nothing leaves the device) ----
+export type Recommendation = { feature: CatalogueFeature; reason: 'new' | 'related'; /** For "related": the area the person already uses. */ category?: string }
+
+/**
+ * What to suggest next, from data the catalogue already holds. A feature is suggested only if it can be used now and has not been
+ * tried: first the new ones, then the ones in an area where the person has already tried something. Each carries the reason it
+ * was suggested so the page can say so. At most `limit`, newest first.
+ */
+export function recommend(features: CatalogueFeature[], limit = 3): Recommendation[] {
+  const usable = features.filter(f => f.can_try && !f.tried)
+  const byDate = (a: CatalogueFeature, b: CatalogueFeature) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)
+  const fresh = usable.filter(f => f.is_new).sort(byDate).map((feature): Recommendation => ({ feature, reason: 'new' }))
+  const used = new Set(features.filter(f => f.tried).map(f => f.category))
+  const related = usable.filter(f => !f.is_new && used.has(f.category)).sort(byDate).map((feature): Recommendation => ({ feature, reason: 'related', category: feature.category }))
+  return [...fresh, ...related].slice(0, limit)
+}
+
+export type StatusFilter = 'all' | 'new' | 'untried' | 'tried'
+export function matchesStatus(f: CatalogueFeature, status: StatusFilter): boolean {
+  return status === 'all' || (status === 'new' && f.is_new) || (status === 'untried' && !f.tried) || (status === 'tried' && f.tried)
+}

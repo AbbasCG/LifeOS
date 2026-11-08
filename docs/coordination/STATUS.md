@@ -17,6 +17,7 @@ if it is wrong, add a row to `HANDOFFS.md`.
 
 | Date (UTC) | Branch | Commit / PR | Update |
 |---|---|---|---|
+| 2026-11-08 | `claude/smart-discovery-center-p6` | PR (P6, second round) | Advanced Discovery Center: suggestions with reasons, filters, New/Tried marks, details dialog. Frontend only; no content, endpoint or release changed. |
 | 2026-11-08 | `claude/smart-auto-release` | PR (automatic updates) | Releases register and approve themselves after a healthy deploy (`DISCOVERY_AUTO_ACTIVATE` and new `DISCOVERY_AUTO_APPROVE` default on), every release notifies and reading it clears the notification, a count on "What's new" in the menu, second release (Discover). See H-018. |
 | 2026-11-08 | `claude/smart-discovery-stats` | PR (P8 of Product Experience 2.0) | `GET /api/admin/discovery/stats` (counts only: seen, dismissed, rated, tried, tours, tips) and a "How people received it" block on `/admin/releases`; a checklist before approving. Nothing new is stored. See H-017. |
 | 2026-11-08 | `claude/smart-release-admin` | PR (P9 of Product Experience 2.0) | Screen `/admin/releases` for administrators: status, the exact ar/nl/en text, approve (fingerprint + "I read it" + password prompt) and withdraw; `preview` in the admin list; menu entry for administrators only. No server setting changes. See H-016. |
