@@ -15,7 +15,9 @@ type PushConfig = { configured: boolean; public_key: string | null; channels: Re
 type Device = { id: number; device: string | null; created_at: string; last_used_at: string | null }
 type Prefs = { quiet_start?: string | null; quiet_end?: string | null; notifications?: boolean; event_remind_minutes?: number }
 
-const CATEGORIES = ['reminders', 'deadlines', 'calendar', 'focus', 'planning', 'review', 'system'] as const
+// A category the server did not report (an older server during an update) reads as on in the app and off as push.
+const FALLBACK = { enabled: true, push: false }
+const CATEGORIES = ['reminders', 'deadlines', 'calendar', 'focus', 'planning', 'review', 'updates', 'system'] as const
 
 export default function NotificationSettings() {
   const t = useText(), { language } = useLanguage(), toast = useToast()
@@ -33,6 +35,7 @@ export default function NotificationSettings() {
     focus: [t('Focus sessions', 'جلسات التركيز'), t('When a focus session ends.', 'عند انتهاء جلسة التركيز.')],
     planning: [t('Daily planning', 'التخطيط اليومي'), t('At the start of your working day.', 'في بداية يوم عملك.')],
     review: [t('Weekly review', 'المراجعة الأسبوعية'), t('At the end of your week.', 'في نهاية أسبوعك.')],
+    updates: [t('Product updates', 'تحديثات LifeOS'), t('What’s new in LifeOS, only when an update is important.', 'ما الجديد في LifeOS، عند التحديثات المهمة فقط.')],
     system: [t('Account & security', 'الحساب والأمان'), t('Connection problems and important account notices. Always shown in the app.', 'مشكلات الربط وتنبيهات الحساب المهمة. تظهر دائماً داخل التطبيق.')],
   }
   const pushLabel = (s: string | null | undefined) => s ? ({ sent: t('Pushed', 'أُرسل'), queued: t('Sending…', 'جارٍ الإرسال…'), retrying: t('Retrying', 'إعادة المحاولة'), failed: t('Push failed', 'فشل الإرسال'), suppressed: t('Held during focus', 'مؤجل أثناء التركيز'), no_device: t('No device', 'لا يوجد جهاز') } as Record<string, string>)[s] ?? s : t('In-app', 'داخل التطبيق')
@@ -55,7 +58,7 @@ export default function NotificationSettings() {
   })
   const remove = (id: number) => run(`device-${id}`, async () => { await api(`/api/push/subscriptions/${id}`, 'DELETE'); devices.reload(); setState(await pushState(true)) })
   const save = () => run('save', async () => { await api('/api/settings', 'PUT', { notification_channels: current, event_remind_minutes: minutes }); toast(t('Notification preferences saved.', 'حُفظت تفضيلات الإشعارات.')) })
-  const toggle = (c: string, field: keyof Channel) => setChannels({ ...current!, [c]: { ...current![c], [field]: !current![c][field] } })
+  const toggle = (c: string, field: keyof Channel) => setChannels({ ...current!, [c]: { ...(current![c] ?? FALLBACK), [field]: !(current![c] ?? FALLBACK)[field] } })
 
   if (config.error) return <ErrorMessage error={config.error} />
   if (!config.data || !current) return <Skeleton lines={5} />
@@ -96,8 +99,8 @@ export default function NotificationSettings() {
         <thead><tr><th scope="col">{t('Category', 'الفئة')}</th><th scope="col">{t('In app', 'داخل التطبيق')}</th><th scope="col">{t('Push', 'فوري')}</th></tr></thead>
         <tbody>{CATEGORIES.map(c => <tr key={c}>
           <th scope="row"><strong>{labels[c][0]}</strong><small className="muted">{labels[c][1]}</small></th>
-          <td><input type="checkbox" aria-label={`${labels[c][0]} — ${t('in app', 'داخل التطبيق')}`} checked={current[c].enabled} disabled={c === 'system'} onChange={() => toggle(c, 'enabled')} /></td>
-          <td><input type="checkbox" aria-label={`${labels[c][0]} — ${t('push', 'فوري')}`} checked={current[c].push && current[c].enabled} disabled={!current[c].enabled} onChange={() => toggle(c, 'push')} /></td>
+          <td><input type="checkbox" aria-label={`${labels[c][0]} — ${t('in app', 'داخل التطبيق')}`} checked={(current[c] ?? FALLBACK).enabled} disabled={c === 'system'} onChange={() => toggle(c, 'enabled')} /></td>
+          <td><input type="checkbox" aria-label={`${labels[c][0]} — ${t('push', 'فوري')}`} checked={(current[c] ?? FALLBACK).push && (current[c] ?? FALLBACK).enabled} disabled={!(current[c] ?? FALLBACK).enabled} onChange={() => toggle(c, 'push')} /></td>
         </tr>)}</tbody>
       </table>
       <label className="inline-field">{t('Remind me before events', 'ذكّرني قبل المواعيد')}

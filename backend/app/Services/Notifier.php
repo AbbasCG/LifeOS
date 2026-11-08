@@ -16,10 +16,10 @@ use Illuminate\Database\UniqueConstraintViolationException;
  */
 class Notifier
 {
-    public const CATEGORIES = ['reminders', 'deadlines', 'calendar', 'focus', 'planning', 'review', 'system'];
+    public const CATEGORIES = ['reminders', 'deadlines', 'calendar', 'focus', 'planning', 'review', 'updates', 'system'];
 
     /** Push is opt-in per device; these categories push by default once a device is enabled. */
-    public const PUSH_DEFAULTS = ['reminders' => true, 'deadlines' => true, 'calendar' => true, 'focus' => true, 'planning' => false, 'review' => false, 'system' => false];
+    public const PUSH_DEFAULTS = ['reminders' => true, 'deadlines' => true, 'calendar' => true, 'focus' => true, 'planning' => false, 'review' => false, 'updates' => false, 'system' => false];
 
     public function __construct(private WebPush $push) {}
 

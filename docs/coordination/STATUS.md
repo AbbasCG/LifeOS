@@ -17,6 +17,7 @@ if it is wrong, add a row to `HANDOFFS.md`.
 
 | Date (UTC) | Branch | Commit / PR | Update |
 |---|---|---|---|
+| 2026-11-08 06:19 | `claude/smart-release-core` | PR (P2 of Product Experience 2.0) | Release core: content registry, release lifecycle (healthy deploy + administrator approval), feature gate, `/api/discovery`, notification category `updates`. Shows nothing yet; activation is off by default (H-009). See `docs/DISCOVERY.md`. |
 | 2026-11-08 02:25 | `claude/smart-mobile-p2` | PR #64, merge `ebc7d3c` (head `5829e95`) | **S2 part 2 merged:** discard guard on sheets (`BottomSheet dirty`, task form, Quick Add), tab-list keyboard (`radioGroups`), Quick Add date tile as a radio. CI green (12/12); 160 Playwright cases passed locally. |
 | 2026-11-08 02:00 | `claude/smart-mobile-p1` | PR #63, merge `4388a10` (head `3fef911`) | **S2 part 1 merged and deployed (#33 success):** dictated "next week" lights the date tile, priority tile contrast, focus rings, switch accessible name (H-005), 44 px targets. |
 | 2026-11-08 01:30 | `claude/coordination-docs` | PR #62, merge `3c06419` | Coordination files. |

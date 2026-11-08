@@ -8,7 +8,7 @@ amends it in its own PR (see `HANDOFFS.md` H-000). Owner of the repository: Abba
 
 | Track | Branch prefix | Owns |
 |---|---|---|
-| **Smart Experience** | `claude/smart-*` | AI Daily Briefing · Quick Capture and Voice Capture · Smart Scheduling and Rescheduling · AI Brain and AI Usage · Productivity Analytics · Smart Projects and Knowledge · Mobile UX and RTL · Weekly Review |
+| **Smart Experience** | `claude/smart-*` | AI Daily Briefing · Quick Capture and Voice Capture · Smart Scheduling and Rescheduling · AI Brain and AI Usage · Productivity Analytics · Smart Projects and Knowledge · Mobile UX and RTL · Weekly Review · Product updates, Feature Discovery and Interactive Onboarding (What's New) |
 | **Integrations Hub** | `claude/integrations-*` | Connector Core · OAuth (state, PKCE, refresh) · Provider Registry (manifests) · Credential Vault and administrators · Webhooks · Outbound HTTP policy · Integrations UI (catalogue, detail pages, admin screens) · custom systems (EMC, Tharaa) · n8n bridge |
 
 ## Paths (guide, not a lock)
@@ -20,6 +20,7 @@ amends it in its own PR (see `HANDOFFS.md` H-000). Owner of the repository: Abba
 | `backend/resources/integrations/`, `config/integrations.php`, migrations for integration tables | read only | **owns** |
 | `frontend/src/features/{connected,settings/Integrations*}`, hub components | read only | **owns** |
 | `frontend/src/lib/{capture,quickAdd,voice}.ts`, `components/layout/QuickAdd.tsx` | **owns** | read only |
+| `backend/app/Services/Discovery/`, `config/discovery.php`, `resources/discovery/**` (content), `Controllers/{Discovery,AdminRelease}Controller.php`, `frontend/src/features/discovery/`, `frontend/public/discovery/`, `styles/discovery.css` | **owns** | read only; may add `discovery/tours/integrations-*.json` for its own screens (H-008) |
 | `backend/app/Services/{Assistant,Conversation,Copilot*,Weekly*,Morning*,Recommendation,Intelligence*,DayPlanner,Planning,Timeline,Conflict}*.php` | **owns** | read only |
 | `frontend/src/features/{today,intelligence,progress,analytics,wellbeing,assistant,timeline}`, `AiControlCenter.tsx` | **owns** | read only |
 | `frontend/src/styles/*` (mobile, RTL, tokens) | **owns** | edits only classes of its own components, in its own file where possible |
