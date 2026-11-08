@@ -1,0 +1,31 @@
+{
+  "id": "microsoft_todo",
+  "category": "tasks",
+  "auth": "oauth2_pkce",
+  "status": "available",
+  "name": {
+    "en": "Microsoft To Do",
+    "ar": "Microsoft To Do"
+  },
+  "description": {
+    "en": "Import your Microsoft To Do lists as read-only tasks you can copy into LifeOS.",
+    "ar": "استورد قوائم Microsoft To Do كمهام للقراءة فقط يمكنك نسخها إلى LifeOS."
+  },
+  "scopes": [
+    {
+      "id": "Tasks.Read",
+      "required": true,
+      "label": {
+        "en": "Read your task lists",
+        "ar": "قراءة قوائم المهام"
+      }
+    }
+  ],
+  "capabilities": [
+    "read_tasks",
+    "incremental_sync"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true,
+  "docs_url": "https://learn.microsoft.com/graph/api/resources/todo-overview"
+}

@@ -11,6 +11,8 @@ use App\Http\Controllers\CopilotController;
 use App\Http\Controllers\DayPlanController;
 use App\Http\Controllers\FocusController;
 use App\Http\Controllers\InsightsController;
+use App\Http\Controllers\IntegrationAdminController;
+use App\Http\Controllers\IntegrationCatalogController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\IntelligenceController;
 use App\Http\Controllers\NotificationController;
@@ -19,9 +21,16 @@ use App\Http\Controllers\PushController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\TimelineController;
+use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
+use App\Http\Middleware\EnsureIntegrationAdmin;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 Route::get('/', fn () => response()->json(['application' => 'LifeOS', 'status' => 'ok']));
 Route::prefix('api')->middleware('throttle:api')->group(function (): void {
@@ -30,6 +39,14 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
     Route::post('two-factor-challenge', [AuthController::class, 'twoFactorChallenge'])->middleware('throttle:two-factor');
     Route::post('forgot-password', [AuthController::class, 'forgot'])->middleware('throttle:password-reset');
     Route::post('reset-password', [AuthController::class, 'reset'])->middleware('throttle:auth');
+    // Signed webhooks: authenticated by HMAC, so no session, cookies or CSRF token are involved (and no session row is created per call).
+    Route::post('webhooks/{publicId}', [WebhookController::class, 'receive'])->whereUuid('publicId')->middleware('throttle:webhooks')->withoutMiddleware([
+        EncryptCookies::class,
+        AddQueuedCookiesToResponse::class,
+        StartSession::class,
+        ShareErrorsFromSession::class,
+        PreventRequestForgery::class,
+    ]);
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('assistant', [AssistantController::class, 'respond'])->middleware('throttle:assistant');
         Route::get('assistant/status', [AssistantController::class, 'status']);
@@ -76,8 +93,14 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('availability', [AvailabilityController::class, 'index']);
         Route::get('calendar', [CalendarController::class, 'index']);
         Route::get('integrations', [IntegrationController::class, 'index']);
+        Route::get('integrations/catalog', [IntegrationCatalogController::class, 'index']);
+        Route::middleware(EnsureIntegrationAdmin::class)->prefix('admin/integrations')->group(function (): void {
+            Route::get('credentials', [IntegrationAdminController::class, 'index']);
+            Route::put('credentials/{provider}', [IntegrationAdminController::class, 'update'])->where('provider', '[a-z][a-z0-9_]{1,39}')->middleware('password.confirm:,900');
+            Route::delete('credentials/{provider}', [IntegrationAdminController::class, 'destroy'])->where('provider', '[a-z][a-z0-9_]{1,39}')->middleware('password.confirm:,900');
+        });
         Route::post('integrations/{provider}/connect', [IntegrationController::class, 'connect'])->whereIn('provider', IntegrationController::PROVIDERS)->middleware('throttle:auth');
-        Route::get('integrations/{provider}/callback', [IntegrationController::class, 'callback'])->whereIn('provider', IntegrationController::PROVIDERS);
+        Route::get('integrations/{provider}/callback', [IntegrationController::class, 'callback'])->whereIn('provider', IntegrationController::PROVIDERS)->middleware('throttle:integrations');
         Route::post('integrations/accounts/{id}/write/connect', [CalendarWriteController::class, 'connect'])->whereNumber('id')->middleware('throttle:auth');
         Route::get('integrations/accounts/{id}/write/calendars', [CalendarWriteController::class, 'calendars'])->whereNumber('id');
         Route::put('integrations/accounts/{id}/write', [CalendarWriteController::class, 'choose'])->whereNumber('id');

@@ -3337,3 +3337,25 @@ Success; failed/cancelled/skipped CI; wrong event/branch/fork; stale CI after a 
 ## Not verified
 GitHub-side behaviour (the `workflow_run` trigger, `pull-requests: read` on the commit→PR endpoint, environment and branch-protection settings) and the real server. No `.env`, Docker, PostgreSQL or n8n change; no secret is read or printed by the new script.
 
+---
+
+# V58 — Integrations core (Phase 2 of the Universal Integrations Hub)
+
+Backend foundation for a Notion/Zapier-style hub; see `docs/INTEGRATIONS.md`. The existing connectors and routes keep their behaviour.
+
+## Changes
+- **Registry:** 14 JSON manifests (6 available, 8 planned), validated by `ManifestRegistry`; `GET /api/integrations/catalog` with real states (`planned`, `requires_setup`, `disconnected`, `connected`, `syncing`, `error`).
+- **Vault + administrators:** `users.is_admin` (set only by `lifeos:make-admin`), `integration_app_credentials` (secret encrypted, write-only), admin API behind administrator + 2FA + fresh password confirmation, audit entries; OAuth providers read the database credentials first and `.env` second. `lifeos:integrations:reencrypt` for `APP_KEY` rotation.
+- **OAuth state:** `oauth_states` store (hashed state, encrypted PKCE verifier, single atomic use, user/provider bound, TTL); `integrations` rate limit on the callback.
+- **Token refresh:** per-account lock and re-read in `CalendarSyncService::freshToken()`.
+- **Webhooks:** public HMAC-SHA256 receiver with timestamp window, unique delivery id (idempotent), size cap, rotation overlap, throttling, no session/CSRF, queued handlers.
+- **Outbound policy:** `OutboundHttpGuard` (default deny, administrator rules for private hosts, loopback/metadata never) sharing `PublicAddress` with the ICS fetcher.
+- **Logging:** secret redaction on log channels and on stored provider error text.
+- **Tests:** `Http::preventStrayRequests()` in `TestCase`; the two route-guard tests now list the webhook receiver as the only non-sign-in route besides the sign-in family.
+
+## Tests
+424 backend tests, none failing, on SQLite and on PostgreSQL 16 (81 new; the 2 skips are pre-existing). Eleven deliberate breakages of the security checks (state replay, user binding, timestamp window, signature check, administrator gate, 2FA requirement, redirect path, refresh re-read, loopback rule, credential-source mixing, bearer masking) each make the new tests fail. Pint is clean. The migrations roll back and re-apply on PostgreSQL.
+
+## Not verified
+Real provider consent screens and the production server. No `.env`, `APP_KEY`, Docker, n8n or production database change. The first deploy with this change runs five additive migrations (verified backup first).
+

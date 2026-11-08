@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Logging\SecretRedactor;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -23,7 +24,7 @@ class SyncRun extends Model
 
     public function finish(string $status, ?string $error = null): void
     {
-        $this->forceFill(['status' => $status, 'error' => $error ? mb_substr($error, 0, 500) : null, 'finished_at' => now()])->save();
+        $this->forceFill(['status' => $status, 'error' => $error ? mb_substr(SecretRedactor::scrub($error), 0, 500) : null, 'finished_at' => now()])->save();
     }
 
     /**

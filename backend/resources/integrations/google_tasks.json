@@ -1,0 +1,31 @@
+{
+  "id": "google_tasks",
+  "category": "tasks",
+  "auth": "oauth2_pkce",
+  "status": "available",
+  "name": {
+    "en": "Google Tasks",
+    "ar": "مهام Google"
+  },
+  "description": {
+    "en": "Import your Google Tasks lists as read-only tasks you can copy into LifeOS.",
+    "ar": "استورد قوائم مهام Google كمهام للقراءة فقط يمكنك نسخها إلى LifeOS."
+  },
+  "scopes": [
+    {
+      "id": "tasks.readonly",
+      "required": true,
+      "label": {
+        "en": "Read your task lists",
+        "ar": "قراءة قوائم المهام"
+      }
+    }
+  ],
+  "capabilities": [
+    "read_tasks",
+    "incremental_sync"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true,
+  "docs_url": "https://developers.google.com/tasks"
+}

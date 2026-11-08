@@ -1,0 +1,22 @@
+{
+  "id": "telegram",
+  "category": "messaging",
+  "auth": "api_key",
+  "status": "planned",
+  "name": {
+    "en": "Telegram",
+    "ar": "تيليجرام"
+  },
+  "description": {
+    "en": "Planned: capture tasks and receive reminders through a Telegram bot.",
+    "ar": "مخطط: التقاط المهام واستلام التذكيرات عبر بوت تيليجرام."
+  },
+  "scopes": [],
+  "capabilities": [
+    "capture_tasks",
+    "reminders",
+    "webhooks"
+  ],
+  "multi_account": false,
+  "requires_admin_setup": true
+}

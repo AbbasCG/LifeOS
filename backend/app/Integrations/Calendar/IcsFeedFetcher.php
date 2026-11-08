@@ -2,6 +2,7 @@
 
 namespace App\Integrations\Calendar;
 
+use App\Integrations\Http\PublicAddress;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -131,19 +132,6 @@ class IcsFeedFetcher
 
     private function isPublic(string $ip): bool
     {
-        if (str_starts_with(strtolower($ip), '::ffff:')) {
-            $ip = substr($ip, 7);
-        }
-        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-            return false;
-        }
-        // Carrier-grade NAT and IPv6 link-local are not covered by the flags on every PHP version.
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            $long = ip2long($ip);
-
-            return ! (($long & 0xFFC00000) === (ip2long('100.64.0.0') & 0xFFC00000));
-        }
-
-        return ! preg_match('/^(fe[89ab]|fc|fd|::1$|::$)/i', $ip);
+        return PublicAddress::isPublic($ip);
     }
 }

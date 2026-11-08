@@ -17,6 +17,8 @@ class AuditLogger
         'session_revoked', 'other_sessions_revoked', 'data_exported',
         'integration_connected', 'integration_disconnected', 'integration_revoked', 'integration_collections_changed', 'connected_task_copied',
         'push_subscribed', 'push_unsubscribed', 'ai_action_executed', 'automation_changed', 'checkins_deleted',
+        'ai_settings_changed', 'ai_action_undone',
+        'admin_granted', 'admin_revoked', 'integration_credentials_set', 'integration_credentials_removed', 'webhook_endpoint_created', 'webhook_secret_rotated',
     ];
 
     /**

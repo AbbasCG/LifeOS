@@ -1,0 +1,40 @@
+{
+  "id": "outlook",
+  "category": "calendars",
+  "auth": "oauth2_pkce",
+  "status": "available",
+  "name": {
+    "en": "Microsoft Calendar",
+    "ar": "تقويم Microsoft"
+  },
+  "description": {
+    "en": "Read your Outlook / Microsoft 365 calendar into LifeOS. Optional write-back for events you confirm.",
+    "ar": "اقرأ تقويم Outlook / Microsoft 365 داخل LifeOS. والكتابة الراجعة اختيارية للأحداث التي تؤكدها."
+  },
+  "scopes": [
+    {
+      "id": "Calendars.Read",
+      "required": true,
+      "label": {
+        "en": "Read your calendar events",
+        "ar": "قراءة أحداث التقويم"
+      }
+    },
+    {
+      "id": "Calendars.ReadWrite",
+      "required": false,
+      "label": {
+        "en": "Create and edit events you confirm",
+        "ar": "إنشاء وتعديل الأحداث التي تؤكدها"
+      }
+    }
+  ],
+  "capabilities": [
+    "read_events",
+    "incremental_sync",
+    "write_events"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true,
+  "docs_url": "https://learn.microsoft.com/graph/api/resources/calendar"
+}

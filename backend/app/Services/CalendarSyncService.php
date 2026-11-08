@@ -10,11 +10,13 @@ use App\Integrations\Calendar\ProviderException;
 use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\Calendar\SyncTokenExpiredException;
 use App\Integrations\Tasks\TaskProvider;
+use App\Logging\SecretRedactor;
 use App\Models\CalendarAccount;
 use App\Models\ExternalEvent;
 use App\Models\ExternalTask;
 use App\Models\SyncRun;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -49,24 +51,50 @@ class CalendarSyncService
      */
     public function freshToken(CalendarAccount $account): string
     {
-        if ($account->token_expires_at && $account->token_expires_at->isAfter(now()->addMinutes(2))) {
-            return $account->access_token;
-        }
-        if (! $account->token_expires_at && ! $account->refresh_token) {
-            // Non-expiring access tokens (e.g. Todoist).
+        if ($this->tokenIsFresh($account)) {
             return $account->access_token;
         }
         if (! $account->refresh_token) {
             throw new ProviderAuthException('No refresh token is available. Reconnect the account.');
         }
-        $tokens = $this->providers->get($account->provider)->refresh($account->refresh_token);
-        $account->forceFill([
-            'access_token' => $tokens->accessToken,
-            'refresh_token' => $tokens->refreshToken ?? $account->refresh_token,
-            'token_expires_at' => $tokens->expiresAt,
-        ])->save();
+        // One refresh at a time per account: providers that rotate refresh tokens invalidate the old one on use, so two
+        // parallel refreshes (a queued sync and a manual action) could leave the account with a dead token.
+        $lock = Cache::lock("connected-refresh:{$account->id}", 30);
+        try {
+            $lock->block((int) config('integrations.refresh_lock_wait', 10));
+        } catch (LockTimeoutException) {
+            throw new ProviderException('Another request is refreshing this account. Try again in a moment.');
+        }
+        try {
+            // Another process may have refreshed while this one waited: use what it stored instead of refreshing again.
+            $account->refresh();
+            if ($this->tokenIsFresh($account)) {
+                return $account->access_token;
+            }
+            if (! $account->refresh_token) {
+                throw new ProviderAuthException('No refresh token is available. Reconnect the account.');
+            }
+            $tokens = $this->providers->get($account->provider)->refresh($account->refresh_token);
+            $account->forceFill([
+                'access_token' => $tokens->accessToken,
+                'refresh_token' => $tokens->refreshToken ?? $account->refresh_token,
+                'token_expires_at' => $tokens->expiresAt,
+            ])->save();
 
-        return $tokens->accessToken;
+            return $tokens->accessToken;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /** A token that is valid for at least two more minutes, or a non-expiring one (e.g. Todoist). */
+    private function tokenIsFresh(CalendarAccount $account): bool
+    {
+        if ($account->token_expires_at) {
+            return $account->token_expires_at->isAfter(now()->addMinutes(2));
+        }
+
+        return ! $account->refresh_token;
     }
 
     /**
@@ -127,12 +155,12 @@ class CalendarSyncService
             return 0;
         } catch (RateLimitedException $e) {
             $run->finish('rate_limited', $e->getMessage());
-            $account->forceFill(['status' => 'error', 'last_error' => $e->getMessage(), 'retry_after' => now()->addSeconds($e->retryAfter), 'consecutive_failures' => $account->consecutive_failures + 1])->save();
+            $account->forceFill(['status' => 'error', 'last_error' => mb_substr(SecretRedactor::scrub($e->getMessage()), 0, 500), 'retry_after' => now()->addSeconds($e->retryAfter), 'consecutive_failures' => $account->consecutive_failures + 1])->save();
 
             throw $e;
         } catch (ProviderException $e) {
             $run->finish('failed', $e->getMessage());
-            $account->forceFill(['status' => 'error', 'last_error' => mb_substr($e->getMessage(), 0, 500), 'consecutive_failures' => $account->consecutive_failures + 1])->save();
+            $account->forceFill(['status' => 'error', 'last_error' => mb_substr(SecretRedactor::scrub($e->getMessage()), 0, 500), 'consecutive_failures' => $account->consecutive_failures + 1])->save();
 
             throw $e;
         } finally {
@@ -322,7 +350,7 @@ class CalendarSyncService
     public function markRevoked(CalendarAccount $account, string $reason): void
     {
         $wasActive = $account->status !== 'revoked';
-        $account->forceFill(['status' => 'revoked', 'last_error' => mb_substr($reason, 0, 500)])->save();
+        $account->forceFill(['status' => 'revoked', 'last_error' => mb_substr(SecretRedactor::scrub($reason), 0, 500)])->save();
         if ($wasActive) {
             $label = $this->providers->get($account->provider)?->label() ?? $account->provider;
             $ar = ($account->user->preferences()['language'] ?? 'en') === 'ar';

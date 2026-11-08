@@ -1,0 +1,20 @@
+{
+  "id": "openai",
+  "category": "ai",
+  "auth": "api_key",
+  "status": "planned",
+  "name": {
+    "en": "OpenAI",
+    "ar": "OpenAI"
+  },
+  "description": {
+    "en": "Planned: use your organisation's OpenAI API key for the assistant. A ChatGPT subscription is not an API key.",
+    "ar": "مخطط: استخدم مفتاح OpenAI API الخاص بمؤسستك للمساعد. اشتراك ChatGPT ليس مفتاح API."
+  },
+  "scopes": [],
+  "capabilities": [
+    "assistant"
+  ],
+  "multi_account": false,
+  "requires_admin_setup": true
+}

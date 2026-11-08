@@ -1,0 +1,20 @@
+{
+  "id": "notion",
+  "category": "productivity",
+  "auth": "oauth2_pkce",
+  "status": "planned",
+  "name": {
+    "en": "Notion",
+    "ar": "Notion"
+  },
+  "description": {
+    "en": "Planned: import pages from one database you pick, with explicit page access.",
+    "ar": "مخطط: استيراد صفحات من قاعدة بيانات واحدة تختارها بوصول صريح للصفحات."
+  },
+  "scopes": [],
+  "capabilities": [
+    "read_pages"
+  ],
+  "multi_account": true,
+  "requires_admin_setup": true
+}
