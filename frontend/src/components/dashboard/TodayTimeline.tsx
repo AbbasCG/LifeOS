@@ -49,7 +49,7 @@ export default function TodayTimeline() {
               }}
             >
               <p className="font-semibold">
-                {event.title[language]}
+                {event.title[language === 'ar' ? 'ar' : 'en']}
               </p>
 
               <p

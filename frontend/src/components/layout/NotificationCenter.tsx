@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Bell, BellRing, CalendarClock, CheckCheck, AlarmClock, Timer, Trash2, ClipboardList, AlertTriangle, Heart } from 'lucide-react'
+import { Bell, BellRing, CalendarClock, CheckCheck, AlarmClock, Timer, Trash2, ClipboardList, AlertTriangle, Heart, Sparkles } from 'lucide-react'
 import { api, type InboxNotification } from '../../lib/api'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { Dialog, ErrorMessage } from '../ui/Shared'
 
-const icons: Record<string, typeof Bell> = { habit: Heart, reminder: AlarmClock, due: CalendarClock, overdue: AlertTriangle, event: CalendarClock, focus: Timer, planning: ClipboardList, review: ClipboardList }
+const icons: Record<string, typeof Bell> = { habit: Heart, reminder: AlarmClock, due: CalendarClock, overdue: AlertTriangle, event: CalendarClock, focus: Timer, planning: ClipboardList, review: ClipboardList, release: Sparkles }
 const POLL_MS = 60_000
 
 export default function NotificationCenter() {

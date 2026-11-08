@@ -1,0 +1,48 @@
+/* Product updates (What's New) and the update history. Logical properties only, so Arabic mirrors by itself. */
+.rel-date { margin-block: 0 var(--space-2, 8px); }
+.rel-summary { margin-block: 0 var(--space-4, 16px); font-size: 1rem; line-height: 1.6; }
+.rel-body { display: grid; gap: var(--space-5, 20px); }
+.rel-group h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 var(--space-2, 8px); padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+  color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); }
+.rel-group h3 svg { flex: none; }
+.rel-important svg { color: var(--color-warning, #b45309); }
+.rel-new svg, .rel-improved svg { color: var(--color-primary); }
+.rel-fixed svg { color: var(--color-text-muted); }
+.rel-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4, 16px); }
+.rel-item h4 { margin: 0 0 4px; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rel-item p { margin: 0 0 var(--space-2, 8px); color: var(--color-text); line-height: 1.55; }
+.rel-new { font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--color-primary); color: var(--color-on-primary); }
+.rel-media { display: block; max-inline-size: 100%; block-size: auto; border-radius: 12px; margin-block: var(--space-2, 8px); background: var(--color-surface-muted); }
+.rel-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); align-items: center; }
+.rel-foot { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); justify-content: flex-start; }
+.rel-foot .primary { flex: 1 1 auto; min-inline-size: 7rem; }
+.updates-page { display: grid; gap: var(--space-4, 16px); align-content: start; }
+.rel-card { display: grid; gap: var(--space-3, 12px); scroll-margin-block-start: 72px; }
+.rel-card h2 { margin: 0; font-size: 1.15rem; }
+.rel-card.is-focus { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.rel-rate { display: flex; align-items: center; gap: var(--space-2, 8px); border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-3, 12px); }
+.rel-rate button[aria-pressed="true"] { background: var(--color-surface-muted); outline: 2px solid var(--color-primary); }
+@media (prefers-reduced-motion: no-preference) { .rel-card { transition: outline-color 0.2s; } }
+
+/* Feature discovery: the "New" mark in the menu and the hint bubble. */
+.new-badge { margin-inline-start: auto; font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--color-primary); color: var(--color-on-primary); }
+.hint-bubble { position: fixed; z-index: 60; inline-size: min(300px, calc(100vw - 24px)); padding: var(--space-3, 12px) var(--space-4, 16px); padding-inline-end: 40px;
+  border-radius: 14px; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); box-shadow: 0 10px 30px rgb(0 0 0 / 0.18); }
+.hint-bubble p { margin: 0 0 var(--space-3, 12px); line-height: 1.5; }
+.hint-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
+.hint-close { position: absolute; inset-block-start: 6px; inset-inline-end: 6px; }
+.hints-setting .inline { display: flex; align-items: center; gap: 8px; }
+@media (prefers-reduced-motion: no-preference) { .hint-bubble { animation: hint-in 0.18s ease-out; } @keyframes hint-in { from { opacity: 0; transform: translateY(4px); } } }
+
+/* Guided tours: a dimmed page with a cut-out around the target, and a card beside it. Nothing here clicks for the person. */
+.tour-dim { position: fixed; inset: 0; z-index: 100; background: rgb(0 0 0 / 0.45); pointer-events: none; }
+.tour-dim.has-target { inset: auto; background: transparent; border-radius: 12px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45), 0 0 0 3px var(--color-primary); }
+.tour-card { position: fixed; z-index: 101; inline-size: min(340px, calc(100vw - 24px)); box-sizing: border-box; padding: var(--space-4, 16px); border-radius: 16px;
+  background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); box-shadow: 0 12px 36px rgb(0 0 0 / 0.28); }
+.tour-card:focus { outline: none; }
+.tour-card:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.tour-card h2 { margin: 0 0 var(--space-2, 8px); font-size: 1.05rem; }
+.tour-card p { margin: 0 0 var(--space-3, 12px); line-height: 1.5; }
+.tour-card .tour-progress { margin-block-end: 4px; font-size: 0.8rem; font-weight: 600; color: var(--color-text); }
+.tour-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
+@media (prefers-reduced-motion: no-preference) { .tour-card { animation: hint-in 0.18s ease-out; } .tour-dim.has-target { transition: top 0.2s, left 0.2s, width 0.2s, height 0.2s; } }

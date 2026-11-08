@@ -1,0 +1,8 @@
+# Must be rejected: "runs_on" is not a job key (the real key is "runs-on"), so the job has no runner.
+name: bad unknown key
+on: push
+jobs:
+  build:
+    runs_on: ubuntu-latest
+    steps:
+      - run: echo hi

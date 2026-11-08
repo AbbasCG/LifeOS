@@ -239,11 +239,48 @@ Quick checks on the server: `namei -m /var/www/lifeos/frontend/dist/index.html` 
 
 ## Tests
 
-`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**) runs `bash -n`, `shellcheck`, `actionlint` and 110+ offline scenarios (`deploy-production.test.sh`) and, for the automatic decision, `scripts/tests/deploy-resolve.test.sh` (81 checks against a stubbed GitHub API: failed CI, stale CI, direct push, duplicates, dry runs, API errors, manual and rollback paths, workflow guard rails) against a
+`scripts/tests/deploy-production.test.sh` (also CI job **Deploy tooling**, together with `deploy-resolve.test.sh` and `workflow-lint.test.sh`) runs `bash -n`, `shellcheck`, `actionlint` and 110+ offline scenarios (`deploy-production.test.sh`) and, for the automatic decision, `scripts/tests/deploy-resolve.test.sh` (81 checks against a stubbed GitHub API: failed CI, stale CI, direct push, duplicates, dry runs, API errors, manual and rollback paths, workflow guard rails) against a
 temporary git remote with stub binaries: bad/short/unknown commits, dirty tree, untracked files, wrong branch, root, missing sudo rule, concurrent
 deploys, dry run, deploy without/with migrations (backup strictly before migrate), failing/empty/unverifiable backup, failing build, failing
 migration, unhealthy API, `dist` permissions (nested dirs, private font, repair of an existing `dist`, untraversable parent), `/up` 404 vs 500 and an unreadable `dist` (403), fast-forward rules, rollback (never migrates), and the SSH forced command against injection attempts.
 It cannot reach any server and is safe to run anywhere.
+
+## What stops a bad commit reaching production (CI gate and health checks)
+
+An automatic deploy happens only if **all** of these hold; a red CI run therefore never deploys, however many times it is re-run.
+
+| Layer | Where | What it checks | Covered by |
+|---|---|---|---|
+| 1. Workflow condition | `deploy.yml` `resolve.if` | `AUTO_DEPLOY == 'true'`, the triggering CI run's own `conclusion == 'success'`, event `push`, branch `main`, this repository | `deploy-resolve.test.sh` "workflow guard rails" |
+| 2. Resolver | `scripts/deploy-resolve.sh` (taken from `main`) | the same conclusion again; the SHA is on `main`, is still its head, belongs to a merged PR, has a successful push CI run **for exactly that SHA**, and was not deployed already | `deploy-resolve.test.sh` (83 scenarios, incl. "a failed CI run is skipped even though an earlier green run exists for the same SHA") |
+| 3. CI itself | `ci.yml` | one run is green only if every job is: Laravel (SQLite, PostgreSQL), React, **Deploy tooling**, all Playwright shards and the "Browser (Playwright)" gate. No `continue-on-error` anywhere | `workflow-lint.test.sh` "not made optional" |
+| 4. Server health | `deploy-production.sh` `health_check` | after cut-over: `/api/user` signed-out = 401 + JSON, `/` = 200, `/up` = 200 (or 404, see below); retries x10; otherwise **exit 3 "UNHEALTHY"** and the previous `dist` is kept for a code-only rollback. Nothing is rolled back automatically | `deploy-production.test.sh` (health scenarios) |
+
+Evidence from production: when CI #153 went red three times (the `actionlint` download answered 504), the workflow runs #39, #40 and #41 were **skipped**, production stayed
+on #38, and the same commit deployed as #42 only after CI turned green.
+
+### Workflow lint without a single download host
+
+The "Workflow lint" step used to run `pip install actionlint-py`, which builds from source and downloads the binary from GitHub Releases. Since the CI hardening change (phase 2) the job
+(1) restores a cached `~/.local/bin/actionlint` (key `actionlint-1.7.12-<os>-<arch>`), otherwise (2) `scripts/ci-install-actionlint.sh` runs `go install ...@v1.7.12` (Go module
+proxy and checksum database), otherwise (3) `pip install actionlint-py==1.7.12.25`, each with retries, and verifies the version. If no route works the job **fails**: the lint is
+never skipped. Then the real lint runs on `.github/workflows/*.yml`, and `scripts/tests/workflow-lint.test.sh` proves the installer's fallbacks (with stubs) and that known-bad
+workflow files (`scripts/tests/fixtures/workflows/`: unknown job key, `needs` on a missing job, undefined `github` property) are still rejected while a valid one is accepted.
+To change the version: edit `ACTIONLINT_VERSION`/`ACTIONLINT_PIP_VERSION` defaults in the script and the cache key in `ci.yml` together.
+
+### Risk of `HEALTH_REQUIRE_UP=0` (the default) — not changed here
+
+`/up` is Laravel's liveness route. With the default `HEALTH_REQUIRE_UP=0` a `404` from `/up` is accepted with a log note, because a hardened Nginx may not route it
+(this is what stopped deploy #21 on 2026-11-07 with the older, stricter script). What that default does and does not cover:
+
+- Still enforced either way: `/api/user` = 401 JSON (PHP-FPM, Laravel, sessions and the database-backed guard answer) and `/` = 200 (the frontend files are readable).
+- Not enforced: that Nginx routes `/up`. If a later Nginx change brings the 404 back, deploys keep passing and only the note in `deploy.log` shows it, so an external
+  monitor that watches `/up` would go blind without the deploy ever failing.
+- Every deploy from #29 (2026-11-08 00:27 UTC) to #42 logged `/up 200`, so the server does route it today.
+
+Recommended, **as an administrator decision on the server** (this repository changes no production setting): after confirming
+`curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/up` prints `200`, export `HEALTH_REQUIRE_UP=1` for the deploy user's environment (where the other
+`deploy-production.sh` variables are set). To go back, remove it. A deploy that then fails on `/up` stops with exit 3 exactly like any unhealthy release.
 
 ## Residual risks (read before enabling)
 

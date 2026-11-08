@@ -83,7 +83,9 @@ class ConversationService
      */
     public function markdown(Conversation $conversation): string
     {
-        $lines = ['# '.$conversation->title, '', '_'.$conversation->created_at?->toIso8601String().' · '.($conversation->language === 'ar' ? 'Arabic' : 'English').'_', ''];
+        $lines = ['# '.$conversation->title, '', '_'.$conversation->created_at?->toIso8601String().' · '.match ($conversation->language) {
+            'ar' => 'Arabic', 'nl' => 'Dutch', default => 'English'
+        }.'_', ''];
         foreach ($this->messages($conversation) as $m) {
             $who = $m['role'] === 'user' ? 'You' : 'Copilot ('.(($m['provider'] ?? 'local') === 'local' ? 'rule-based' : 'AI · '.$m['provider']).')';
             $lines[] = "## {$who} — ".substr((string) $m['created_at'], 0, 16);

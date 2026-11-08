@@ -13,7 +13,7 @@ export type CopilotMessage = Partial<Omit<AssistantReply, 'message' | 'suggestio
   id: number; role: 'user' | 'assistant'; content: string; intent: string | null; provider: string | null; created_at: string
   proposal?: AssistantProposal | null; plan?: CopilotPlan | null; clarify?: { intent: string | null; slot: string; options: ClarifyOption[] } | null; context?: CopilotContext; notice?: string
 }
-export type Conversation = { id: string; title: string; language: 'en' | 'ar'; last_message_at: string; created_at: string; match?: string | null }
+export type Conversation = { id: string; title: string; language: 'en' | 'ar' | 'nl'; last_message_at: string; created_at: string; match?: string | null }
 /** A saved week plan: blocks by ISO weekday (1 = Monday) and local start time. */
 export type PlanTemplate = { id: number; name: string; blocks: { weekday: number; start: string; minutes: number; title: string; task_id: number | null }[]; minutes: number; days: number; updated_at: string }
 export type ConversationList = { conversations: Conversation[]; suggestions: string[]; personalization: boolean; retention_days: number }

@@ -85,3 +85,18 @@ deleted with the account.
 The What's New screen and `/updates` (P3), "Try now" buttons, New badges and hints (P4), the tour engine (P5), the Discovery Center (P6), the release
 notes drafter and the deploy-script hook (P7), usage statistics (P8). Dutch can be stored in content now; choosing Dutch in the app needs the small
 language change (its own pull request).
+
+## Feature discovery (P4)
+
+`GET /api/discovery/guide` feeds the "New" marks and the contextual hints. A hint is written in the feature file (`hints[{id,target,route,text}]`)
+and is shown only when the screen carries a matching `data-hint="target"` attribute (today `quick-add` on the top bar and the mobile tab bar).
+Rules the client keeps: one hint per browser session, never over a dialog, a focus session or while typing, never repeated once seen, and silent when the
+person turned tips off in Settings.
+
+## Tours (P5)
+
+A tour is `resources/discovery/tours/<id>.json` (1 to 12 steps) attached to a feature through its `tour` field. A step names a `target` (the `data-tour` id of an
+element), may name a `route` to open first and `reveal: sidebar` when the target lives in the menu, and may be `optional`. Tours point and explain only; the file
+format has no field for an action. The card is positioned by `placement` (`auto`, `top`, `bottom`, `start`, `end`; `start`/`end` follow the reading direction).
+Menu items already carry `nav-<screen>` ids and the quick-add button carries `quick-add`. To tour a screen of another area, ask its owner for stable `data-tour`
+ids (Handoff H-008) instead of editing the screen.

@@ -30,8 +30,8 @@ export const speechSupported = () => typeof window !== 'undefined' && constructo
  * The recognition language for the app language: the browser's own regional variant when it matches (e.g. en-GB,
  * ar-EG), otherwise a common default.
  */
-export function speechLanguage(language: 'en' | 'ar', preferred: readonly string[] = typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language]): string {
-  return preferred.find(l => l.toLowerCase().startsWith(`${language}-`)) ?? (language === 'ar' ? 'ar-SA' : 'en-US')
+export function speechLanguage(language: 'en' | 'ar' | 'nl', preferred: readonly string[] = typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language]): string {
+  return preferred.find(l => l.toLowerCase().startsWith(`${language}-`)) ?? (language === 'ar' ? 'ar-SA' : language === 'nl' ? 'nl-NL' : 'en-US')
 }
 
 /** Per-device consent to the browser's speech service (asked once, before the first dictation on this device). */

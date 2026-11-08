@@ -7,6 +7,7 @@ use App\Services\Discovery\DiscoveryRegistry;
 use App\Services\Discovery\DiscoveryStateService;
 use App\Services\Discovery\FeatureGate;
 use App\Services\Discovery\InvalidDiscoveryContentException;
+use App\Services\Discovery\Localized;
 use App\Services\Discovery\ReleaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,6 +45,48 @@ class DiscoveryController extends Controller
         return response()->json(['data' => [
             'announcement' => $result['announcement'], 'update_required' => $result['update_required'], 'counts' => ['unseen_updates' => $result['unseen']],
             'preferences' => ['hints_enabled' => (bool) (($user->preferences()['discovery']['hints_enabled'] ?? true))],
+        ]]);
+    }
+
+    /** "New" badges and the contextual hints that are due; empty when content is broken, never an error. */
+    public function guide(Request $request): JsonResponse
+    {
+        [$surface, $client] = $this->context($request);
+        try {
+            $guide = $this->releases->guide($request->user(), $surface, $client);
+        } catch (InvalidDiscoveryContentException $e) {
+            report($e);
+            $guide = ['new' => [], 'hints' => []];
+        }
+
+        return response()->json(['data' => $guide]);
+    }
+
+    /**
+     * One tour, in the person's language, with where they stopped. Only a tour of a live, approved release that this account may use exists;
+     * anything else is a 404, so the answer reveals nothing about tours the person cannot see.
+     */
+    public function tour(Request $request, string $id): JsonResponse
+    {
+        abort_unless(preg_match(DiscoveryRegistry::SLUG, $id) === 1, 404);
+        $user = $request->user();
+        try {
+            $tour = $this->registry->tour($id);
+            abort_unless($tour && $this->states->exists($user, 'tour', $id), 404);
+        } catch (InvalidDiscoveryContentException $e) {
+            report($e);
+            abort(404);
+        }
+        $language = Localized::of($user->preferences());
+        $state = $this->states->find($user, 'tour', $id);
+        $steps = array_map(fn (array $step) => [
+            'target' => $step['target'], 'route' => $step['route'], 'reveal' => $step['reveal'], 'placement' => $step['placement'], 'optional' => $step['optional'],
+            'title' => Localized::pick($step['title'], $language), 'body' => Localized::pick($step['body'], $language),
+        ], $tour['steps']);
+
+        return response()->json(['data' => [
+            'id' => $id, 'version' => $tour['version'], 'title' => Localized::pick($tour['title'], $language), 'steps' => $steps,
+            'state' => ['step_index' => (int) ($state?->step_index ?? 0), 'completed' => (bool) $state?->completed_at, 'skipped' => (bool) $state?->skipped_at],
         ]]);
     }
 

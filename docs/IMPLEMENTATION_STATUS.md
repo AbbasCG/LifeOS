@@ -3421,3 +3421,54 @@ The server side of What's New and feature discovery. Nothing is shown to anyone 
 ## Not verified
 * That the scheduler's account can read `/var/lib/lifeos-deploy/current.sha` on the server (mode 750, owner `lifeos`): run `lifeos:discovery:check-marker` there before switching activation on.
 * Anything on the production server.
+
+
+# V62 — Dutch as a language you can choose (Smart Experience track)
+
+The small "nl plumbing" that Product Experience 2.0 needs so that announcements and tours can be read in Dutch. No component was rewritten.
+
+* **Front end:** `Language` is `ar | en | nl`. Dutch is read left to right, is remembered like the others and sets `<html lang="nl">`. `useText()(en, ar, nl?)` takes an optional third text: where it is missing a Dutch reader gets the **English** text (never Arabic), so the roughly 60 screens that only have English and Arabic keep working unchanged. Settings offers "Nederlands". Dictation uses `nl-NL` (or the browser's `nl-BE`). The language toggle in the top bar and menu still switches between Arabic and English only.
+* **Back end:** the language checks of settings, the assistant, Copilot messages, goal reviews, weekly drafts and suggestions accept `nl`. The AI provider is told to reply in Dutch; the built-in assistant and every product text fall back to English. Conversations store `nl`.
+* **Tests:** `src/tests/dutch.test.tsx` (direction, memory, fallback, dictation, choosing it in Settings) and `tests/Feature/DutchLanguageTest.php`.
+
+## Not done
+Dutch translations of the screens themselves (Dutch readers see English) and a language menu in the top bar; both can be added screen by screen with the optional third text.
+
+
+# V63 — Product Experience 2.0, P3: the What's New screen and the update history (Smart Experience track)
+
+The screens for the release core (V61). **Nothing appears until an administrator approves a release** and activation is switched on (`docs/DISCOVERY.md`).
+
+* **Announcement.** `DiscoveryHost` (mounted once in `AppLayout`) asks `GET /api/discovery/bootstrap` when the app is idle and shows `WhatsNewSheet` at the first calm moment: page in front, online, not typing, no dialog or sheet open, no focus session on screen (it retries every 15 s for three minutes). One per browser session. The sheet is the app's `BottomSheet` (a bottom sheet on a phone, a centred dialog on a computer): New / Improved / Fixed / Important groups, optional image or video (no autoplay, controls, captions when given), "Try now" only where the server says the feature can work for this account, "Got it", "Later" (a day, at most twice) and "All updates". Opening records *seen*; closing records *dismissed*.
+* **Update history** at `/updates` (also in the menu under More): every published release for this screen, newest first, opening it counts as seeing them, and a yes/no "Was this useful?" per release (no free text). `?release=<key>` scrolls to one (the notification link).
+* **Older tab.** If the server holds an update this open tab cannot show, a toast offers "Reload"; nothing reloads by itself. `DISCOVERY_CLIENT` in `lib/discovery.ts` is raised by the pull request that ships a feature's screen.
+* **Notification icon** for the `release` kind; styles in `styles/discovery.css` (new file); texts in Arabic, English and Dutch.
+* **Tests.** `src/tests/whats-new.test.tsx` (12) and `e2e/whats-new.spec.ts` (desktop and phone, English and Arabic, axe clean, footer inside the visible screen); the server is stubbed for the discovery endpoints only.
+
+## Not done
+"Try now" opens the page but does not start a tour yet (P5); New badges and hints (P4); the Discovery Center (P6). The Dutch texts of the rest of the app are still English.
+
+# V64 — Product Experience 2.0, P4: feature discovery (Smart Experience track)
+
+- **Server:** `GET /api/discovery/guide` returns, for the signed-in person, the features still new to them (a feature is "new" for `new_days`, 14 by default, from the day its release went live, until they try it) and the hints that are due. Only features of live, approved releases that the account may use, on this surface and for this client version, are listed; a hint that was seen or dismissed is never returned again; with `discovery.hints_enabled` off no hints are returned (badges stay). Broken content answers an empty list, never an error.
+- **Screens:** a "New" mark in the menu (`NewBadge`), cleared by opening the feature's screen (which records the first try); a small non-modal `HintBubble` next to an element marked `data-hint="…"` (or `data-tour`), shown by `HintHost`. The arbiter: one hint per browser session, only on the screen the hint belongs to, only when its target is visible, only at a calm moment (not while typing, not over a dialog or a focus session), never taking focus; Escape or "Got it" ends it for good; "Turn off tips" saves the preference. A switch in Settings turns tips on again.
+- **Tests:** `GuideTest` (8, PHPUnit), `feature-discovery.test.tsx` (7, Vitest), `e2e/feature-discovery.spec.ts` (3 × desktop/mobile, axe included).
+- No content ships yet, so nothing new is visible in production until a reviewed release is approved.
+
+# V65 — Product Experience 2.0, P5: the tour engine (Smart Experience track)
+
+- **Server:** `GET /api/discovery/tours/{id}` returns one tour in the person's language (title, steps with `target`, `route`, `reveal`, `placement`, `optional`, title and body) and where they stopped (`step_index`, `completed`, `skipped`). Only a tour of a live, approved release that the account may use exists; anything else (unknown id, unapproved release, administrators-only feature, a malformed id) is a 404. Step progress is recorded through the existing `PUT /api/discovery/states/tour/{id}` (`started`, `step`, `completed`, `skipped`).
+- **Screens:** `TourHost` (mounted in `AppLayout`) listens for `startTour(id)`, which "Try now" in What's New and in the update history call when the server names a tour. A dimmed page with a cut-out round the target and a card beside it (`role="dialog"`, not modal, takes focus, Escape ends the tour and focus goes back where it was). Steps can move to another screen (`route`), open the menu when the target is not on screen (`reveal: sidebar`; only then, and closed again afterwards), skip a missing target when `optional`, or show the card without a spotlight when a required target is missing. Resume where the person stopped; a finished tour starts over. A tour only points and explains: it never clicks, types or submits, and the only requests it makes are reading the tour and recording progress.
+- **Targets:** elements carry `data-tour="<id>"` (or `data-hint`). Today: `quick-add` (top bar and phone tab bar) and `nav-<screen>` on every menu item (`nav-today`, `nav-tasks`, `nav-calendar`, …). Other teams' screens get their ids through Handoff H-008.
+- **Tests:** `TourEndpointTest` (4, PHPUnit), `tour-engine.test.tsx` (8) and one new case in `whats-new.test.tsx` (Vitest), `e2e/tour-engine.spec.ts` (3 × desktop/mobile, en/ar, axe). The phone run found and fixed a real defect: a menu parked off-screen counts as "found" by size alone, so the reveal checks that the target is on screen sideways.
+- No tour content ships yet; nothing new is visible in production until a reviewed release with a tour is approved.
+
+# V66 — CI/CD hardening, phase 2 (Smart Experience track, dedicated PR)
+
+Cause: CI #153 on `main` was red for 25 minutes (three attempts) only because the `actionlint` binary could not be downloaded from GitHub Releases (HTTP 504); deploys #39–#41 were correctly skipped and production stayed on #38 until the fourth attempt passed (#42).
+
+- **actionlint** (`.github/workflows/ci.yml`, job *Deploy tooling*): cache by version; `scripts/ci-install-actionlint.sh` installs the pinned 1.7.12 with `go install` (module proxy), falls back to `pip` (`actionlint-py==1.7.12.25`), retries each route, verifies the version and **fails** if nothing works (the lint is never skipped). The lint itself is unchanged.
+- **`scripts/tests/workflow-lint.test.sh`** (16 scenarios, runs in CI right after the lint): installer fallbacks with stubbed `go`/`python3`; the repository's workflows pass; three known-bad workflow files (`scripts/tests/fixtures/workflows/`) are still rejected for the right reason, a valid control file is accepted; `ci.yml` has no `continue-on-error`.
+- **`deploy-resolve.test.sh`**: +2 checks (a red CI run is skipped even when an older green run exists for the same SHA, without asking the API). 83 scenarios.
+- **Playwright**: `frontend/e2e/axe.ts` (`settle`, `a11yViolations`) waits for finite animations and two frames before axe and returns one line per failing element (rule, impact, selector path, reason) instead of the first element; used by `whats-new`, `feature-discovery` and `tour-engine` specs; `axe-helper.spec.ts` (4 × desktop/mobile) proves it reports all elements, accepts a clean page, waits for a fade-in and does not hang on endless animations. A control run showed raw axe flags `color-contrast` on a half-faded readable paragraph, which is what failed shard 6/6 of PR #71.
+- **Docs**: `docs/DEPLOYMENT.md` — the four layers that stop a red CI from deploying, the actionlint installation, and the risk of `HEALTH_REQUIRE_UP=0` with the administrator step to turn it on. No production setting, secret, database or service was touched.

@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from 'react'
 
-type Language = 'ar' | 'en'
+/** Arabic, English and Dutch. Dutch is read left to right like English; texts without a Dutch version are shown in English. */
+export type Language = 'ar' | 'en' | 'nl'
 
 const translations = {
   ar: {
@@ -19,6 +20,16 @@ const translations = {
     dark: 'داكن',
     system: 'النظام',
     ready: 'نظام التصميم جاهز',
+  },
+  nl: {
+    title: 'LifeOS',
+    subtitle: 'Je slimme werkruimte voor tijd en taken',
+    language: 'Taal',
+    appearance: 'Weergave',
+    light: 'Licht',
+    dark: 'Donker',
+    system: 'Systeem',
+    ready: 'Ontwerpsysteem gereed',
   },
   en: {
     title: 'LifeOS',
@@ -47,7 +58,7 @@ const LanguageContext = createContext<LanguageContextValue | undefined>(
 function getSavedLanguage(): Language {
   try {
     const saved = localStorage.getItem('lifeos-language')
-    return saved === 'ar' || saved === 'en' ? saved : 'ar'
+    return saved === 'ar' || saved === 'en' || saved === 'nl' ? saved : 'ar'
   } catch {
     return 'ar'
   }
