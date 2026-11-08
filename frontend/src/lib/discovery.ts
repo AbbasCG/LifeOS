@@ -32,6 +32,9 @@ export type DiscoveryItem = {
 export type Release = { key: string; date: string; revision: number; importance: 'normal' | 'important'; title: string; summary: string; items: DiscoveryItem[] }
 export type HistoryRelease = Release & { seen: boolean; helpful: boolean | null }
 export type Bootstrap = { announcement: Release | null; update_required: boolean; counts: { unseen_updates: number }; preferences: { hints_enabled: boolean } }
+export type NewFeature = { id: string; route: string; name: string }
+export type Hint = { id: string; feature: string; target: string; route: string; text: string }
+export type Guide = { new: NewFeature[]; hints: Hint[] }
 export type StateAction = 'seen' | 'snoozed' | 'dismissed' | 'helpful' | 'unhelpful'
 
 /** An installed app or a phone-sized screen is "mobile"; this only chooses which announcements are meant for this screen. */
@@ -48,6 +51,23 @@ export const recordState = (type: 'release' | 'feature' | 'tour' | 'hint', key: 
 export const tryFeature = (id: string) =>
   api<{ data: { available: boolean; reason: string | null; route: string | null; tour: string | null } }>(`/api/discovery/features/${id}/try?${discoveryQuery()}`, 'POST').then(r => r.data)
 
+export const loadGuide = () => api<{ data: Guide }>(`/api/discovery/guide?${discoveryQuery()}`).then(r => r.data)
+export const setHintsEnabled = (enabled: boolean) => api('/api/settings', 'PUT', { discovery: { hints_enabled: enabled } })
+
+// ---- "New" badges: the features this person has not tried yet, shared by the menu and the hint host ----
+let newFeatures: NewFeature[] = []
+const listeners = new Set<() => void>()
+export const setNewFeatures = (list: NewFeature[]) => { newFeatures = list; listeners.forEach(l => l()) }
+export const subscribeNew = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l) } }
+export const getNewFeatures = () => newFeatures
+/** The path of a content route ("/tasks?add=task" is "/tasks"). */
+export const routePath = (route: string) => route.split(/[?#]/)[0]
+
+const HINT_SHOWN = 'lifeos-discovery-hint'
+/** One hint per browser session, like announcements: a second one waits for the next visit. */
+export const hintShownThisSession = () => { try { return sessionStorage.getItem(HINT_SHOWN) === '1' } catch { return false } }
+export const markHintShown = () => { try { sessionStorage.setItem(HINT_SHOWN, '1') } catch { /* the server's record still prevents a repeat */ } }
+
 const SHOWN = 'lifeos-discovery-shown'
 /** One announcement per visit: once something was shown in this browser session, nothing else interrupts. */
 export const shownThisSession = () => { try { return sessionStorage.getItem(SHOWN) === '1' } catch { return false } }
@@ -62,4 +82,12 @@ export function calmMoment(): boolean {
   const active = document.activeElement as HTMLElement | null
   if (active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.getAttribute('role') === 'textbox')) return false
   return !document.querySelector('dialog[open], .focus-immersive')
+}
+
+/** The element a hint points at: marked in the screen with data-hint (or data-tour, shared with tours) and actually visible. */
+export function hintTarget(target: string): HTMLElement | null {
+  const el = document.querySelector<HTMLElement>(`[data-hint="${target}"], [data-tour="${target}"]`)
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  return r.width > 0 && r.height > 0 ? el : null
 }
