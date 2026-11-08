@@ -1,4 +1,4 @@
-import { Compass, Gift, BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
+import { Compass, Gift, ShieldCheck, BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
 import { signOutKeepingQueue } from '../../lib/offline'
 import { useState } from 'react'
 import { NavLink } from 'react-router'
@@ -13,11 +13,12 @@ import { api } from '../../lib/api'
 import { ErrorMessage } from '../ui/Shared'
 
 /** Navigation, grouped so the daily destinations come first. Language, theme and sign-out live here on phones. */
-const groups = [
+type NavItem = { to: string; en: string; ar: string; icon: typeof Gift; admin?: boolean }
+const groups: { en: string; ar: string; items: NavItem[] }[] = [
   { en: '', ar: '', items: [{ to: '/', en: 'Today', ar: 'اليوم', icon: LayoutDashboard }, { to: '/tasks', en: 'Tasks', ar: 'المهام', icon: CheckSquare }, { to: '/calendar', en: 'Calendar', ar: 'التقويم', icon: CalendarDays }, { to: '/focus', en: 'Focus', ar: 'التركيز', icon: Focus }, { to: '/assistant', en: 'Copilot', ar: 'المساعد', icon: Sparkles }] },
   { en: 'Plan', ar: 'التخطيط', items: [{ to: '/timeline', en: 'Timeline', ar: 'الخط الزمني', icon: CalendarRange }, { to: '/planning', en: 'Smart planning', ar: 'التخطيط الذكي', icon: CalendarCheck }, { to: '/review', en: 'Weekly review', ar: 'المراجعة الأسبوعية', icon: ClipboardCheck }] },
   { en: 'Progress', ar: 'التقدم', items: [{ to: '/goals', en: 'Goals', ar: 'الأهداف', icon: Flag }, { to: '/habits', en: 'Habits & routines', ar: 'العادات والروتين', icon: Heart }, { to: '/projects', en: 'Projects', ar: 'المشاريع', icon: Target }, { to: '/analytics', en: 'Insights', ar: 'التحليلات', icon: BarChart3 }] },
-  { en: 'More', ar: 'المزيد', items: [{ to: '/categories', en: 'Categories', ar: 'الفئات', icon: Tags }, { to: '/discover', en: 'Discover', ar: 'اكتشف', icon: Compass }, { to: '/updates', en: 'What’s new', ar: 'ما الجديد', icon: Gift }, { to: '/settings', en: 'Settings', ar: 'الإعدادات', icon: Settings }] },
+  { en: 'More', ar: 'المزيد', items: [{ to: '/categories', en: 'Categories', ar: 'الفئات', icon: Tags }, { to: '/discover', en: 'Discover', ar: 'اكتشف', icon: Compass }, { to: '/updates', en: 'What’s new', ar: 'ما الجديد', icon: Gift }, { to: '/admin/releases', en: 'Approve updates', ar: 'اعتماد التحديثات', icon: ShieldCheck, admin: true }, { to: '/settings', en: 'Settings', ar: 'الإعدادات', icon: Settings }] },
 ]
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -30,7 +31,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       <div className="brand">LifeOS<span>◈</span><button className="mobile-close icon-button" onClick={onClose} aria-label={ar ? 'إغلاق' : 'Close'}><X size={20} /></button></div>
       {groups.map(group => <nav key={group.en || 'main'} aria-label={group.en ? (ar ? group.ar : group.en) : (ar ? 'الرئيسية' : 'Main')}>
         {group.en && <p className="nav-group">{ar ? group.ar : group.en}</p>}
-        {group.items.map(({ to, en, ar: label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} data-tour={to === '/' ? 'nav-today' : `nav${to.replace(/\//g, '-')}`} onClick={onClose} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>{({ isActive }) => <>{isActive && <m.span layoutId="nav-active" className="nav-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={19} /><span>{ar ? label : en}</span><NewBadge to={to} /></>}</NavLink>)}
+        {group.items.filter(item => !item.admin || auth.user?.is_admin).map(({ to, en, ar: label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} data-tour={to === '/' ? 'nav-today' : `nav${to.replace(/\//g, '-')}`} onClick={onClose} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>{({ isActive }) => <>{isActive && <m.span layoutId="nav-active" className="nav-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={19} /><span>{ar ? label : en}</span><NewBadge to={to} /></>}</NavLink>)}
       </nav>)}
       {installer.canInstall ? <button className="install-button" onClick={() => void installer.install()}><Download size={17} />{ar ? 'تثبيت التطبيق' : 'Install app'}</button> : !installer.installed && <InstallLink className="install-button" />}
       <ErrorMessage error={signOutError} />

@@ -138,6 +138,25 @@ class ReleaseService
         return $row;
     }
 
+    /**
+     * The exact text an administrator approves, in all three languages: the release (title, summary, items), the features and the tour steps. It comes from the same
+     * scope as the fingerprint, so what is shown here and what is approved cannot differ.
+     *
+     * @return array<string, mixed>
+     */
+    private function preview(string $key): array
+    {
+        $scope = $this->registry->scope($key);
+        $release = $scope['release'];
+
+        return [
+            'title' => $release['title'], 'summary' => $release['summary'], 'audiences' => $release['audiences'],
+            'items' => array_map(fn (array $i) => array_filter(['type' => $i['type'], 'feature' => $i['feature'] ?? null, 'title' => $i['title'] ?? null, 'body' => $i['body'] ?? null, 'link' => $i['link'] ?? null]), $release['items']),
+            'features' => array_map(fn (array $f) => ['id' => $f['id'], 'category' => $f['category'], 'name' => $f['name'], 'description' => $f['description'], 'route' => $f['route'], 'requires' => $f['requires'], 'tour' => $f['tour']], $scope['features']),
+            'tours' => array_values(array_map(fn (array $t) => ['id' => $t['id'], 'title' => $t['title'], 'steps' => array_map(fn (array $s) => ['target' => $s['target'], 'title' => $s['title'], 'body' => $s['body']], $t['steps'])], $scope['tours'])),
+        ];
+    }
+
     /** @return list<array<string, mixed>> every release in the code with its runtime state, for the administrator screen */
     public function adminList(): array
     {
@@ -147,7 +166,7 @@ class ReleaseService
             $row = $rows[$key] ?? null;
             $out[] = ['key' => $key, 'date' => $release['date'], 'revision' => $release['revision'], 'importance' => $release['importance'], 'title' => $release['title'], 'items' => count($release['items']),
                 'registered' => $row !== null, 'review_status' => $row?->review_status, 'deploy_status' => $row?->deploy_status, 'deployed_sha' => $row?->deployed_sha,
-                'content_hash' => $this->registry->fingerprint($key), 'approved_hash' => $row?->approved_hash,
+                'content_hash' => $this->registry->fingerprint($key), 'approved_hash' => $row?->approved_hash, 'preview' => $this->preview($key),
                 'live_since' => $row?->live_since?->toIso8601String(), 'reviewed_at' => $row?->reviewed_at?->toIso8601String(), 'visible' => (bool) $row?->isVisible()];
         }
 
