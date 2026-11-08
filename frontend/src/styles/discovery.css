@@ -82,3 +82,24 @@
 .ra-stats dt { font-size: 0.8rem; color: var(--color-text); font-weight: 600; }
 .ra-stats dd { margin: 2px 0 0; }
 .ra-stats .ra-stat-feature { grid-column: 1 / -1; }
+
+/* Discovery Center: suggestions, filters, status marks and the detail dialog. */
+.disc-recs h2 { margin: 0 0 var(--space-2, 8px); font-size: 1.05rem; }
+.disc-rec-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2, 8px); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.disc-rec { display: grid; gap: 2px; inline-size: 100%; min-block-size: 44px; text-align: start; padding: 10px 14px; border-radius: 12px; cursor: pointer;
+  background: var(--color-surface-muted); color: var(--color-text); border: 1px solid var(--color-border); font: inherit; }
+.disc-rec:hover { border-color: var(--color-primary); }
+.disc-rec:focus-visible, .disc-chip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.disc-tools { display: flex; flex-wrap: wrap; gap: var(--space-3, 12px); align-items: center; }
+.disc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.disc-chip { min-block-size: 44px; padding: 0 14px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.9rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); }
+.disc-chip[aria-pressed="true"] { border-color: var(--color-primary); background: var(--color-surface-muted); font-weight: 700; }
+.disc-category { display: inline-flex; align-items: center; gap: 8px; }
+.disc-category select { min-block-size: 44px; font-size: 16px; padding-inline: 10px; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); color: inherit; }
+.disc-tried { display: inline-flex; align-items: center; gap: 3px; font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text); }
+.discover-card h3 svg { flex: none; color: var(--color-primary); }
+.disc-more { justify-self: start; min-block-size: 44px; }
+.disc-detail { display: grid; gap: var(--space-3, 12px); }
+.disc-detail p { margin: 0; line-height: 1.6; }
+.disc-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--color-text); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) { .discover-card, .disc-rec { transition: border-color 0.15s, transform 0.15s; } .discover-card:hover { transform: translateY(-1px); } }

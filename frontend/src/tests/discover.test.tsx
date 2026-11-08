@@ -5,7 +5,7 @@ import { LanguageProvider } from '../contexts/LanguageContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
 import { ToastProvider } from '../components/ui/Toaster'
 import DiscoverPage from '../features/discovery/DiscoverPage'
-import type { CatalogueFeature } from '../lib/discovery'
+import { matchesStatus, recommend, type CatalogueFeature } from '../lib/discovery'
 
 const feature = (over: Partial<CatalogueFeature> = {}): CatalogueFeature => ({
   id: 'quick-capture', category: 'tasks', name: 'Quick Capture in three languages', description: 'Write a task the way you speak.', route: '/tasks', release: 'r-one', date: '2026-11-08',
@@ -56,7 +56,8 @@ describe('Discovery Center', () => {
     shell()
     const card = (await screen.findByRole('heading', { name: /Night owl mode/ })).closest('li') as HTMLElement
     expect(within(card).getByText('Needs setup first.')).toBeInTheDocument()
-    expect(within(card).queryByRole('button')).toBeNull()
+    expect(within(card).queryByRole('button', { name: 'Try now' })).toBeNull()
+    expect(within(card).queryByRole('button', { name: /tour/i })).toBeNull()
     cleanup()
     server([feature({ can_try: false, unavailable_reason: 'platform', tour: null })])
     shell()
@@ -131,5 +132,110 @@ describe('Discovery Center', () => {
     expect(await screen.findByRole('heading', { name: 'اكتشف', level: 1 })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'جرّبها الآن' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'ابدأ الجولة' })).toBeInTheDocument()
+  })
+})
+
+const rich = [
+  feature({ id: 'a-new', name: 'Fresh thing', category: 'tasks', date: '2026-11-08' }),
+  feature({ id: 'b-used', name: 'Used thing', category: 'tasks', date: '2026-10-01', is_new: false, tried: true, tour: null }),
+  feature({ id: 'c-related', name: 'Related thing', category: 'tasks', date: '2026-10-02', is_new: false, tour: null }),
+  feature({ id: 'd-other', name: 'Other area thing', category: 'focus', date: '2026-10-03', is_new: false, tour: null }),
+  feature({ id: 'e-blocked', name: 'Blocked thing', category: 'tasks', date: '2026-11-09', can_try: false, unavailable_reason: 'platform', tour: null }),
+]
+
+describe('suggestions', () => {
+  it('suggest new untried features first, then untried ones in an area already used; never blocked or tried ones', () => {
+    const r = recommend(rich)
+    expect(r.map(x => [x.feature.id, x.reason])).toEqual([['a-new', 'new'], ['c-related', 'related']])
+    expect(recommend(rich, 1)).toHaveLength(1)
+    expect(recommend([])).toEqual([])
+  })
+  it('filters by status', () => {
+    expect(rich.filter(f => matchesStatus(f, 'new')).map(f => f.id)).toEqual(['a-new', 'e-blocked'])
+    expect(rich.filter(f => matchesStatus(f, 'tried')).map(f => f.id)).toEqual(['b-used'])
+    expect(rich.filter(f => matchesStatus(f, 'untried'))).toHaveLength(4)
+    expect(rich.filter(f => matchesStatus(f, 'all'))).toHaveLength(5)
+  })
+})
+
+describe('Discovery Center: suggestions, filters and details', () => {
+  it('says why each feature is suggested, and hides the suggestions while filtering', async () => {
+    server(rich)
+    shell()
+    const region = (await screen.findByRole('heading', { name: 'Recommended for you', level: 2 })).closest('section') as HTMLElement
+    expect(within(region).getByText('New, and you have not tried it yet')).toBeInTheDocument()
+    expect(within(region).getByText('Because you already use Tasks')).toBeInTheDocument()
+    expect(within(region).queryByText(/Blocked thing|Other area/)).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features' }), { target: { value: 'thing' } })
+    expect(screen.queryByRole('heading', { name: 'Recommended for you' })).toBeNull()
+  })
+
+  it('filters by status and by area, and tells how many features are shown', async () => {
+    server(rich)
+    shell()
+    await screen.findByRole('heading', { name: /Fresh thing/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Tried' }))
+    expect(screen.getByRole('button', { name: 'Tried' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: /Used thing/ })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Fresh thing/ })).toBeNull()
+    expect(screen.getByText('Features shown: 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Area' }), { target: { value: 'focus' } })
+    expect(screen.getByRole('heading', { name: /Other area thing/ })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Fresh thing/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Tried' }))
+    expect(screen.getByText('No feature matches your search.')).toBeInTheDocument()
+  })
+
+  it('marks new and tried features', async () => {
+    server(rich)
+    shell()
+    const fresh = (await screen.findByRole('heading', { name: /Fresh thing/ })).closest('li') as HTMLElement
+    expect(within(fresh).getByText('New')).toBeInTheDocument()
+    const used = screen.getByRole('heading', { name: /Used thing/ }).closest('li') as HTMLElement
+    expect(within(used).getByText('Tried')).toBeInTheDocument()
+  })
+
+  it('opens the details in a dialog, where it can be tried, and a blocked feature says why', async () => {
+    server(rich)
+    shell()
+    const card = (await screen.findByRole('heading', { name: /Fresh thing/ })).closest('li') as HTMLElement
+    fireEvent.click(within(card).getByRole('button', { name: 'Details' }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    expect(within(dialog).getByRole('heading', { name: 'Fresh thing', hidden: true })).toBeInTheDocument()
+    expect(within(dialog).getByText('Write a task the way you speak.')).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Try now', hidden: true }))
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/tasks'))
+    cleanup()
+    server(rich)
+    shell()
+    const blocked = (await screen.findByRole('heading', { name: /Blocked thing/ })).closest('li') as HTMLElement
+    fireEvent.click(within(blocked).getByRole('button', { name: 'Details' }))
+    const d2 = await screen.findByRole('dialog', { hidden: true })
+    expect(within(d2).getByText('Not available on this device.')).toBeInTheDocument()
+  })
+
+  it('opens a suggestion\'s details', async () => {
+    server(rich)
+    shell()
+    const region = (await screen.findByRole('heading', { name: 'Recommended for you' })).closest('section') as HTMLElement
+    fireEvent.click(within(region).getByRole('button', { name: /Related thing/ }))
+    expect(await screen.findByRole('dialog', { hidden: true })).toBeInTheDocument()
+  })
+
+  it('speaks Dutch and Arabic', async () => {
+    localStorage.setItem('lifeos-language', 'nl')
+    server(rich)
+    shell()
+    expect(await screen.findByRole('heading', { name: 'Aanbevolen voor jou' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Nog niet geprobeerd' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Details' }).length).toBeGreaterThan(0)
+    cleanup()
+    localStorage.setItem('lifeos-language', 'ar')
+    server(rich)
+    shell()
+    expect(await screen.findByRole('heading', { name: 'مقترحة لك' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'لم تُجرَّب بعد' })).toBeInTheDocument()
+    expect(screen.getByText('لأنك تستخدم المهام')).toBeInTheDocument()
   })
 })
