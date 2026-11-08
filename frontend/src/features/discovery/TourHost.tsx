@@ -140,7 +140,7 @@ export default function TourHost({ openMenu, closeMenu }: { openMenu: () => void
   return <>
     <div className={`tour-dim${box ? ' has-target' : ''}`} aria-hidden="true" style={box ? { top: box.top - 6, left: box.left - 6, width: box.width + 12, height: box.height + 12 } : undefined} />
     <div ref={cardRef} className="tour-card" role="dialog" aria-modal="false" aria-labelledby={titleId} tabIndex={-1} data-testid="tour-card" style={{ top: at.top, left: at.left }}>
-      <p className="tour-progress muted small">{tour.title} · {index + 1} / {tour.steps.length}</p>
+      <p className="tour-progress">{tour.title} · {index + 1} / {tour.steps.length}</p>
       <h2 id={titleId}>{step.title}</h2>
       <p>{step.body}</p>
       <div className="tour-actions">

@@ -42,6 +42,8 @@ for (const language of ['en', 'ar'] as const) {
     const inside = async () => { const b = (await card.boundingBox())!; expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(size.width + 1); expect(b.y).toBeGreaterThanOrEqual(0); expect(b.y + b.height).toBeLessThanOrEqual(size.height + 1) }
     await expect(page.locator('.tour-dim.has-target')).toBeVisible()
     await inside()
+    // Contrast is measured on the settled card, not halfway through its fade-in.
+    await card.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
     const violations = (await new AxeBuilder({ page }).include('[data-testid="tour-card"]').withTags(TAGS).analyze()).violations
     expect(violations.map(v => `${v.id}: ${v.nodes[0]?.target}`)).toEqual([])
 
