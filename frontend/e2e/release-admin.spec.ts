@@ -5,7 +5,7 @@ const HASH = 'c851cb5cbd8ad46c17daa3b8aa05faa93f5df9098d66ad1087a0428e15f2671b'
 const texts = (en: string, ar: string, nl: string) => ({ en, ar, nl })
 const release = {
   key: '2026-11-08-everyday-capture', date: '2026-11-08', revision: 1, importance: 'normal', title: texts('Quick Capture understands Arabic and Dutch', 'الالتقاط السريع يفهم العربية والهولندية', 'Snel vastleggen begrijpt Arabisch en Nederlands'), items: 2,
-  registered: true, review_status: 'draft', deploy_status: 'live', deployed_sha: 'a'.repeat(40), content_hash: HASH, approved_hash: null, live_since: '2026-11-08T10:00:00+00:00', reviewed_at: null, visible: false, rollout: 'general', blockers: [],
+  registered: true, review_status: 'draft', deploy_status: 'live', deployed_sha: 'a'.repeat(40), content_hash: HASH, approved_hash: null, live_since: '2026-11-08T10:00:00+00:00', reviewed_at: null, visible: false, rollout: 'general', blockers: [] as string[],
   preview: {
     title: texts('Quick Capture understands Arabic and Dutch', 'الالتقاط السريع يفهم العربية والهولندية', 'Snel vastleggen begrijpt Arabisch en Nederlands'), summary: texts('Write tasks the way you speak.', 'اكتب مهامك كما تتحدث.', 'Schrijf taken zoals je praat.'), audiences: ['web', 'mobile'],
     items: [{ type: 'new', feature: 'quick-capture' }, { type: 'fixed', title: texts('Waiting changes are kept', 'التغييرات المنتظرة تبقى', 'Wachtende wijzigingen blijven'), body: texts('Nothing is lost.', 'لا يضيع شيء.', 'Er gaat niets verloren.') }],
