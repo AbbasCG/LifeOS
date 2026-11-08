@@ -66,7 +66,7 @@ class IntelligenceController extends Controller
      */
     public function discuss(Request $request, int $id): JsonResponse
     {
-        $data = $request->validate(['language' => 'required|in:en,ar']);
+        $data = $request->validate(['language' => 'required|in:en,ar,nl']);
 
         return response()->json($this->recommendations->discuss($request->user(), $this->find($request, $id), $data['language'], $request), 201);
     }

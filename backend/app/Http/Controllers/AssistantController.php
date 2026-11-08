@@ -15,7 +15,7 @@ class AssistantController extends Controller
 {
     public function respond(Request $request, AssistantService $assistant): JsonResponse
     {
-        $data = $request->validate(['message' => 'required|string|max:4000', 'language' => 'required|in:en,ar']);
+        $data = $request->validate(['message' => 'required|string|max:4000', 'language' => 'required|in:en,ar,nl']);
         try {
             return response()->json($assistant->respond($request->user(), $data['message'], $data['language']));
         } catch (ValidationException $e) {

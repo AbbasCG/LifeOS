@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
+import { Gift, BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
 import { signOutKeepingQueue } from '../../lib/offline'
 import { useState } from 'react'
 import { NavLink } from 'react-router'
@@ -16,7 +16,7 @@ const groups = [
   { en: '', ar: '', items: [{ to: '/', en: 'Today', ar: 'اليوم', icon: LayoutDashboard }, { to: '/tasks', en: 'Tasks', ar: 'المهام', icon: CheckSquare }, { to: '/calendar', en: 'Calendar', ar: 'التقويم', icon: CalendarDays }, { to: '/focus', en: 'Focus', ar: 'التركيز', icon: Focus }, { to: '/assistant', en: 'Copilot', ar: 'المساعد', icon: Sparkles }] },
   { en: 'Plan', ar: 'التخطيط', items: [{ to: '/timeline', en: 'Timeline', ar: 'الخط الزمني', icon: CalendarRange }, { to: '/planning', en: 'Smart planning', ar: 'التخطيط الذكي', icon: CalendarCheck }, { to: '/review', en: 'Weekly review', ar: 'المراجعة الأسبوعية', icon: ClipboardCheck }] },
   { en: 'Progress', ar: 'التقدم', items: [{ to: '/goals', en: 'Goals', ar: 'الأهداف', icon: Flag }, { to: '/habits', en: 'Habits & routines', ar: 'العادات والروتين', icon: Heart }, { to: '/projects', en: 'Projects', ar: 'المشاريع', icon: Target }, { to: '/analytics', en: 'Insights', ar: 'التحليلات', icon: BarChart3 }] },
-  { en: 'More', ar: 'المزيد', items: [{ to: '/categories', en: 'Categories', ar: 'الفئات', icon: Tags }, { to: '/settings', en: 'Settings', ar: 'الإعدادات', icon: Settings }] },
+  { en: 'More', ar: 'المزيد', items: [{ to: '/categories', en: 'Categories', ar: 'الفئات', icon: Tags }, { to: '/updates', en: 'What’s new', ar: 'ما الجديد', icon: Gift }, { to: '/settings', en: 'Settings', ar: 'الإعدادات', icon: Settings }] },
 ]
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

@@ -1,0 +1,25 @@
+/* Product updates (What's New) and the update history. Logical properties only, so Arabic mirrors by itself. */
+.rel-date { margin-block: 0 var(--space-2, 8px); }
+.rel-summary { margin-block: 0 var(--space-4, 16px); font-size: 1rem; line-height: 1.6; }
+.rel-body { display: grid; gap: var(--space-5, 20px); }
+.rel-group h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 var(--space-2, 8px); padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+  color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); }
+.rel-group h3 svg { flex: none; }
+.rel-important svg { color: var(--color-warning, #b45309); }
+.rel-new svg, .rel-improved svg { color: var(--color-primary); }
+.rel-fixed svg { color: var(--color-text-muted); }
+.rel-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4, 16px); }
+.rel-item h4 { margin: 0 0 4px; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rel-item p { margin: 0 0 var(--space-2, 8px); color: var(--color-text); line-height: 1.55; }
+.rel-new { font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--color-primary); color: var(--color-on-primary); }
+.rel-media { display: block; max-inline-size: 100%; block-size: auto; border-radius: 12px; margin-block: var(--space-2, 8px); background: var(--color-surface-muted); }
+.rel-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); align-items: center; }
+.rel-foot { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); justify-content: flex-start; }
+.rel-foot .primary { flex: 1 1 auto; min-inline-size: 7rem; }
+.updates-page { display: grid; gap: var(--space-4, 16px); align-content: start; }
+.rel-card { display: grid; gap: var(--space-3, 12px); scroll-margin-block-start: 72px; }
+.rel-card h2 { margin: 0; font-size: 1.15rem; }
+.rel-card.is-focus { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.rel-rate { display: flex; align-items: center; gap: var(--space-2, 8px); border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-3, 12px); }
+.rel-rate button[aria-pressed="true"] { background: var(--color-surface-muted); outline: 2px solid var(--color-primary); }
+@media (prefers-reduced-motion: no-preference) { .rel-card { transition: outline-color 0.2s; } }
