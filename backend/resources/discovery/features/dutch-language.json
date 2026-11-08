@@ -1,0 +1,16 @@
+{
+  "id": "dutch-language",
+  "category": "settings",
+  "since": "2026-11-08-everyday-capture",
+  "route": "/settings",
+  "name": {
+    "en": "Nederlands is available",
+    "ar": "اللغة الهولندية متاحة",
+    "nl": "Nederlands is beschikbaar"
+  },
+  "description": {
+    "en": "Choose Nederlands under Settings, Language. Quick Capture, voice dictation and assistant replies follow it; screens not translated yet still show English.",
+    "ar": "اختر Nederlands من الإعدادات ثم اللغة. يتبعها الالتقاط السريع والإملاء الصوتي وردود المساعد، أما الشاشات التي لم تُترجم بعد فتبقى بالإنجليزية.",
+    "nl": "Kies Nederlands bij Instellingen, Taal. Snel vastleggen, dicteren en antwoorden van de assistent volgen die taal; schermen die nog niet vertaald zijn blijven Engels."
+  }
+}

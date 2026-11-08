@@ -1,0 +1,17 @@
+{
+  "id": "quick-capture",
+  "category": "tasks",
+  "since": "2026-11-08-everyday-capture",
+  "route": "/tasks",
+  "tour": "quick-capture-tour",
+  "name": {
+    "en": "Quick Capture in Arabic, Dutch and English",
+    "ar": "الالتقاط السريع بالعربية والهولندية والإنجليزية",
+    "nl": "Snel vastleggen in het Arabisch, Nederlands en Engels"
+  },
+  "description": {
+    "en": "Write or dictate a task the way you speak, such as “tomorrow at 7pm for one hour”, and LifeOS shows what it understood (day, time and length) before you save.",
+    "ar": "اكتب مهمتك أو أمْلِها كما تتحدث، مثل «بكرة الساعة 7 مساءً لمدة ساعة»، ويعرض LifeOS ما فهمه (اليوم والوقت والمدة) قبل أن تحفظ.",
+    "nl": "Schrijf of dicteer een taak zoals je praat, bijvoorbeeld “morgen om 19:00 voor een uur”, en LifeOS laat zien wat het begrepen heeft (dag, tijd en duur) voordat je opslaat."
+  }
+}

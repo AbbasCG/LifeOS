@@ -28,7 +28,7 @@ class AnnouncementTest extends DiscoveryTestCase
         $this->postJson('/api/discovery/features/quick-capture/try')->assertUnauthorized();
     }
 
-    public function test_with_the_shipped_content_nothing_is_shown_to_anyone(): void
+    public function test_with_the_shipped_content_nothing_is_shown_until_it_is_approved(): void
     {
         $this->app->singleton(DiscoveryRegistry::class, fn () => new DiscoveryRegistry(resource_path('discovery')));
         $this->actingAs($this->member());

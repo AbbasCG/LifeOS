@@ -100,3 +100,24 @@ element), may name a `route` to open first and `reveal: sidebar` when the target
 format has no field for an action. The card is positioned by `placement` (`auto`, `top`, `bottom`, `start`, `end`; `start`/`end` follow the reading direction).
 Menu items already carry `nav-<screen>` ids and the quick-add button carries `quick-add`. To tour a screen of another area, ask its owner for stable `data-tour`
 ids (Handoff H-008) instead of editing the screen.
+
+## First release content: `2026-11-08-everyday-capture`
+
+Shipped in `backend/resources/discovery/`: one release, two features (`quick-capture`, `dutch-language`) and one tour (`quick-capture-tour`), every text in Arabic, Dutch and English.
+What a person reads, in order: **New** Quick Capture in Arabic, Dutch and English (with "Try now", which opens `/tasks` and starts the one-step tour on the Quick add button),
+**New** Nederlands is available (`/settings`), **New** updates, "New" marks and tips (link to `/updates`), **Improved** easier to use on a phone, **Fixed** waiting
+changes are kept if sign-out fails. `php artisan lifeos:discovery:validate` checks it, and `ShippedContentTest` proves, for every release in the folder, that it appears in
+the history in all three languages, is announced once, that "Try now" works for an ordinary account, that every route, link and tour target exists in the app, and that each
+tour opens.
+
+Having the files in the code shows nothing to anyone. To make it visible (every step is the owner's, nothing here is automatic):
+
+1. Run `php artisan lifeos:discovery:check-marker` on the server as the account that runs the scheduler (Handoff H-009). It must say the marker is readable.
+2. Set `DISCOVERY_AUTO_ACTIVATE=true` in the server's `.env` (default `false`: this is the kill switch) and reload PHP-FPM / config cache as for any `.env` change.
+3. Wait for the next reconcile (every 5 minutes) after a healthy deploy: the release is then registered as a **draft**.
+4. As an administrator with two-factor and a fresh password confirmation, read `GET /api/admin/discovery/releases`, check that `content_hash` is
+   `c851cb5cbd8ad46c17daa3b8aa05faa93f5df9098d66ad1087a0428e15f2671b` (the fingerprint of the files in this commit; if it differs, the text on the server is not the text reviewed here),
+   then `POST /api/admin/discovery/releases/2026-11-08-everyday-capture/approve` with that `content_hash`. There is no admin screen yet (optional phase P9).
+5. People now see it: the announcement once per session, the history at `/updates`, "New" marks and the notification. `…/withdraw` hides it at once.
+
+Any later edit of these files changes the fingerprint and needs a new approval.

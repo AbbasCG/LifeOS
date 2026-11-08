@@ -10,7 +10,7 @@ class DiscoveryCommandsTest extends DiscoveryTestCase
     public function test_validate_passes_on_the_shipped_content(): void
     {
         $this->app->singleton(DiscoveryRegistry::class, fn () => new DiscoveryRegistry(resource_path('discovery')));
-        $this->artisan('lifeos:discovery:validate')->expectsOutputToContain('0 release(s)')->assertSuccessful();
+        $this->artisan('lifeos:discovery:validate')->expectsOutputToContain('release(s)')->assertSuccessful();
     }
 
     public function test_validate_reports_a_broken_file_and_a_missing_media_file(): void

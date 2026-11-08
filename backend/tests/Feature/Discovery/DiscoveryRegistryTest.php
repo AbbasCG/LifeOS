@@ -21,10 +21,14 @@ class DiscoveryRegistryTest extends DiscoveryTestCase
         $this->assertSame([], $registry->tours());
     }
 
-    public function test_the_shipped_content_directory_is_valid_and_empty_until_a_release_is_written(): void
+    public function test_the_shipped_content_directory_is_valid_and_every_release_has_a_fingerprint(): void
     {
+        // Content may ship with the code; it is shown to nobody until an administrator approves exactly this text (see AnnouncementTest and ShippedContentTest).
         $registry = new DiscoveryRegistry(resource_path('discovery'));
-        $this->assertSame([], $registry->releases(), 'P2 ships no announcement: nothing can be shown to anyone');
+        foreach ($registry->releases() as $key => $release) {
+            $this->assertNotNull($registry->fingerprint($key), "the release {$key} needs a fingerprint an administrator can approve");
+            $this->assertNotEmpty($release['items']);
+        }
     }
 
     public function test_valid_content_loads_and_links_features_and_tours(): void
