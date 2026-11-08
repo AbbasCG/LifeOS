@@ -3503,3 +3503,14 @@ Cause: CI #153 on `main` was red for 25 minutes (three attempts) only because th
 - **Screens:** a "How people received it" block on each card of `/admin/releases` (language-aware); its failure never affects approving.
 - **QA:** a checklist for reviewing a release before approving it (`docs/DISCOVERY.md`). The end-to-end checks of the whole feature set already run in CI: PHPUnit on SQLite and PostgreSQL (`ShippedContentTest`, `CatalogueTest`, `AdminPreviewTest`, `StatsTest`), Vitest, and Playwright with axe on desktop and phone in Arabic and English for the What's New sheet, tips, tours, the Discovery Center and the approval screen.
 - **Tests:** `StatsTest` (5, PHPUnit), +2 in `release-admin.test.tsx` (9), +1 assertion in `e2e/release-admin.spec.ts` (10 runs). Bundle: JS 118.4 of 125 KB gzip, CSS 41.4 of 45.
+
+# V72 — Product Experience 2.0: updates reach people by themselves (Smart Experience track, announced in H-018)
+
+Why: after P2–P9 the owner opened the site and What's new was empty. Three manual gates stood between merged content and people (the activation switch, the administrator's approval, and nothing telling anyone to do either). Now none is per release.
+
+- **Server:** `DISCOVERY_AUTO_ACTIVATE` defaults to **on** (it is still the kill switch, and the deploy marker still has to match: unreadable or mismatching marker = nothing happens). New `DISCOVERY_AUTO_APPROVE` (default **on**): `ReleaseService::reconcile` approves a release registered by a healthy deploy on the fingerprint of the deployed text, with nobody as reviewer; a withdrawn release is never re-approved by it; edited text is approved again once deployed; dry runs and the reconcile report (`approved: …`) show it. `.env.example` follows.
+- **Notifications:** every release now notifies (was: only "important" ones), and seeing, dismissing or postponing an announcement, or opening the history, deletes that person's notification for it (and only theirs; notified once, so it does not come back).
+- **Screens:** a count of unseen updates on "What's new" in the menu, kept current from the bootstrap even when no sheet may open (cleared by opening the history, decreased by dismissing the sheet); the approval screen shows "approved automatically" and a note on the mode.
+- **Content:** release `2026-11-08-discover` (Discover page with a one-step tour on the menu entry; "Approve updates" for administrators only; updates-by-themselves), ar/nl/en.
+- **Tests:** `AutoApproveTest` (7), reworked notification tests, `ShippedContentTest` (+1: the whole path for the shipped content, including administrator-only items and the notification clearing), `unseen-badge.test.tsx` (3), the one-announcement-per-session test now also proves it records nothing.
+- **Owner-visible change of a previous decision** (approval by an administrator before anything is shown): kept as an option (`DISCOVERY_AUTO_APPROVE=false`) and as the **withdraw** control.

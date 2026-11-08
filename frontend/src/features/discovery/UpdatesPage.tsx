@@ -8,7 +8,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { formatDay } from '../../lib/dateTime'
-import { recordState, releasesPath, startTour, tryFeature, type DiscoveryItem, type HistoryRelease } from '../../lib/discovery'
+import { recordState, releasesPath, setUnseenUpdates, startTour, tryFeature, type DiscoveryItem, type HistoryRelease } from '../../lib/discovery'
 import { ReleaseBody } from './ReleaseBody'
 
 /** The update history: every published release for this screen, newest first. Reading it counts as seeing the announcements in it. */
@@ -22,6 +22,8 @@ export default function UpdatesPage() {
     if (!data || marked.current) return
     marked.current = true
     for (const release of data.data) if (!release.seen) void recordState('release', release.key, 'seen').catch(() => {})
+    // Opening the history counts as seeing what it lists, which also clears their notifications on the server.
+    setUnseenUpdates(0)
   }, [data])
   useEffect(() => { if (data && focus) document.getElementById(`release-${focus}`)?.scrollIntoView({ block: 'start' }) }, [data, focus])
 

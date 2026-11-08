@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { useToast } from '../../lib/toast'
 import { useText } from '../../lib/i18n'
 import { whenIdle } from '../../lib/lazyPart'
-import { calmMoment, loadBootstrap, markShown, shownThisSession, type Release } from '../../lib/discovery'
+import { calmMoment, loadBootstrap, markShown, setUnseenUpdates, shownThisSession, type Release } from '../../lib/discovery'
 
 const WhatsNewSheet = lazy(() => import('./WhatsNewSheet'))
 
@@ -14,16 +14,17 @@ const WhatsNewSheet = lazy(() => import('./WhatsNewSheet'))
 export default function DiscoveryHost() {
   const [release, setRelease] = useState<Release | null>(null), toast = useToast(), t = useText()
   useEffect(() => {
-    if (shownThisSession()) return
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined
     const run = async () => {
       let data
       try { data = await loadBootstrap() } catch { return }
       if (cancelled) return
+      // The count on the menu's "What's new" is always kept up to date, whether or not a sheet may open now.
+      setUnseenUpdates(data.counts.unseen_updates)
       // The server has an update this open tab cannot show yet: say so, and never reload by itself.
       if (data.update_required) toast(t('A new version of LifeOS is ready. Reload to see what’s new.', 'إصدار جديد من LifeOS جاهز. أعد التحميل لترى الجديد.', 'Er is een nieuwe versie van LifeOS. Laad opnieuw om te zien wat er nieuw is.'), 'info', { label: t('Reload', 'إعادة تحميل', 'Opnieuw laden'), onClick: () => location.reload() })
       const announcement = data.announcement
-      if (!announcement) return
+      if (!announcement || shownThisSession()) return
       const attempt = (tries: number) => {
         if (cancelled) return
         if (calmMoment()) { markShown(); setRelease(announcement) }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Discovery;
 
+use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\UserDiscoveryState;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -74,6 +75,10 @@ class DiscoveryStateService
             $state->surface = $surface;
         }
         $state->save();
+        // Reading an announcement clears its notification: nothing is left in the inbox for what the person has seen.
+        if ($type === 'release' && in_array($action, ['seen', 'dismissed', 'snoozed'], true)) {
+            InboxNotification::where('user_id', $user->id)->where('deduplication_key', 'release:'.$key.':'.$user->id)->delete();
+        }
 
         return $state;
     }

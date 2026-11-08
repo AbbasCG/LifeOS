@@ -1,0 +1,19 @@
+{
+  "id": "approve-updates",
+  "category": "settings",
+  "since": "2026-11-08-discover",
+  "route": "/admin/releases",
+  "requires": [
+    "admin"
+  ],
+  "name": {
+    "en": "Approve updates (administrators)",
+    "ar": "اعتماد التحديثات (للمدراء)",
+    "nl": "Updates goedkeuren (beheerders)"
+  },
+  "description": {
+    "en": "See each update’s exact text in Arabic, Dutch and English, how people received it, and withdraw one at once. Updates are approved automatically after a healthy deploy.",
+    "ar": "اطّلع على النص الدقيق لكل تحديث بالعربية والهولندية والإنجليزية وعلى كيف استقبله الناس، واسحب أي تحديث فورًا. وتُعتمد التحديثات تلقائيًا بعد نشر سليم.",
+    "nl": "Zie de exacte tekst van elke update in het Arabisch, Nederlands en Engels, hoe mensen hem ontvingen, en trek er direct een in. Updates worden na een gezonde deploy automatisch goedgekeurd."
+  }
+}

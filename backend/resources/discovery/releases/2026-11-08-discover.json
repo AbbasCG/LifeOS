@@ -1,0 +1,44 @@
+{
+  "key": "2026-11-08-discover",
+  "date": "2026-11-08",
+  "revision": 1,
+  "importance": "normal",
+  "audiences": [
+    "web",
+    "mobile"
+  ],
+  "title": {
+    "en": "Discover everything new in one place",
+    "ar": "اكتشف كل جديد في مكان واحد",
+    "nl": "Ontdek alles wat nieuw is op één plek"
+  },
+  "summary": {
+    "en": "A Discover page, updates that arrive by themselves, and a count of what you have not seen yet.",
+    "ar": "صفحة «اكتشف»، وتحديثات تصلك من تلقاء نفسها، وعدّاد لما لم تطّلع عليه بعد.",
+    "nl": "Een Ontdekken-pagina, updates die vanzelf aankomen en een teller van wat je nog niet zag."
+  },
+  "items": [
+    {
+      "type": "new",
+      "feature": "discovery-center"
+    },
+    {
+      "type": "new",
+      "feature": "approve-updates"
+    },
+    {
+      "type": "improved",
+      "link": "/updates",
+      "title": {
+        "en": "Updates arrive by themselves",
+        "ar": "التحديثات تصلك من تلقاء نفسها",
+        "nl": "Updates komen vanzelf"
+      },
+      "body": {
+        "en": "After every release the changes appear in What’s new on their own, with a count next to it in the menu. Opening an update clears its notification.",
+        "ar": "بعد كل إصدار تظهر التغييرات في «ما الجديد» من تلقائها، مع عدّاد بجانبه في القائمة. وفتح التحديث يمسح إشعاره.",
+        "nl": "Na elke release verschijnen de wijzigingen vanzelf in Wat is nieuw, met een teller ernaast in het menu. Een update openen wist de melding ervan."
+      }
+    }
+  ]
+}

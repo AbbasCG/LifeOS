@@ -37,7 +37,7 @@ class ReleaseService
     public function reconcile(bool $dryRun = false): array
     {
         $state = $this->deploy->inspect();
-        $result = ['status' => $state['status'], 'detail' => $state['detail'], 'registered' => [], 'updated' => [], 'absent' => [], 'needs_review' => []];
+        $result = ['status' => $state['status'], 'detail' => $state['detail'], 'registered' => [], 'updated' => [], 'absent' => [], 'needs_review' => [], 'approved' => []];
         if ($state['status'] !== 'confirmed') {
             return $result;
         }
@@ -50,13 +50,20 @@ class ReleaseService
             return ['status' => 'content_invalid', 'detail' => $e->getMessage()] + $result;
         }
         $rows = ProductRelease::all()->keyBy('key');
+        $auto = (bool) config('discovery.auto_approve');
         foreach ($releases as $key => $release) {
             $row = $rows[$key] ?? null;
             if (! $row) {
                 $result['registered'][] = $key;
+                if ($auto) {
+                    $result['approved'][] = $key;
+                }
                 if (! $dryRun) {
-                    ProductRelease::create(['key' => $key, 'revision' => $release['revision'], 'importance' => $release['importance'], 'review_status' => ProductRelease::DRAFT,
+                    $created = ProductRelease::create(['key' => $key, 'revision' => $release['revision'], 'importance' => $release['importance'], 'review_status' => ProductRelease::DRAFT,
                         'content_hash' => $this->registry->fingerprint($key), 'deploy_status' => ProductRelease::LIVE, 'deployed_sha' => $sha, 'live_since' => $now, 'last_confirmed_at' => $now]);
+                    if ($auto) {
+                        $this->autoApprove($created);
+                    }
                 }
 
                 continue;
@@ -71,9 +78,17 @@ class ReleaseService
             if ($revised) {
                 $result['needs_review'][] = $key;
             }
+            // Still a draft (new text, or text edited after an approval): approved automatically. A withdrawn release is an administrator's decision and stays withdrawn.
+            $draft = $revised || $row->review_status === ProductRelease::DRAFT;
+            if ($auto && $draft) {
+                $result['approved'][] = $key;
+            }
             if (! $dryRun) {
                 $row->forceFill(['deploy_status' => ProductRelease::LIVE, 'absent_since' => null, 'revision' => $release['revision'], 'importance' => $release['importance'], 'deployed_sha' => $sha,
                     'content_hash' => $hash, 'last_confirmed_at' => $now] + ($revised ? ['review_status' => ProductRelease::DRAFT] : []))->save();
+                if ($auto && $draft) {
+                    $this->autoApprove($row);
+                }
             }
         }
         foreach ($rows as $key => $row) {
@@ -90,6 +105,20 @@ class ReleaseService
     }
 
     // ---- administrator decisions ----
+
+    /**
+     * The approval a healthy deploy grants by itself (DISCOVERY_AUTO_APPROVE): the same record an administrator's click leaves, bound to the fingerprint of the text now in the
+     * code, with nobody as reviewer. Only a release that is live in a confirmed deploy gets here (reconcile returns earlier otherwise).
+     */
+    private function autoApprove(ProductRelease $row): void
+    {
+        $hash = $this->registry->fingerprint($row->key);
+        if ($hash === null || $row->review_status === ProductRelease::WITHDRAWN) {
+            return;
+        }
+        $row->forceFill(['approved_hash' => $hash, 'content_hash' => $hash, 'published_at' => $row->published_at ?? now()]);
+        $this->review($row, ProductRelease::APPROVED, null);
+    }
 
     /** Approves exactly the text with this fingerprint; if the code holds other text by now, the answer is a 409 and nothing changes. */
     public function approve(string $key, User $admin, string $contentHash): ProductRelease
@@ -130,9 +159,9 @@ class ReleaseService
         return $row;
     }
 
-    private function review(ProductRelease $row, string $status, User $admin): ProductRelease
+    private function review(ProductRelease $row, string $status, ?User $admin): ProductRelease
     {
-        $row->forceFill(['review_status' => $status, 'reviewed_by' => $admin->id, 'reviewed_at' => now()])->save();
+        $row->forceFill(['review_status' => $status, 'reviewed_by' => $admin?->id, 'reviewed_at' => now()])->save();
         $this->visible = null;
 
         return $row;
@@ -167,7 +196,8 @@ class ReleaseService
             $out[] = ['key' => $key, 'date' => $release['date'], 'revision' => $release['revision'], 'importance' => $release['importance'], 'title' => $release['title'], 'items' => count($release['items']),
                 'registered' => $row !== null, 'review_status' => $row?->review_status, 'deploy_status' => $row?->deploy_status, 'deployed_sha' => $row?->deployed_sha,
                 'content_hash' => $this->registry->fingerprint($key), 'approved_hash' => $row?->approved_hash, 'preview' => $this->preview($key),
-                'live_since' => $row?->live_since?->toIso8601String(), 'reviewed_at' => $row?->reviewed_at?->toIso8601String(), 'visible' => (bool) $row?->isVisible()];
+                'live_since' => $row?->live_since?->toIso8601String(), 'reviewed_at' => $row?->reviewed_at?->toIso8601String(), 'visible' => (bool) $row?->isVisible(),
+                'auto_approved' => $row !== null && $row->review_status === ProductRelease::APPROVED && $row->reviewed_by === null];
         }
 
         return $out;
@@ -280,9 +310,6 @@ class ReleaseService
      */
     public function notify(User $user, array $announcement): void
     {
-        if (($announcement['importance'] ?? 'normal') !== 'important') {
-            return;
-        }
         $keys = ['user_id' => $user->id, 'subject_type' => 'release', 'subject_key' => $announcement['key'], 'version' => 1];
         try {
             $state = UserDiscoveryState::firstOrCreate($keys);
