@@ -3359,3 +3359,25 @@ Backend foundation for a Notion/Zapier-style hub; see `docs/INTEGRATIONS.md`. Th
 ## Not verified
 Real provider consent screens and the production server. No `.env`, `APP_KEY`, Docker, n8n or production database change. The first deploy with this change runs five additive migrations (verified backup first).
 
+
+---
+
+# V59 — Mobile P1 batch, part 1 (Smart Experience track)
+
+First half of the mobile review's P1 list (the review of the phone UI at 375–430 px). Frontend only; no API, backend or setting changes.
+
+## Changes
+- **Dictated "next week" is visible.** `spokenHints` already read it, but Quick Add only had a hidden "next week" value, so no tile showed it and the task was saved for the coming Monday without any sign. It now sets the date tile to that Monday (`nextWeekDay()` in `lib/quickAdd.ts`), so the tile lights up and the user can change it. The saved due date is exactly what it was (`dueForDay(nextWeekDay())` equals `dueFor('nextweek')`).
+- **Selected priority tiles are readable.** Urgent in the dark theme was white on `#fb7185` (2.7:1) and High in the light theme was near-black on `#92400e` (2.6:1). New tokens `--color-on-danger` / `--color-on-warning` give 6.3:1 / 7.0:1 (urgent, light / dark) and 7.1:1 / 11.1:1 (high). Selected tiles also show a check mark, so selection no longer depends on colour alone (`content: "✓" / ""` keeps it out of the accessible name).
+- **Keyboard focus is visible.** The global ring was cyan (2.4:1 on white) and the picker's was a 55 % tint; both are the opaque primary colour now (5.7:1 light, 5.7:1 dark).
+- **"Share with external AI" switch** (`IntegrationsSettings.tsx`, a one-line change in the Integrations track's file, announced as H-005): the accessible name is the visible text via `aria-labelledby`; the longer wording is its description (WCAG 2.5.3 label-in-name).
+- **Touch targets:** icon buttons, the task play button, calendar arrows and the widget movers reach 44 px on coarse pointers or narrow screens.
+
+## Tests
+`src/tests/mobile-p1.test.ts` (10: coming-Monday logic from any weekday and equality with the old due date; measured contrast of every tone in both themes; no hard-coded tone colours; the check mark; opaque focus rings; 44 px rules; the switch's name). `e2e/voice.spec.ts` gets a "next week" case; it fails on the previous code (date tile not set) and passes now. The `v4` test follows the switch's new name. Vitest 359/359, ESLint 0 errors, `tsc -b`, build and bundle budgets pass.
+
+## Not done yet (part 2)
+Unsaved-changes guard on `BottomSheet`/`RecordForm`, tablist arrow keys and a real radio for the Quick Add date tile, and the typed-text equivalents of dictated hints (`readIntent`, slice S3).
+
+## Not verified
+Real devices and screen readers (checked by role/name queries, axe and the measured contrast only).

@@ -102,8 +102,8 @@ export default function IntegrationsSettings() {
     </header>
     {data && <div className="hub-row consent-row">
       <Bot size={20} aria-hidden="true" />
-      <span className="hub-row-text"><strong>{t('Share with external AI', 'مشاركة مع ذكاء خارجي')}</strong><small className="muted">{data.ai_connected_data ? t('On', 'مفعّل') : t('Off', 'متوقف')}</small></span>
-      <label className="switch"><input type="checkbox" role="switch" checked={data.ai_connected_data} disabled={busy !== null} aria-label={t('Share connected data with an external AI provider', 'مشاركة البيانات المرتبطة مع مزود ذكاء اصطناعي خارجي')} onChange={() => void act('consent', () => api('/api/settings', 'PUT', { ai_connected_data: !data.ai_connected_data }), t('Preference saved.', 'تم حفظ التفضيل.'))} /><span aria-hidden="true" /></label>
+      <span className="hub-row-text"><strong id="share-ai-label">{t('Share with external AI', 'مشاركة مع ذكاء خارجي')}</strong><small className="muted">{data.ai_connected_data ? t('On', 'مفعّل') : t('Off', 'متوقف')}</small><span id="share-ai-desc" className="sr-only">{t('Share connected data with an external AI provider', 'مشاركة البيانات المرتبطة مع مزود ذكاء اصطناعي خارجي')}</span></span>
+      <label className="switch"><input type="checkbox" role="switch" checked={data.ai_connected_data} disabled={busy !== null} aria-labelledby="share-ai-label" aria-describedby="share-ai-desc" onChange={() => void act('consent', () => api('/api/settings', 'PUT', { ai_connected_data: !data.ai_connected_data }), t('Preference saved.', 'تم حفظ التفضيل.'))} /><span aria-hidden="true" /></label>
     </div>}
     {none && <ol className="onboarding-mini" aria-label={t('Bring your calendars and to-dos together', 'اجمع تقويماتك ومهامك في مكان واحد')}>
       <li><span>1</span>{t('Pick an app below', 'اختر تطبيقاً أدناه')}</li>

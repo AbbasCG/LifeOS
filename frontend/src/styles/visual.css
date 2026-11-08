@@ -504,6 +504,8 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
   .tick { position: relative; }
   .tick::after { content: ''; position: absolute; inset: -5px; }
   .goal-adjust .icon-button, .record-actions .icon-button { min-width: 44px; min-height: 44px; }
+  .icon-button, .icon-button.play, .cal-nav .quiet, .widget-move .icon-button { min-height: 44px; }
+  .icon-button.play, .widget-move .icon-button { min-width: 44px; }
   .habit-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
   .habit-days button { width: auto; min-width: 0; height: 44px; }
   .next-action, .record-main .metadata a, .record-main > .text-button { min-height: 44px; }

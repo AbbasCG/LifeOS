@@ -149,7 +149,7 @@ describe('calendar integrations', () => {
     expect(await screen.findByText('Planned: import pages from one database you pick.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('button', { name: 'Connect Notion' })).not.toBeInTheDocument()
-    expect(screen.getByRole('switch', { name: 'Share connected data with an external AI provider' })).not.toBeChecked()
+    expect(screen.getByRole('switch', { name: 'Share with external AI' })).not.toBeChecked()
   })
   it('lets the user choose which lists are imported', async () => {
     const fetcher = mockApi([user, { match: /\/api\/integrations$/, body: providers }, { match: /\/api\/integrations\/accounts\/4$/, method: 'PATCH', body: { imported: 3 } }])

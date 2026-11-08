@@ -13,6 +13,12 @@ export type When = 'today' | 'tomorrow' | 'week' | 'nextweek' | 'none'
 export type QuickWhen = When | 'custom'
 export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
+/** The coming Monday as a day ('YYYY-MM-DD') in the account's calendar; a Monday asks for the one after it. */
+export function nextWeekDay(now = new Date()): string {
+  const today = accountDay(now)
+  return shiftDay(today, ((8 - weekdayOf(today)) % 7) || 7)
+}
+
 /** Due date for a quick choice: 17:00 today (23:00 once 17:00 has passed) or 17:00 tomorrow, Sunday 17:00 for "this week", or the coming Monday 17:00. */
 export function dueFor(when: When, now = new Date()): string | null {
   if (when === 'none') return null
@@ -20,7 +26,7 @@ export function dueFor(when: When, now = new Date()): string | null {
   const today = accountDay(now)
   const day = when === 'tomorrow' ? shiftDay(today, 1)
     : when === 'week' ? shiftDay(today, (7 - weekdayOf(today)) % 7)
-    : when === 'nextweek' ? shiftDay(today, ((8 - weekdayOf(today)) % 7) || 7)   // the coming Monday
+    : when === 'nextweek' ? nextWeekDay(now)   // the coming Monday
     : today
   // After 17:00, "today" means tonight (23:00) rather than a deadline that has already passed.
   if (when === 'today' && Date.parse(accountInstant(day, 17)) <= now.getTime()) return accountInstant(day, 23)
