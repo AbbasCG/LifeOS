@@ -35,7 +35,7 @@ export function dueForDay(day: string, now = new Date()): string | null {
 }
 
 /**
- * What a dictated phrase says about when and how important ("buy milk tomorrow, urgent"), in English or Arabic, so the
+ * What a dictated phrase says about when and how important ("buy milk tomorrow, urgent"), in English, Arabic or Dutch, so the
  * "When" and "Priority" chips can be set for the user to see and change. Only used for dictation; typed text is left alone,
  * and the text itself is never rewritten.
  */
@@ -43,12 +43,12 @@ export function spokenHints(text: string): { when?: When; priority?: Priority } 
   const s = ` ${text.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[ً-ْ]/g, '')} `
   const has = (...words: string[]) => words.some(w => s.includes(` ${w} `) || s.includes(` ${w},`) || s.includes(` ${w}.`))
   const hints: { when?: When; priority?: Priority } = {}
-  if (has('next week') || /(الاسبوع|اسبوع)\s+(القادم|الجاي|الجايه|الجاي)/.test(s)) hints.when = 'nextweek'
-  else if (has('tomorrow', 'غدا', 'بكره', 'بكرا')) hints.when = 'tomorrow'
-  else if (has('this week') || /هذا\s+الاسبوع/.test(s)) hints.when = 'week'
-  else if (has('today', 'tonight', 'اليوم', 'الليله')) hints.when = 'today'
-  if (has('urgent', 'urgently', 'asap', 'عاجل', 'مستعجل', 'ضروري')) hints.priority = 'urgent'
-  else if (has('important', 'high priority', 'مهم', 'اولويه عاليه')) hints.priority = 'high'
-  else if (has('low priority', 'whenever', 'اولويه منخفضه', 'مو مستعجل')) hints.priority = 'low'
+  if (has('next week', 'volgende week') || /(الاسبوع|اسبوع)\s+(القادم|الجاي|الجايه|الجاي)/.test(s)) hints.when = 'nextweek'
+  else if (has('tomorrow', 'morgen', 'غدا', 'بكره', 'بكرا')) hints.when = 'tomorrow'
+  else if (has('this week', 'deze week') || /هذا\s+الاسبوع/.test(s)) hints.when = 'week'
+  else if (has('today', 'tonight', 'vandaag', 'vanavond', 'اليوم', 'الليله')) hints.when = 'today'
+  if (has('urgent', 'urgently', 'asap', 'dringend', 'عاجل', 'مستعجل', 'ضروري')) hints.priority = 'urgent'
+  else if (has('important', 'high priority', 'belangrijk', 'hoge prioriteit', 'مهم', 'اولويه عاليه')) hints.priority = 'high'
+  else if (has('low priority', 'whenever', 'lage prioriteit', 'geen haast', 'اولويه منخفضه', 'مو مستعجل')) hints.priority = 'low'
   return hints
 }

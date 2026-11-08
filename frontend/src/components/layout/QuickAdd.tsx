@@ -4,7 +4,9 @@ import { useSearchParams } from 'react-router'
 import { useOnline } from '../../lib/pwa'
 import { createTaskOrQueue } from '../../lib/offline'
 import { api, type RecordItem } from '../../lib/api'
-import { parseCapture } from '../../lib/capture'
+import { readCapture } from '../../lib/capture'
+import { accountZone } from '../../lib/accountDay'
+import { useLanguage } from '../../contexts/LanguageContext'
 import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { BottomSheet } from '../visual'
@@ -25,7 +27,7 @@ const RecordForm = lazyPart(() => import('../../features/ResourcePage').then(m =
  * ("tomorrow at 7pm for one hour") still fill the time and length. "More details" opens the full form.
  */
 export default function QuickAdd() {
-  const t = useText(), toast = useToast()
+  const t = useText(), toast = useToast(), { language } = useLanguage()
   const [open, setOpen] = useState(false), [text, setText] = useState(''), [when, setWhen] = useState<QuickWhen>('today'), [day, setDay] = useState(''), [priority, setPriority] = useState<Priority>('medium')
   const [busy, setBusy] = useState(false), [voice, setVoice] = useState(false), [error, setError] = useState(''), [draft, setDraft] = useState<Partial<RecordItem> | null>(null)
   const online = useOnline(), [params, setParams] = useSearchParams()
@@ -45,8 +47,14 @@ export default function QuickAdd() {
     api<{ voice_allowed?: boolean }>('/api/assistant/status').then(s => { if (live) setVoiceAllowed(s.voice_allowed !== false) }).catch(() => {})
     return () => { live = false }
   }, [shown])
+  // What the typed or dictated phrase said about the time and length, shown before saving so nothing is a surprise.
+  const read = readCapture(text)
+  const understood = [
+    read.found.due && read.task.due_at ? new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: accountZone() }).format(new Date(read.task.due_at)) : '',
+    read.found.duration ? t(`${read.task.estimated_minutes} min`, `${read.task.estimated_minutes} دقيقة`) : '',
+  ].filter(Boolean).join(' · ')
   function task(): Partial<RecordItem> {
-    const parsed = parseCapture(text)
+    const parsed = read.task
     return { ...parsed, status: 'todo', priority, due_at: parsed.due_at ?? (when === 'custom' ? dueForDay(day) : dueFor(when)) }
   }
   function close() {
@@ -76,6 +84,7 @@ export default function QuickAdd() {
           <input data-autofocus className="qa-title" value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} enterKeyHint="done" autoComplete="off" autoCapitalize="sentences" />
           {voiceAllowed && <Suspense fallback={null}><VoiceButton autoStart={voice} onText={said => { setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200)); const hints = spokenHints(said); if (hints.when) setWhen(hints.when); if (hints.priority) setPriority(hints.priority) }} /></Suspense>}
         </div>
+        {understood && <p className="muted small qa-understood" role="status">{t('Understood: ', 'فُهم: ')}{understood}</p>}
         <div className="field-block">
           <div className="qa-whens" role="radiogroup" aria-label={t('When', 'متى')}>
             {whens.slice(0, 3).map(o => <button key={o.value} type="button" role="radio" aria-checked={when === o.value} className="choice" onClick={() => setWhen(o.value)}><span className="choice-icon">{o.icon}</span><span className="choice-label">{o.label}</span></button>)}
