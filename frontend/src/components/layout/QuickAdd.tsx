@@ -77,7 +77,7 @@ export default function QuickAdd() {
   const whens: { value: QuickWhen; label: string; icon: ReactNode }[] = [{ value: 'today', label: t('Today', 'اليوم'), icon: icon(Sun) }, { value: 'tomorrow', label: t('Tomorrow', 'غداً'), icon: icon(Sunrise) }, { value: 'week', label: t('This week', 'هذا الأسبوع'), icon: icon(CalendarDays) }, { value: 'none', label: t('No date', 'بلا موعد'), icon: icon(CalendarX) }]
   const priorities: { value: Priority; label: string; icon: ReactNode; tone: string }[] = [{ value: 'urgent', label: t('Urgent', 'عاجل'), icon: icon(Flame), tone: 'urgent' }, { value: 'high', label: t('High', 'عالية'), icon: icon(ArrowUp), tone: 'high' }, { value: 'medium', label: t('Normal', 'عادية'), icon: icon(Equal), tone: 'medium' }, { value: 'low', label: t('Low', 'منخفضة'), icon: icon(ArrowDown), tone: 'low' }]
   return <>
-    {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} footer={
+    {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} dirty={() => text.trim() !== ''} footer={
       <button type="submit" form="quick-add-form" className="primary qa-add" disabled={!text.trim() || busy}><Plus size={20} aria-hidden="true" />{t('Add task', 'إضافة المهمة')}</button>}>
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
@@ -88,7 +88,7 @@ export default function QuickAdd() {
         <div className="field-block">
           <div className="qa-whens" role="radiogroup" aria-label={t('When', 'متى')}>
             {whens.slice(0, 3).map(o => <button key={o.value} type="button" role="radio" aria-checked={when === o.value} className="choice" onClick={() => setWhen(o.value)}><span className="choice-icon">{o.icon}</span><span className="choice-label">{o.label}</span></button>)}
-            <span className={`qa-pick${when === 'custom' ? ' is-set' : ''}`}><DateTimeField kind="date" value={day} onChange={v => { setDay(v); setWhen(v ? 'custom' : 'today') }} label={t('Pick a date', 'اختيار تاريخ')} /></span>
+            <span className={`qa-pick${when === 'custom' ? ' is-set' : ''}`}><DateTimeField kind="date" value={day} onChange={v => { setDay(v); setWhen(v ? 'custom' : 'today') }} label={t('Pick a date', 'اختيار تاريخ')} radioChecked={when === 'custom'} /></span>
             {whens.slice(3).map(o => <button key={o.value} type="button" role="radio" aria-checked={when === o.value} className="choice" onClick={() => setWhen(o.value)}><span className="choice-icon">{o.icon}</span><span className="choice-label">{o.label}</span></button>)}
           </div>
         </div>
