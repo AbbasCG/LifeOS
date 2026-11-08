@@ -19,6 +19,7 @@ class AuditLogger
         'push_subscribed', 'push_unsubscribed', 'ai_action_executed', 'automation_changed', 'checkins_deleted',
         'ai_settings_changed', 'ai_action_undone',
         'admin_granted', 'admin_revoked', 'integration_credentials_set', 'integration_credentials_removed', 'webhook_endpoint_created', 'webhook_secret_rotated',
+        'release_approved', 'release_withdrawn',
     ];
 
     /**

@@ -3381,3 +3381,27 @@ Unsaved-changes guard on `BottomSheet`/`RecordForm`, tablist arrow keys and a re
 
 ## Not verified
 Real devices and screen readers (checked by role/name queries, axe and the measured contrast only).
+
+
+# V60 — Product Experience 2.0, P2: release core (Smart Experience track)
+
+The server side of What's New and feature discovery. Nothing is shown to anyone yet: there is no release file, and a release needs both a
+**healthy deploy** (the marker `current.sha` equals the running commit) and an **administrator's approval**. Guide: `docs/DISCOVERY.md`.
+
+## What was added
+* Content registry (`DiscoveryRegistry`) for reviewed JSON files in `resources/discovery/{releases,features,tours}`: three languages everywhere,
+  in-app links only, media from `/discovery/` only, no field that could act in a tour step, unknown fields and requirements rejected.
+* `ReleaseService`: reconcile (register after a confirmed deploy, mark removed releases `absent`, restore on roll-forward), approve / withdraw,
+  announcement and history for a person (platform, joined-after, once, "later" twice, client version, administrator-only features hidden).
+* `FeatureGate`: server-side availability (`admin`, `ai_enabled`, `voice_allowed`, `push_configured`, `integration_ready:<id>`, `config:<flag>`); unknown means unavailable.
+* `DeployConfirmation`: reads the marker and the running commit (read-only). **Off by default** (`DISCOVERY_AUTO_ACTIVATE`).
+* Approval is bound to a fingerprint of the exact text (release, features, tours): changed text is hidden at once and needs a new approval; approving
+  needs two-factor, a confirmed password and the fingerprint the administrator read. The activation switch also hides everything while off.
+* Tables `product_releases` and `user_discovery_states` (keys and timestamps only), API under `/api/discovery` and `/api/admin/discovery`,
+  commands `lifeos:discovery:{reconcile,validate,check-marker}` (reconcile is scheduled every five minutes).
+* Notification category `updates` (people can switch it off; push off by default). Settings: `discovery.hints_enabled`. Export: `discovery`.
+* Audit actions `release_approved` and `release_withdrawn`; Gate `manage-releases` is the existing `users.is_admin`.
+
+## Not verified
+* That the scheduler's account can read `/var/lib/lifeos-deploy/current.sha` on the server (mode 750, owner `lifeos`): run `lifeos:discovery:check-marker` there before switching activation on.
+* Anything on the production server.

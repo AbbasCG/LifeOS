@@ -7,6 +7,7 @@ use App\Integrations\Vault\CredentialVault;
 use App\Models\User;
 use App\Services\CalendarService;
 use App\Services\CalendarSyncService;
+use App\Services\Discovery\DiscoveryRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -22,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(CalendarService::class);
         $this->app->singleton(ManifestRegistry::class);
         $this->app->singleton(CredentialVault::class);
+        $this->app->singleton(DiscoveryRegistry::class);
     }
 
     public function boot(): void
@@ -30,6 +32,8 @@ class AppServiceProvider extends ServiceProvider
         $this->configureRateLimiting();
         // Application-wide integration credentials are managed by LifeOS administrators only (users.is_admin, set with `php artisan lifeos:make-admin`).
         Gate::define('manage-integrations', fn (User $user): bool => (bool) $user->is_admin);
+        // Approving and withdrawing product updates uses the same administrator flag; there is no separate role.
+        Gate::define('manage-releases', fn (User $user): bool => (bool) $user->is_admin);
         $this->app->make(CalendarService::class)->addSource(fn (User $user, CarbonImmutable $from, CarbonImmutable $to) => CalendarSyncService::occurrences($user->id, $from, $to));
     }
 
@@ -54,6 +58,8 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('integrations', fn (Request $request) => [Limit::perMinute(30)->by('int:'.$identity($request)), Limit::perMinute(120)->by('int-ip:'.$request->ip())]);
         // Public webhook receiver: per endpoint+IP and per IP, so one noisy sender cannot starve the others.
         RateLimiter::for('webhooks', fn (Request $request) => [Limit::perMinute(120)->by('wh:'.$request->route('publicId').'|'.$request->ip()), Limit::perMinute(600)->by('wh-ip:'.$request->ip())]);
+        // What's New / discovery writes (seen, postponed, tried, tour progress): generous for real use, bounded against loops.
+        RateLimiter::for('discovery', fn (Request $request) => Limit::perMinute(60)->by('disc:'.$identity($request)));
         RateLimiter::for('password-reset', fn (Request $request) => Limit::perMinute(3)->by('reset:'.$request->ip()));
     }
 }

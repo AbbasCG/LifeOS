@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminReleaseController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AutomationController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\CalendarWriteController;
 use App\Http\Controllers\CheckinController;
 use App\Http\Controllers\CopilotController;
 use App\Http\Controllers\DayPlanController;
+use App\Http\Controllers\DiscoveryController;
 use App\Http\Controllers\FocusController;
 use App\Http\Controllers\InsightsController;
 use App\Http\Controllers\IntegrationAdminController;
@@ -24,6 +26,7 @@ use App\Http\Controllers\TimelineController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Middleware\EnsureIntegrationAdmin;
+use App\Http\Middleware\EnsureReleaseAdmin;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -94,6 +97,16 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('calendar', [CalendarController::class, 'index']);
         Route::get('integrations', [IntegrationController::class, 'index']);
         Route::get('integrations/catalog', [IntegrationCatalogController::class, 'index']);
+        // Product updates and feature discovery (Product Experience 2.0).
+        Route::get('discovery/bootstrap', [DiscoveryController::class, 'bootstrap']);
+        Route::get('discovery/releases', [DiscoveryController::class, 'releases']);
+        Route::put('discovery/states/{type}/{key}', [DiscoveryController::class, 'state'])->middleware('throttle:discovery');
+        Route::post('discovery/features/{id}/try', [DiscoveryController::class, 'tryFeature'])->middleware('throttle:discovery');
+        Route::middleware(EnsureReleaseAdmin::class)->prefix('admin/discovery')->group(function (): void {
+            Route::get('releases', [AdminReleaseController::class, 'index']);
+            Route::post('releases/{key}/approve', [AdminReleaseController::class, 'approve'])->middleware('password.confirm:,900');
+            Route::post('releases/{key}/withdraw', [AdminReleaseController::class, 'withdraw']);
+        });
         Route::middleware(EnsureIntegrationAdmin::class)->prefix('admin/integrations')->group(function (): void {
             Route::get('credentials', [IntegrationAdminController::class, 'index']);
             Route::put('credentials/{provider}', [IntegrationAdminController::class, 'update'])->where('provider', '[a-z][a-z0-9_]{1,39}')->middleware('password.confirm:,900');

@@ -15,3 +15,5 @@ Schedule::command('lifeos:recommendations')->hourly()->withoutOverlapping();
 Schedule::command('lifeos:weekly-drafts')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('lifeos:goal-reviews')->hourly()->withoutOverlapping();
 Schedule::command('lifeos:integrations:prune')->dailyAt('03:20')->withoutOverlapping();
+// Registers releases only after a healthy deploy is confirmed; does nothing while DISCOVERY_AUTO_ACTIVATE is off.
+Schedule::command('lifeos:discovery:reconcile')->everyFiveMinutes()->withoutOverlapping();

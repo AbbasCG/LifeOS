@@ -17,6 +17,7 @@ if it is wrong, add a row to `HANDOFFS.md`.
 
 | Date | Branch | Commit / PR | Update |
 |---|---|---|---|
+| 2026-11-08 | `claude/smart-release-core` | PR (P2 of Product Experience 2.0) | Release core: content registry, release lifecycle (healthy deploy + administrator approval), feature gate, `/api/discovery`, notification category `updates`. Shows nothing yet; activation is off by default (H-009). See `docs/DISCOVERY.md`. |
 | 2026-11-08 | `claude/coordination-docs` | this PR | Coordination files proposed. |
 | 2026-11-08 | `claude/quick-capture-multilang` | PR #60, merge `e77fc1d` | Quick Capture reads day (tomorrow / day after), time and length in English, Arabic and Dutch, with an "Understood:" preview; days and clock times use the account zone. |
 
