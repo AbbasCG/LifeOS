@@ -99,6 +99,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('integrations/catalog', [IntegrationCatalogController::class, 'index']);
         // Product updates and feature discovery (Product Experience 2.0).
         Route::get('discovery/bootstrap', [DiscoveryController::class, 'bootstrap']);
+        Route::get('discovery/features', [DiscoveryController::class, 'features']);
         Route::get('discovery/guide', [DiscoveryController::class, 'guide']);
         Route::get('discovery/tours/{id}', [DiscoveryController::class, 'tour']);
         Route::get('discovery/releases', [DiscoveryController::class, 'releases']);

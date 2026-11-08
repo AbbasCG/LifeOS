@@ -46,3 +46,16 @@
 .tour-card .tour-progress { margin-block-end: 4px; font-size: 0.8rem; font-weight: 600; color: var(--color-text); }
 .tour-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
 @media (prefers-reduced-motion: no-preference) { .tour-card { animation: hint-in 0.18s ease-out; } .tour-dim.has-target { transition: top 0.2s, left 0.2s, width 0.2s, height 0.2s; } }
+
+/* The Discovery Center. */
+.discover-page { display: grid; gap: var(--space-4, 16px); align-content: start; }
+.discover-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); max-inline-size: 28rem; }
+.discover-search input { flex: 1; min-inline-size: 0; border: 0; background: transparent; color: inherit; font-size: 16px; padding-block: 10px; }
+.discover-search input:focus { outline: none; }
+.discover-search:focus-within { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.discover-group h2 { margin: 0 0 var(--space-2, 8px); font-size: 1.05rem; }
+.discover-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3, 12px); grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); }
+.discover-card { display: grid; gap: var(--space-2, 8px); align-content: start; }
+.discover-card h3 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.discover-card p { margin: 0; line-height: 1.55; }
+.discover-foot { display: grid; gap: var(--space-2, 8px); }

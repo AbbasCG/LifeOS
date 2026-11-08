@@ -100,3 +100,11 @@ element), may name a `route` to open first and `reveal: sidebar` when the target
 format has no field for an action. The card is positioned by `placement` (`auto`, `top`, `bottom`, `start`, `end`; `start`/`end` follow the reading direction).
 Menu items already carry `nav-<screen>` ids and the quick-add button carries `quick-add`. To tour a screen of another area, ask its owner for stable `data-tour`
 ids (Handoff H-008) instead of editing the screen.
+
+## Discovery Center (P6)
+
+`/discover` (menu, group More) lists every feature of the live, approved releases in the person's language, grouped by category, with a search box. Per feature:
+**Try now** (asks the server, opens the screen and starts its tour), **Take the tour / Watch the tour again** (goes to the feature's screen and starts the tour; it does not count
+as a new "try"), the **New** mark, and, when the feature cannot be used right now, the reason instead of buttons (needs setup, not on this device, reload for the update).
+At the bottom: the switch for tips and a link to the update history. `GET /api/discovery/features` serves it: only features of approved releases, never features for
+administrators to anyone else, nothing when the kill switch is off. The page is opened by the person, so it never competes with announcements or tips.

@@ -29,6 +29,13 @@ export type DiscoveryItem = {
   video?: { src: string; poster: string; captions?: string; label: string }
 }
 
+export type CatalogueFeature = {
+  id: string; category: string; name: string; description: string; route: string; release: string; date: string
+  can_try: boolean; unavailable_reason: 'setup_needed' | 'platform' | 'update_required' | string | null
+  /** The tour of this feature (also after it was finished, so it can be watched again); null when there is none or the feature cannot be tried. */
+  tour: string | null; tour_done: boolean; tried: boolean; is_new: boolean
+  image?: { src: string; alt: string }
+}
 export type Release = { key: string; date: string; revision: number; importance: 'normal' | 'important'; title: string; summary: string; items: DiscoveryItem[] }
 export type HistoryRelease = Release & { seen: boolean; helpful: boolean | null }
 export type Bootstrap = { announcement: Release | null; update_required: boolean; counts: { unseen_updates: number }; preferences: { hints_enabled: boolean } }
@@ -46,6 +53,7 @@ export function surface(): Surface {
 
 export const discoveryQuery = () => `surface=${surface()}&client=${DISCOVERY_CLIENT}`
 
+export const featuresPath = () => `/api/discovery/features?${discoveryQuery()}`
 export const loadBootstrap = () => api<{ data: Bootstrap }>(`/api/discovery/bootstrap?${discoveryQuery()}`).then(r => r.data)
 export const releasesPath = () => `/api/discovery/releases?${discoveryQuery()}`
 export const recordState = (type: 'release' | 'feature' | 'tour' | 'hint', key: string, action: StateAction | 'started' | 'completed' | 'skipped' | 'step', stepIndex?: number) =>
