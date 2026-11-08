@@ -27,6 +27,8 @@ type Props = {
   className?: string
   /** Accessible name when there is no wrapping <label>; the shown value is added so the name always contains the visible text. */
   label?: string
+  /** Set when the trigger is one option of a radio group (Quick Add's date tile): it then has role radio and this checked state. */
+  radioChecked?: boolean
 }
 
 function useHourCycle(): [HourCycle, (next: HourCycle) => void] {
@@ -42,7 +44,7 @@ function useHourCycle(): [HourCycle, (next: HourCycle) => void] {
 
 const isPhone = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches
 
-export function DateTimeField({ kind, value: controlled, defaultValue = '', onChange: notify, name, id, required, disabled, min, max, className, label }: Props) {
+export function DateTimeField({ kind, value: controlled, defaultValue = '', onChange: notify, name, id, required, disabled, min, max, className, label, radioChecked }: Props) {
   const t = useText(), { language } = useLanguage(), [open, setOpen] = useState(false), [cycle] = useHourCycle()
   const trigger = useRef<HTMLButtonElement>(null), [own, setOwn] = useState(defaultValue)
   const value = controlled ?? own
@@ -56,7 +58,7 @@ export function DateTimeField({ kind, value: controlled, defaultValue = '', onCh
   const minDay = min?.slice(0, 10), maxDay = max?.slice(0, 10)
 
   return <span className={`dtp ${className ?? ''}`}>
-    <button ref={trigger} id={id} type="button" className="dtp-trigger" disabled={disabled} aria-haspopup="dialog" aria-expanded={open} aria-label={label ? `${label}: ${text || placeholder}` : undefined} data-value={value} data-min={min} data-max={max} onClick={() => setOpen(true)}>
+    <button ref={trigger} id={id} type="button" className="dtp-trigger" disabled={disabled} aria-haspopup="dialog" {...(radioChecked === undefined ? { 'aria-expanded': open } : { role: 'radio', 'aria-checked': radioChecked })} aria-label={label ? `${label}: ${text || placeholder}` : undefined} data-value={value} data-min={min} data-max={max} onClick={() => setOpen(true)}>
       <Icon size={16} aria-hidden="true" /><span className={text ? '' : 'dtp-empty'} dir="auto">{text || placeholder}</span>
     </button>
     {/* Carries the value in a form post and makes `required` work, without the browser's own picker. */}
