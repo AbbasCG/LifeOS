@@ -28,7 +28,7 @@ class DiscoveryRegistry
     /** Things a tour step may ask the app to reveal before it highlights a target. */
     public const REVEALS = ['sidebar'];
 
-    private const SLUG = '/^[a-z0-9][a-z0-9-]{1,62}$/D';
+    public const SLUG = '/^[a-z0-9][a-z0-9-]{1,62}$/D';
 
     private const ROUTE = '#^/(?!/)[A-Za-z0-9/_-]*(\?[A-Za-z0-9=&_-]*)?$#D';
 

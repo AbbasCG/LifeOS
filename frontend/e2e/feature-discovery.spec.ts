@@ -26,6 +26,8 @@ test('a hint appears once next to its target without taking focus, and is access
   expect(box!.x).toBeGreaterThanOrEqual(0)
   expect(box!.x + box!.width).toBeLessThanOrEqual(size.width)
   expect(await page.evaluate(() => document.activeElement?.closest('[data-testid="hint-bubble"]'))).toBeNull()
+  // Contrast is measured on the settled bubble, not halfway through its fade-in.
+  await bubble.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
   const violations = (await new AxeBuilder({ page }).include('[data-testid="hint-bubble"]').withTags(TAGS).analyze()).violations
   expect(violations.map(v => `${v.id}: ${v.nodes[0]?.target}`)).toEqual([])
   await page.keyboard.press('Escape')

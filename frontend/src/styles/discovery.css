@@ -33,3 +33,16 @@
 .hint-close { position: absolute; inset-block-start: 6px; inset-inline-end: 6px; }
 .hints-setting .inline { display: flex; align-items: center; gap: 8px; }
 @media (prefers-reduced-motion: no-preference) { .hint-bubble { animation: hint-in 0.18s ease-out; } @keyframes hint-in { from { opacity: 0; transform: translateY(4px); } } }
+
+/* Guided tours: a dimmed page with a cut-out around the target, and a card beside it. Nothing here clicks for the person. */
+.tour-dim { position: fixed; inset: 0; z-index: 100; background: rgb(0 0 0 / 0.45); pointer-events: none; }
+.tour-dim.has-target { inset: auto; background: transparent; border-radius: 12px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45), 0 0 0 3px var(--color-primary); }
+.tour-card { position: fixed; z-index: 101; inline-size: min(340px, calc(100vw - 24px)); box-sizing: border-box; padding: var(--space-4, 16px); border-radius: 16px;
+  background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); box-shadow: 0 12px 36px rgb(0 0 0 / 0.28); }
+.tour-card:focus { outline: none; }
+.tour-card:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.tour-card h2 { margin: 0 0 var(--space-2, 8px); font-size: 1.05rem; }
+.tour-card p { margin: 0 0 var(--space-3, 12px); line-height: 1.5; }
+.tour-card .tour-progress { margin-block-end: 4px; font-size: 0.8rem; font-weight: 600; color: var(--color-text); }
+.tour-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
+@media (prefers-reduced-motion: no-preference) { .tour-card { animation: hint-in 0.18s ease-out; } .tour-dim.has-target { transition: top 0.2s, left 0.2s, width 0.2s, height 0.2s; } }
