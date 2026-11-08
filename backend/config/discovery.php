@@ -25,6 +25,12 @@ return [
      */
     'auto_approve' => (bool) env('DISCOVERY_AUTO_APPROVE', true),
 
+    /*
+     * Who sees a newly registered release: "general" (everyone, the behaviour before staged rollout existed), "internal" (administrators and test accounts) or
+     * "admin" (administrators only). An administrator widens it per release on /admin/releases. Releases already registered keep the stage they have.
+     */
+    'default_rollout' => env('DISCOVERY_DEFAULT_ROLLOUT', 'general'),
+
     // Written by scripts/deploy-production.sh only after the health checks passed; holds the 40-character commit that is live.
     'deploy_marker' => env('DISCOVERY_DEPLOY_MARKER', '/var/lib/lifeos-deploy/current.sha'),
 

@@ -3520,3 +3520,10 @@ Why: after P2–P9 the owner opened the site and What's new was empty. Three man
 - **Screens:** `/discover` gets explainable suggestions ("Recommended for you", each with its reason), status and area filters, "New" and "Tried" marks, an icon per area, and a details dialog with Try now and the tour. Frontend only; the content, the endpoints, the releases and their fingerprints are untouched.
 - **Rules kept:** nothing starts by itself, one optional tip per session, finished tours are not replayed unasked, motion respects `prefers-reduced-motion`.
 - **Tests:** +10 Vitest (`discover.test.tsx`: 15), +1 Playwright scenario (axe, no sideways overflow, desktop and phone). Bundle unchanged (the page is a lazy chunk).
+
+# V74 — Product Experience 2.0: staged rollout of releases (Smart Experience track)
+
+- **Server:** migration `2026_11_08_210001` adds `product_releases.rollout` (default `general`, so every existing release keeps its audience) and `discovery_testers`. `ReleaseService::visibleRows($user)` / `isVisible($key, $user)` now take the person; every discovery answer and the notification pass through it. New config `discovery.default_rollout` (`DISCOVERY_DEFAULT_ROLLOUT`, default `general`). Endpoints for the stage and for test accounts (administrators; changes need two-factor), three new audit actions, `blockers` and `rollout` on the administrator list, `eligible` and `rollout` in the statistics.
+- **Screen:** `/admin/releases` gets "Who sees it", a Test accounts panel and "Why it is not shown yet".
+- **Tests:** `RolloutTest` (14: every endpoint and the notification by stage, defaults, unknown stage, authorisation, audit, test accounts, blockers, eligible counts), 4 new Vitest cases, 1 new Playwright scenario (desktop and phone). `ReleaseLifecycleTest` passes a person to `isVisible`/`visibleRows`.
+- **Unchanged:** workflows, deploy scripts, content files, fingerprints, behaviour of releases that are live.

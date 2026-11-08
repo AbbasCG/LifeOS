@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\DiscoveryTester;
+use App\Models\ProductRelease;
+use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\Discovery\DeployConfirmation;
 use App\Services\Discovery\DiscoveryStats;
@@ -10,6 +13,7 @@ use App\Services\Discovery\ReleaseService;
 use App\Services\Discovery\ReleaseStateException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Administrator-only: which releases the running code contains, and the decision to publish or withdraw each. Approval
@@ -60,6 +64,55 @@ class AdminReleaseController extends Controller
         $this->shape($key);
 
         return $this->decide($request, $key, 'release_withdrawn', fn () => $this->releases->withdraw($key, $request->user()));
+    }
+
+    /** Who may see a release: administrators only, administrators and test accounts, or everyone. Takes effect at once; needs no deploy. */
+    public function rollout(Request $request, string $key): JsonResponse
+    {
+        $this->shape($key);
+        $data = $request->validate(['stage' => ['required', 'string', Rule::in(ProductRelease::ROLLOUTS)]]);
+        try {
+            $before = ProductRelease::where('key', $key)->value('rollout');
+            $row = $this->releases->setRollout($key, $data['stage']);
+        } catch (ReleaseStateException $e) {
+            return response()->json(['message' => $e->getMessage(), 'code' => $e->errorCode], $e->status);
+        }
+        if ($before !== $row->rollout) {
+            $this->audit->log($request->user(), 'release_rollout_changed', $request, ['release' => $key, 'from' => $before, 'to' => $row->rollout]);
+        }
+
+        return response()->json(['data' => ['key' => $row->key, 'rollout' => $row->rollout, 'visible' => $row->isVisible()]]);
+    }
+
+    /** The test accounts of the "internal" stage: who they are is for administrators only. */
+    public function testers(): JsonResponse
+    {
+        return response()->json(['data' => DiscoveryTester::with('user:id,name,email')->orderBy('id')->get()->map(fn (DiscoveryTester $t) => ['id' => $t->user_id, 'name' => $t->user?->name, 'email' => $t->user?->email])->values()]);
+    }
+
+    public function addTester(Request $request): JsonResponse
+    {
+        $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
+        // The same answer whether or not the account exists would hide a typo from the administrator; this screen is for administrators only.
+        $user = User::where('email', $data['email'])->first();
+        if (! $user) {
+            return response()->json(['message' => 'No account has this e-mail address.', 'code' => 'user_unknown'], 404);
+        }
+        $tester = DiscoveryTester::firstOrCreate(['user_id' => $user->id], ['added_by' => $request->user()->id]);
+        if ($tester->wasRecentlyCreated) {
+            $this->audit->log($request->user(), 'discovery_tester_added', $request, ['user' => $user->id]);
+        }
+
+        return response()->json(['data' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email]], $tester->wasRecentlyCreated ? 201 : 200);
+    }
+
+    public function removeTester(Request $request, int $user): JsonResponse
+    {
+        if (DiscoveryTester::where('user_id', $user)->delete() > 0) {
+            $this->audit->log($request->user(), 'discovery_tester_removed', $request, ['user' => $user]);
+        }
+
+        return response()->json(['data' => ['id' => $user]]);
     }
 
     /** A release key is a short slug; anything else cannot exist (and must not reach the database). */

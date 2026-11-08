@@ -138,7 +138,7 @@ class DiscoveryController extends Controller
         [$surface, $client] = $this->context($request);
         try {
             $feature = $this->registry->feature($id);
-            abort_unless($feature && $this->releases->isVisible($feature['since']), 404);
+            abort_unless($feature && $this->releases->isVisible($feature['since'], $request->user()), 404);
         } catch (InvalidDiscoveryContentException $e) {
             report($e);
             abort(404);

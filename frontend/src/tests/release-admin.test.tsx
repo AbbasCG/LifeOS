@@ -13,14 +13,14 @@ const HASH = 'c851cb5cbd8ad46c17daa3b8aa05faa93f5df9098d66ad1087a0428e15f2671b'
 const t3 = (x: string) => ({ ar: `ar ${x}`, nl: `nl ${x}`, en: `en ${x}` })
 const release = (over: Partial<AdminRelease> = {}): AdminRelease => ({
   key: 'r-one', date: '2026-11-08', revision: 1, importance: 'normal', title: t3('Title'), items: 2, registered: true, review_status: 'draft', deploy_status: 'live', deployed_sha: 'a'.repeat(40),
-  content_hash: HASH, approved_hash: null, live_since: '2026-11-08T10:00:00+00:00', reviewed_at: null, visible: false,
+  content_hash: HASH, approved_hash: null, live_since: '2026-11-08T10:00:00+00:00', reviewed_at: null, visible: false, rollout: 'general', blockers: [],
   preview: { title: t3('Title'), summary: t3('Summary'), audiences: ['web', 'mobile'], items: [{ type: 'new', feature: 'quick-capture' }, { type: 'fixed', title: t3('Sign-out fix'), body: t3('Waiting changes are kept'), link: '/updates' }],
     features: [{ id: 'quick-capture', category: 'tasks', name: t3('Quick capture'), description: t3('Type a phrase'), route: '/tasks', requires: [], tour: 'quick-tour' }],
     tours: [{ id: 'quick-tour', title: t3('Tour'), steps: [{ target: 'quick-add', title: t3('Step one'), body: t3('Tour body') }] }] }, ...over,
 })
 
 type Call = { method: string; url: string; body?: unknown }
-let stats: Response | null, calls: Call[], user: Record<string, unknown>, list: { data: AdminRelease[]; activation: { enabled: boolean; status: string; detail: string } }, approveAnswers: Response[]
+let testers: { id: number; name: string; email: string }[], stats: Response | null, calls: Call[], user: Record<string, unknown>, list: { data: AdminRelease[]; activation: { enabled: boolean; status: string; detail: string } }, approveAnswers: Response[]
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 function server() {
   calls = []
@@ -29,6 +29,9 @@ function server() {
     calls.push({ method, url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined })
     if (url === '/api/user') return json(user)
     if (/\/api\/admin\/discovery\/stats$/.test(url)) return stats ?? json({ data: { accounts: 12, releases: [{ key: 'r-one', seen: 7, dismissed: 3, snoozed: 1, helpful: 2, unhelpful: 1, features: [{ id: 'quick-capture', tried: 5, tour: { id: 'quick-tour', version: 1, started: 4, completed: 3, skipped: 1 }, hints: [{ id: 'qc-hint', shown: 6, dismissed: 5 }] }] }] } })
+    if (/\/api\/admin\/discovery\/testers$/.test(url)) return method === 'POST' ? json({ data: { id: 9, name: 'Tess', email: 'tess@example.test' } }, 201) : json({ data: testers })
+    if (/\/api\/admin\/discovery\/testers\/\d+$/.test(url)) return json({ data: { id: 9 } })
+    if (/\/rollout$/.test(url)) return json({ data: { key: 'r-one', rollout: JSON.parse(String(init?.body)).stage, visible: true } })
     if (/\/api\/admin\/discovery\/releases$/.test(url)) return list === null as never ? json({ message: 'The announcement files in the running code are invalid: x', code: 'content_invalid' }, 503) : json(list)
     if (/\/approve$/.test(url)) return approveAnswers.shift() ?? json({ data: {} })
     if (/\/withdraw$/.test(url)) return json({ data: {} })
@@ -45,7 +48,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.open = false }
   user = { id: 1, name: 'Admin', email: 'a@example.test', is_admin: true, two_factor_enabled: true }
   list = { data: [release()], activation: { enabled: true, status: 'confirmed', detail: 'ok' } }
-  approveAnswers = []; stats = null
+  approveAnswers = []; stats = null; testers = []
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -175,5 +178,51 @@ describe('approving updates', () => {
     shell()
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeEnabled()
     expect(screen.queryByRole('region', { name: 'How people received it' })).toBeNull()
+  })
+})
+
+describe('staged rollout', () => {
+  it('shows who sees an update and changes it, then reloads the list', async () => {
+    list = { data: [release({ rollout: 'admin' })], activation: { enabled: true, status: 'confirmed', detail: 'ok' } }
+    server()
+    shell()
+    const select = await screen.findByRole('combobox', { name: 'Who sees it' })
+    expect(select).toHaveValue('admin')
+    expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['Administrators only (preview)', 'Administrators and test accounts', 'Everyone'])
+    const before = listCalls()
+    fireEvent.change(select, { target: { value: 'general' } })
+    await waitFor(() => expect(calls.some(c => c.method === 'PUT' && /releases\/r-one\/rollout$/.test(c.url))).toBe(true))
+    expect(calls.find(c => c.method === 'PUT')?.body).toEqual({ stage: 'general' })
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(before))
+  })
+
+  it('explains why an update is not shown yet, in plain words', async () => {
+    list = { data: [release({ registered: false, review_status: null, deploy_status: null, blockers: ['not_registered'] }), release({ key: 'r-two', blockers: ['content_changed', 'activation_off'] })], activation: { enabled: false, status: 'disabled', detail: '' } }
+    server()
+    shell()
+    expect(await screen.findByText('Waiting for a healthy deploy to register it.')).toBeInTheDocument()
+    expect(screen.getByText('The text changed after it was approved.')).toBeInTheDocument()
+    expect(screen.getAllByText('Updates are switched off on the server (DISCOVERY_AUTO_ACTIVATE).').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('combobox', { name: 'Who sees it' })[0]).toBeDisabled()
+  })
+
+  it('lists, adds and removes test accounts', async () => {
+    testers = [{ id: 4, name: 'Tess', email: 'tess@example.test' }]
+    server()
+    shell()
+    expect(await screen.findByText('tess@example.test')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('E-mail of the account'), { target: { value: 'new@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(calls.some(c => c.method === 'POST' && /discovery\/testers$/.test(c.url))).toBe(true))
+    expect(calls.find(c => c.method === 'POST' && /testers$/.test(c.url))?.body).toEqual({ email: 'new@example.test' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove tess@example.test' }))
+    await waitFor(() => expect(calls.some(c => c.method === 'DELETE' && /testers\/4$/.test(c.url))).toBe(true))
+  })
+
+  it('counts who could see an update, not all accounts', async () => {
+    stats = json({ data: { accounts: 12, releases: [{ key: 'r-one', rollout: 'internal', eligible: 3, seen: 2, dismissed: 0, snoozed: 0, helpful: 0, unhelpful: 0, features: [] }] } })
+    server()
+    shell()
+    expect(await screen.findByText('2 of 3 accounts')).toBeInTheDocument()
   })
 })
