@@ -3382,8 +3382,24 @@ Unsaved-changes guard on `BottomSheet`/`RecordForm`, tablist arrow keys and a re
 ## Not verified
 Real devices and screen readers (checked by role/name queries, axe and the measured contrast only).
 
+---
 
-# V60 — Product Experience 2.0, P2: release core (Smart Experience track)
+# V60 — Mobile P1 batch, part 2 (Smart Experience track)
+
+Second half of the mobile review's P1 list. Frontend only; no API, backend or setting changes.
+
+## Changes
+- **A stray tap no longer loses a half-filled form.** `BottomSheet` takes an optional `dirty()`; when it reports unsaved work, a tap on the backdrop, Escape, the close button and `<SheetCancel>` first show "Discard your changes?" (Keep editing / Discard) inside the sheet. Escape or a backdrop tap while asking means *keep editing*. Saving still closes directly and never asks. Wired into the task/item form (`RecordForm`: any posted field or subtask that differs from how the form opened, including the choice tiles' hidden values) and Quick Add (typed text). Sheets that pass no `dirty` behave exactly as before.
+- **Tab lists work from the keyboard.** `lib/radioGroups.ts` now also handles `role="tablist"` (Focus modes, briefing sections, AI activity): one Tab stop on the selected tab, Left/Right (reversed in Arabic), Home/End, wrap-around, disabled tabs skipped; a horizontal tab list does not answer Up/Down.
+- **Quick Add's date tile is a real radio** in the "When" group (`role="radio"`, `aria-checked` when a day is picked) through `DateTimeField`'s new `radioChecked`. An arrow key moves focus onto it without opening the picker or changing the selection (any option with `aria-haspopup` behaves so); Enter/Space opens it.
+
+## Tests
+`tabs-keyboard.test.tsx` (7) and `sheet-guard.test.tsx` (20: every dismissal route clean vs dirty, Keep editing / Discard, Escape while asking, Arabic wording, the task form's title, tile choice and subtask changes, saving never asks, Quick Add, the date radio). Two e2e cases in `mobile-quick.spec.ts` (Quick Add asks and keeps what was typed; Focus modes with arrow keys/Home). The `v53` test follows the date tile's new role. Existing axe, mobile, picker and hub specs pass locally.
+
+## Not verified
+Real devices and screen readers; the discard prompt on sheets other than the task form and Quick Add (they keep the old behaviour until they pass `dirty`).
+
+# V61 — Product Experience 2.0, P2: release core (Smart Experience track)
 
 The server side of What's New and feature discovery. Nothing is shown to anyone yet: there is no release file, and a release needs both a
 **healthy deploy** (the marker `current.sha` equals the running commit) and an **administrator's approval**. Guide: `docs/DISCOVERY.md`.

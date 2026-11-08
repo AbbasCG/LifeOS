@@ -21,6 +21,11 @@ img, svg, video, canvas { max-width: 100%; }
 .sheet-inner { overscroll-behavior: contain; }
 .sheet-body { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; min-height: 0; }
 .sheet-foot { flex-shrink: 0; }
+/* "Discard your changes?" is asked inside the sheet, above the footer, so it behaves the same everywhere and is reachable with a thumb. */
+.sheet-confirm { flex-shrink: 0; display: grid; gap: 6px; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-surface-muted); }
+.sheet-confirm p { margin: 0; }
+.sheet-confirm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.sheet-confirm-actions > * { min-height: 44px; flex: 1 1 auto; }
 @media (max-width: 700px) {
   .sheet-inner {
     bottom: var(--kb, 0px);

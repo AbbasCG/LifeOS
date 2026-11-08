@@ -155,7 +155,7 @@ describe('Quick add', () => {
     for (const name of ['Today', 'Tomorrow', 'This week', 'No date']) expect(within(when).getByRole('radio', { name })).toBeInTheDocument()
     for (const name of ['Urgent', 'High', 'Normal', 'Low']) expect(within(prio).getByRole('radio', { name })).toBeInTheDocument()
     expect(when.querySelectorAll('svg').length).toBeGreaterThanOrEqual(4)
-    expect(screen.getByRole('button', { name: /Pick a date/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Pick a date/ })).toBeInTheDocument()
     fireEvent.change(input, { target: { value: 'Call the bank' } })
     fireEvent.click(within(when).getByRole('radio', { name: 'Tomorrow' }))
     fireEvent.click(within(prio).getByRole('radio', { name: 'Urgent' }))

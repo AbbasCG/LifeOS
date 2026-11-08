@@ -1,11 +1,11 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, CalendarDays, CalendarX, ChevronDown, Equal, Flag, Flame, FolderKanban, Plus, Repeat, Sun, Sunrise, Tags, X } from 'lucide-react'
 import { api, type RecordItem } from '../lib/api'
 import { localInput, useRecords } from '../lib/hooks'
 import { dueFor, type When } from '../lib/quickAdd'
 import { DateTimeField } from '../components/ui/DateTimePicker'
 import { ChoiceGroup, PickerField, type ChoiceOption } from '../components/ui/Choice'
-import { BottomSheet } from '../components/visual'
+import { BottomSheet, SheetCancel } from '../components/visual'
 import { ErrorMessage } from '../components/ui/Shared'
 import { useText } from '../lib/i18n'
 import { useToast } from '../lib/toast'
@@ -36,6 +36,14 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const [pick, setPick] = useState<Record<string, string>>({ project_id: String(item.project_id || ''), goal_id: String(item.goal_id || ''), category_id: String(item.category_id || ''), task_id: String(item.task_id || '') })
   const [kind, setKind] = useState(String(item.kind || 'fixed')), [area, setArea] = useState(String(item.area || ''))
   const formId = `record-form-${resource}`
+  // Unsaved work = any posted field or subtask that differs from what the form opened with (hidden inputs carry the choice buttons' values).
+  const opened = useRef<string | null>(null)
+  const snapshot = useCallback(() => {
+    const form = document.getElementById(formId) as HTMLFormElement | null
+    return form ? JSON.stringify([[...new FormData(form)].map(([k, v]) => [k, String(v)]), subtasks]) : null
+  }, [formId, subtasks])
+  useEffect(() => { opened.current ??= snapshot() })
+  const dirty = useCallback(() => { const now = snapshot(); return opened.current !== null && now !== null && now !== opened.current }, [snapshot])
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setBusy(true); setError('')
@@ -106,9 +114,9 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
       <PickerField label={t('Task', 'المهمة')} name="task_id" value={pick.task_id} onChange={setPicked('task_id')} options={asOptions(tasks.items)} loading={tasks.loading} /></>}
   </>
 
-  return <BottomSheet tall title={item.id ? t('Edit item', 'تعديل العنصر') : t('Create item', 'إنشاء عنصر')} onClose={onClose} footer={<>
+  return <BottomSheet tall title={item.id ? t('Edit item', 'تعديل العنصر') : t('Create item', 'إنشاء عنصر')} onClose={onClose} dirty={dirty} footer={<>
     <ErrorMessage error={error} />
-    <button type="button" className="quiet" onClick={onClose}>{t('Cancel', 'إلغاء')}</button>
+    <SheetCancel>{t('Cancel', 'إلغاء')}</SheetCancel>
     <button type="submit" form={formId} className="primary" disabled={busy}>{busy ? t('Saving…', 'جارٍ الحفظ…') : t('Save', 'حفظ')}</button></>}>
     <form id={formId} onSubmit={e => void submit(e)} className="form-grid record-form">
       <label className="full rf-title-field">{t('Title', 'العنوان')}<input data-autofocus name="title" className="rf-title" defaultValue={item.title} required maxLength={200} autoComplete="off" enterKeyHint="done" /></label>
