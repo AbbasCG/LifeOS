@@ -19,6 +19,15 @@ class ProductRelease extends Model
 
     public const ABSENT = 'absent';
 
+    /** Who may see an approved, live release: administrators only (a preview), administrators and test accounts, or everyone. */
+    public const ROLLOUT_ADMIN = 'admin';
+
+    public const ROLLOUT_INTERNAL = 'internal';
+
+    public const ROLLOUT_GENERAL = 'general';
+
+    public const ROLLOUTS = [self::ROLLOUT_ADMIN, self::ROLLOUT_INTERNAL, self::ROLLOUT_GENERAL];
+
     protected $guarded = ['id'];
 
     protected function casts(): array

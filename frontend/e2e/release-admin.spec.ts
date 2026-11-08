@@ -5,7 +5,7 @@ const HASH = 'c851cb5cbd8ad46c17daa3b8aa05faa93f5df9098d66ad1087a0428e15f2671b'
 const texts = (en: string, ar: string, nl: string) => ({ en, ar, nl })
 const release = {
   key: '2026-11-08-everyday-capture', date: '2026-11-08', revision: 1, importance: 'normal', title: texts('Quick Capture understands Arabic and Dutch', 'الالتقاط السريع يفهم العربية والهولندية', 'Snel vastleggen begrijpt Arabisch en Nederlands'), items: 2,
-  registered: true, review_status: 'draft', deploy_status: 'live', deployed_sha: 'a'.repeat(40), content_hash: HASH, approved_hash: null, live_since: '2026-11-08T10:00:00+00:00', reviewed_at: null, visible: false,
+  registered: true, review_status: 'draft', deploy_status: 'live', deployed_sha: 'a'.repeat(40), content_hash: HASH, approved_hash: null, live_since: '2026-11-08T10:00:00+00:00', reviewed_at: null, visible: false, rollout: 'general', blockers: [] as string[],
   preview: {
     title: texts('Quick Capture understands Arabic and Dutch', 'الالتقاط السريع يفهم العربية والهولندية', 'Snel vastleggen begrijpt Arabisch en Nederlands'), summary: texts('Write tasks the way you speak.', 'اكتب مهامك كما تتحدث.', 'Schrijf taken zoals je praat.'), audiences: ['web', 'mobile'],
     items: [{ type: 'new', feature: 'quick-capture' }, { type: 'fixed', title: texts('Waiting changes are kept', 'التغييرات المنتظرة تبقى', 'Wachtende wijzigingen blijven'), body: texts('Nothing is lost.', 'لا يضيع شيء.', 'Er gaat niets verloren.') }],
@@ -25,6 +25,8 @@ async function asAdmin(page: import('@playwright/test').Page, data = [release], 
   await page.route('**/api/admin/discovery/stats', route => route.fulfill({ json: { data: { accounts: 12, releases: [{ key: release.key, seen: 7, dismissed: 3, snoozed: 1, helpful: 2, unhelpful: 1,
     features: [{ id: 'quick-capture', tried: 5, tour: { id: 'quick-capture-tour', version: 1, started: 4, completed: 3, skipped: 1 }, hints: [] }] }] } } }))
   await page.route('**/api/admin/discovery/releases/*/approve', route => { posts.push({ url: route.request().url(), body: JSON.parse(route.request().postData() ?? '{}') }); return route.fulfill({ json: { data: { key: release.key, review_status: 'approved', deploy_status: 'live', visible: true } } }) })
+  await page.route('**/api/admin/discovery/testers', route => route.fulfill({ json: { data: [{ id: 4, name: 'Tess', email: 'tess@example.test' }] } }))
+  await page.route('**/api/admin/discovery/releases/*/rollout', route => { posts.push({ url: route.request().url(), body: JSON.parse(route.request().postData() ?? '{}') }); return route.fulfill({ json: { data: { key: release.key, rollout: 'admin', visible: true } } }) })
   await page.route('**/api/discovery/bootstrap**', route => route.fulfill({ json: { data: { announcement: null, update_required: false, counts: { unseen_updates: 0 }, preferences: { hints_enabled: true } } } }))
   await page.route('**/api/discovery/guide**', route => route.fulfill({ json: { data: { new: [], hints: [] } } }))
   return posts
@@ -90,4 +92,19 @@ test('administrators find the entry in the menu and it opens the screen', async 
   await page.locator('[data-tour="nav-admin-releases"]').click()
   await expect(page).toHaveURL(/\/admin\/releases$/)
   await expect(page.getByRole('heading', { level: 1, name: 'Approve updates' })).toBeVisible()
+})
+
+test('who sees an update can be changed, and the test accounts are listed, accessibly and without sideways overflow', async ({ page, setLanguage }) => {
+  await setLanguage('en')
+  const posts = await asAdmin(page, [{ ...release, blockers: ['not_approved'] }])
+  await page.goto('/admin/releases')
+  const select = page.getByRole('combobox', { name: 'Who sees it' })
+  await expect(select).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('It is not approved yet.')).toBeVisible()
+  await expect(page.getByText('tess@example.test')).toBeVisible()
+  expect(await a11yViolations(page)).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await select.selectOption('admin')
+  await expect.poll(() => posts.length).toBe(1)
+  expect(posts[0].body).toEqual({ stage: 'admin' })
 })
