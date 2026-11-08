@@ -1,0 +1,70 @@
+{
+  "key": "2026-11-08-everyday-capture",
+  "date": "2026-11-08",
+  "revision": 1,
+  "importance": "normal",
+  "audiences": [
+    "web",
+    "mobile"
+  ],
+  "title": {
+    "en": "Quick Capture understands Arabic and Dutch",
+    "ar": "الالتقاط السريع يفهم العربية والهولندية",
+    "nl": "Snel vastleggen begrijpt Arabisch en Nederlands"
+  },
+  "summary": {
+    "en": "Write tasks the way you speak, choose Nederlands, and find updates and tips right inside LifeOS.",
+    "ar": "اكتب مهامك كما تتحدث، واختر اللغة الهولندية، وتابع التحديثات والتلميحات داخل LifeOS نفسه.",
+    "nl": "Schrijf taken zoals je praat, kies Nederlands en vind updates en tips direct in LifeOS."
+  },
+  "items": [
+    {
+      "type": "new",
+      "feature": "quick-capture"
+    },
+    {
+      "type": "new",
+      "feature": "dutch-language"
+    },
+    {
+      "type": "new",
+      "link": "/updates",
+      "title": {
+        "en": "Updates, “New” marks and tips",
+        "ar": "التحديثات وعلامة «جديد» والتلميحات",
+        "nl": "Updates, “Nieuw”-labels en tips"
+      },
+      "body": {
+        "en": "This page lists every update. New features get a “New” mark in the menu, short tips appear once next to a feature, and “Try now” can start a guided tour. You can turn tips off in Settings.",
+        "ar": "هذه الصفحة تعرض كل التحديثات. تظهر علامة «جديد» في القائمة على الميزات الجديدة، وتلميحات قصيرة مرة واحدة بجانب الميزة، ويمكن لزر «جرّبها الآن» أن يبدأ جولة إرشادية. يمكنك إيقاف التلميحات من الإعدادات.",
+        "nl": "Deze pagina toont elke update. Nieuwe functies krijgen een “Nieuw”-label in het menu, korte tips verschijnen één keer naast een functie en “Probeer nu” kan een rondleiding starten. Tips zet je uit bij Instellingen."
+      }
+    },
+    {
+      "type": "improved",
+      "title": {
+        "en": "Easier to use on a phone",
+        "ar": "استخدام أسهل على الجوال",
+        "nl": "Makkelijker te gebruiken op een telefoon"
+      },
+      "body": {
+        "en": "A dictated “next week” is shown clearly, priority tiles are easier to read, keyboard focus is visible, controls are larger to tap, and sheets ask before discarding unsaved changes.",
+        "ar": "يظهر «الأسبوع القادم» المُملى بوضوح، وبطاقات الأولوية أسهل قراءة، ومؤشر التركيز بلوحة المفاتيح مرئي، وعناصر التحكم أكبر للنقر، والنوافذ تسأل قبل تجاهل التغييرات غير المحفوظة.",
+        "nl": "Een gedicteerde “volgende week” is duidelijk zichtbaar, prioriteitstegels zijn beter leesbaar, toetsenbordfocus is zichtbaar, knoppen zijn groter om aan te tikken en vensters vragen eerst voordat niet-opgeslagen wijzigingen verdwijnen."
+      }
+    },
+    {
+      "type": "fixed",
+      "title": {
+        "en": "Waiting changes are kept if sign-out fails",
+        "ar": "التغييرات المنتظرة تبقى إذا فشل تسجيل الخروج",
+        "nl": "Wachtende wijzigingen blijven bewaard als afmelden mislukt"
+      },
+      "body": {
+        "en": "If signing out fails, for example without a connection, changes still waiting to sync are no longer lost.",
+        "ar": "إذا فشل تسجيل الخروج، مثلًا بلا اتصال، لم تعد التغييرات المنتظرة للمزامنة تُفقد.",
+        "nl": "Als afmelden mislukt, bijvoorbeeld zonder verbinding, gaan wijzigingen die nog op synchronisatie wachten niet meer verloren."
+      }
+    }
+  ]
+}
