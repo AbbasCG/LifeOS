@@ -6,6 +6,9 @@
   --color-success: #065f46;
   --color-warning: #92400e;
   --color-danger: #be123c;
+  /* Text on a solid danger / warning fill (selected priority tile): 6.3:1 and 7.1:1 on the light fills. */
+  --color-on-danger: #ffffff;
+  --color-on-warning: #ffffff;
   --shadow-soft: 0 1px 2px rgba(24, 36, 58, .04), 0 8px 24px rgba(24, 36, 58, .05);
   --shadow-lift: 0 2px 6px rgba(24, 36, 58, .06), 0 18px 40px rgba(24, 36, 58, .09);
   --gradient-hero: linear-gradient(135deg, #2b2d6e 0%, #4446c4 55%, #0e7490 120%);
@@ -17,6 +20,9 @@
   --color-success: #34d399;
   --color-warning: #fbbf24;
   --color-danger: #fb7185;
+  /* The dark-theme fills are light, so the text on them is dark (7.0:1 and 11.1:1). */
+  --color-on-danger: #0b1020;
+  --color-on-warning: #1c1203;
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
   --shadow-lift: 0 2px 6px rgba(0, 0, 0, .35), 0 18px 40px rgba(0, 0, 0, .35);
 }

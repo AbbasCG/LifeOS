@@ -6,7 +6,7 @@ body { font-feature-settings: "cv11", "ss01"; text-rendering: optimizeLegibility
 h1 { text-wrap: balance; }
 p { text-wrap: pretty; }
 .muted { line-height: 1.6; }
-:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 3px solid color-mix(in srgb, var(--color-primary) 55%, transparent); outline-offset: 2px; }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 3px solid var(--color-primary); outline-offset: 2px; }
 .text-link { background: none; border: 0; padding: 0; color: var(--color-primary); font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 
 /* Toasts */

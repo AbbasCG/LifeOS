@@ -45,7 +45,7 @@
 .dtp-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 4px; border-top: 1px solid var(--color-border); }
 .dtp-foot .text-link:first-child { margin-inline-end: auto; }
 .dtp-foot .primary { min-height: 42px; padding-inline: 22px; }
-.dtp-dialog:focus-visible, .dtp-dialog *:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-primary) 55%, transparent); outline-offset: 2px; }
+.dtp-dialog:focus-visible, .dtp-dialog *:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 2px; }
 @media (max-width: 640px) {
   .dtp-day { min-height: 44px; }
   .dtp-hours button, .dtp-minutes button { min-height: 44px; }

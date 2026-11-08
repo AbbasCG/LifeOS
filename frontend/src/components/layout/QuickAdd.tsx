@@ -14,7 +14,7 @@ import { ErrorMessage } from '../ui/Shared'
 import { ChoiceGroup } from '../ui/Choice'
 import { DateTimeField } from '../ui/DateTimePicker'
 import { openHabitSheet } from '../../lib/quickActions'
-import { dueFor, dueForDay, QUICK_ADD, spokenHints, TASKS_CHANGED, type Priority, type QuickWhen } from '../../lib/quickAdd'
+import { dueFor, dueForDay, nextWeekDay, QUICK_ADD, spokenHints, TASKS_CHANGED, type Priority, type QuickWhen } from '../../lib/quickAdd'
 
 import { lazyPart, whenIdle } from '../../lib/lazyPart'
 
@@ -82,7 +82,7 @@ export default function QuickAdd() {
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
           <input data-autofocus className="qa-title" value={text} maxLength={200} onChange={e => setText(e.target.value)} aria-label={t('Task', 'المهمة')} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} enterKeyHint="done" autoComplete="off" autoCapitalize="sentences" />
-          {voiceAllowed && <Suspense fallback={null}><VoiceButton autoStart={voice} onText={said => { setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200)); const hints = spokenHints(said); if (hints.when) setWhen(hints.when); if (hints.priority) setPriority(hints.priority) }} /></Suspense>}
+          {voiceAllowed && <Suspense fallback={null}><VoiceButton autoStart={voice} onText={said => { setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200)); const hints = spokenHints(said); if (hints.when === 'nextweek') { setDay(nextWeekDay()); setWhen('custom') } else if (hints.when) setWhen(hints.when); if (hints.priority) setPriority(hints.priority) }} /></Suspense>}
         </div>
         {understood && <p className="muted small qa-understood" role="status">{t('Understood: ', 'فُهم: ')}{understood}</p>}
         <div className="field-block">

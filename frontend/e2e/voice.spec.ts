@@ -103,3 +103,25 @@ test('"Add a task by voice" opens Quick add listening; the phrase sets the chips
     await fetch(`/api/tasks/${id}`, { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json', 'X-XSRF-TOKEN': token } })
   }, task.id)
 })
+
+test('dictating "next week" lights the date tile instead of changing nothing visible', async ({ page, setLanguage }) => {
+  await page.addInitScript(() => {
+    class SayNextWeek {
+      lang = ''; continuous = false; interimResults = false; maxAlternatives = 1
+      onresult: ((e: unknown) => void) | null = null; onerror: ((e: unknown) => void) | null = null; onend: (() => void) | null = null
+      start() { setTimeout(() => { this.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: 'E2E send the report next week' }], { isFinal: true })] }); this.onend?.() }, 300) }
+      stop() { this.onend?.() }
+      abort() { this.onend?.() }
+    }
+    Object.assign(window, { SpeechRecognition: SayNextWeek, webkitSpeechRecognition: SayNextWeek })
+    localStorage.setItem('lifeos-voice-consent', 'yes')
+  })
+  await setLanguage('en')
+  await page.goto('/')
+  await page.getByRole('banner').getByRole('button', { name: 'Add a task by voice' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Quick add' })
+  await expect(sheet.getByRole('textbox', { name: 'Task' })).toHaveValue('E2E send the report next week')
+  // The chosen day is shown on the date tile (it is set), and no other "When" tile claims to be selected. Nothing is saved.
+  await expect(sheet.locator('.qa-pick.is-set')).toBeVisible()
+  for (const name of ['Today', 'Tomorrow', 'This week']) await expect(sheet.getByRole('radio', { name })).toHaveAttribute('aria-checked', 'false')
+})
