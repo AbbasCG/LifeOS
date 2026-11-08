@@ -36,6 +36,22 @@ export type CatalogueFeature = {
   tour: string | null; tour_done: boolean; tried: boolean; is_new: boolean
   image?: { src: string; alt: string }
 }
+export type Texts = { ar: string; nl: string; en: string }
+export type AdminPreview = {
+  title: Texts; summary: Texts; audiences: string[]
+  items: { type: ItemType; feature?: string; title?: Texts; body?: Texts; link?: string }[]
+  features: { id: string; category: string; name: Texts; description: Texts; route: string; requires: string[]; tour: string | null }[]
+  tours: { id: string; title: Texts; steps: { target: string; title: Texts; body: Texts }[] }[]
+}
+export type AdminRelease = {
+  key: string; date: string; revision: number; importance: 'normal' | 'important'; title: Texts; items: number
+  registered: boolean; review_status: 'draft' | 'approved' | 'withdrawn' | null; deploy_status: 'live' | 'absent' | null; deployed_sha: string | null
+  content_hash: string; approved_hash: string | null; live_since: string | null; reviewed_at: string | null; visible: boolean; preview: AdminPreview
+}
+export type Activation = { enabled: boolean; status: string; detail: string }
+export const adminReleasesPath = '/api/admin/discovery/releases'
+export const approveRelease = (key: string, contentHash: string) => api(`${adminReleasesPath}/${key}/approve`, 'POST', { content_hash: contentHash })
+export const withdrawRelease = (key: string) => api(`${adminReleasesPath}/${key}/withdraw`, 'POST')
 export type Release = { key: string; date: string; revision: number; importance: 'normal' | 'important'; title: string; summary: string; items: DiscoveryItem[] }
 export type HistoryRelease = Release & { seen: boolean; helpful: boolean | null }
 export type Bootstrap = { announcement: Release | null; update_required: boolean; counts: { unseen_updates: number }; preferences: { hints_enabled: boolean } }

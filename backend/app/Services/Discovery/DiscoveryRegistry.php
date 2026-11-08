@@ -96,6 +96,19 @@ class DiscoveryRegistry
      */
     public function fingerprint(string $key): ?string
     {
+        $scope = $this->scope($key);
+
+        return $scope === null ? null : hash('sha256', json_encode([$scope['release'], $scope['features'], $scope['tours']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Everything a person would read for this release (what the fingerprint covers, and so what an administrator approves): the release, the features that arrived
+     * with it or that its items name, and their tours.
+     *
+     * @return array{release: array<string, mixed>, features: list<array<string, mixed>>, tours: array<string, array<string, mixed>>}|null
+     */
+    public function scope(string $key): ?array
+    {
         $release = $this->release($key);
         if ($release === null) {
             return null;
@@ -117,7 +130,7 @@ class DiscoveryRegistry
         }
         ksort($tours);
 
-        return hash('sha256', json_encode([$release, $features, $tours], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        return ['release' => $release, 'features' => $features, 'tours' => $tours];
     }
 
     /** The feature that owns a hint id, or null. */

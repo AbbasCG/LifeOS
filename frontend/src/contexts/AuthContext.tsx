@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { api, ApiError, csrf } from '../lib/api'
 import { setAccountZone } from '../lib/accountDay'
 import { setVoiceConsent } from '../lib/voice'
-export type User = { id: number; name: string; email: string; timezone?: string }
+export type User = { id: number; name: string; email: string; timezone?: string; is_admin?: boolean; two_factor_enabled?: boolean }
 const AuthContext = createContext<{ user: User | null; loading: boolean; error: string; unreachable: boolean; refresh: () => Promise<void>; logout: () => Promise<void> } | null>(null)
 /** The account's timezone is known before any page renders, so "today" is right from the first request. */
 const known = (user: User) => { setAccountZone(user.timezone); return user }

@@ -124,7 +124,7 @@ Having the files in the code shows nothing to anyone. To make it visible (every 
 3. Wait for the next reconcile (every 5 minutes) after a healthy deploy: the release is then registered as a **draft**.
 4. As an administrator with two-factor and a fresh password confirmation, read `GET /api/admin/discovery/releases`, check that `content_hash` is
    `c851cb5cbd8ad46c17daa3b8aa05faa93f5df9098d66ad1087a0428e15f2671b` (the fingerprint of the files in this commit; if it differs, the text on the server is not the text reviewed here),
-   then `POST /api/admin/discovery/releases/2026-11-08-everyday-capture/approve` with that `content_hash`. There is no admin screen yet (optional phase P9).
+   then approve it, either on the **Approve updates** screen (`/admin/releases`, menu group More, administrators only; see below) or with `POST /api/admin/discovery/releases/2026-11-08-everyday-capture/approve` and that `content_hash`.
 5. People now see it: the announcement once per session, the history at `/updates`, "New" marks and the notification. `…/withdraw` hides it at once.
 
 Any later edit of these files changes the fingerprint and needs a new approval.
@@ -141,3 +141,14 @@ The script refuses to write inside the content folder. Writing the Arabic, Dutch
 success marker is written, run `php artisan lifeos:discovery:reconcile`, so the shipped release is registered as a draft at once instead of at the scheduler's next run (every 5
 minutes). It only registers: approval and `DISCOVERY_AUTO_ACTIVATE` are untouched, a failure of the hook is a warning and never fails or reverts a healthy release, and unhealthy releases and dry runs
 register nothing. Default off. The deploy script that runs is the one already on the server, so a new hook takes effect from the deploy after the one that brings it.
+## Approving updates on screen (P9)
+
+`/admin/releases` ("Approve updates", menu group More, shown to administrators only; everybody else sees "Administrators only" and nothing is requested from the server) lists every release in
+the running code with its status (draft, approved, withdrawn, not registered yet), whether the deploy is healthy, whether people can see it, a note when the server switch is off or the deploy is not confirmed,
+and **the exact text in Arabic, Dutch and English** (release, items, features and tour steps). That preview comes from the same scope as the fingerprint, so what is read is what is approved.
+
+**Approve** opens a dialog that names the full fingerprint and keeps the button disabled until the reviewer ticks "I read the text in Arabic, Dutch and English". The request carries that fingerprint;
+the server still demands what it always did: an administrator with two-factor authentication, a password confirmation less than 15 minutes old (the screen asks for the password when the server answers 423 and retries once),
+a release that is part of a healthy deploy, and text that has not changed (409 `content_changed`: the dialog closes and the list reloads with the new text, nothing is approved). The button is disabled with the reason when the release is
+not registered yet, already approved with this text, or the account has no two-factor authentication. A release whose text changed after approval is flagged and offers "Approve the new text". **Withdraw** hides an approved release at once
+(no password needed, as before). The screen decides nothing by itself and changes no server setting: `DISCOVERY_AUTO_ACTIVATE` and the deploy marker stay the owner's.
