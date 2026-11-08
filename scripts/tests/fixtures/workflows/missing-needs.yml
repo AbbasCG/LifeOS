@@ -1,0 +1,9 @@
+# Must be rejected: "needs" names a job that does not exist.
+name: bad needs
+on: push
+jobs:
+  deploy:
+    needs: [build-that-does-not-exist]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi

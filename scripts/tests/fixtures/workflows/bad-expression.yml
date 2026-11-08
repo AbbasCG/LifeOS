@@ -1,0 +1,8 @@
+# Must be rejected: "github.no_such_property" is not part of the github context.
+name: bad expression
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.no_such_property }}"

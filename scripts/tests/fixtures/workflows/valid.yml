@@ -1,0 +1,8 @@
+# Control: must be accepted, so a rejection above is about the file's content and not about the linter failing to run.
+name: valid
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi

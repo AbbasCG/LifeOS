@@ -1,7 +1,6 @@
-import AxeBuilder from '@axe-core/playwright'
 import { test, expect } from './fixtures'
+import { a11yViolations } from './axe'
 
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 const item = (over = {}) => ({ type: 'new', title: 'Quick capture', body: 'Type a phrase and LifeOS reads the time.', feature: 'quick-capture', can_try: true, unavailable_reason: null, tour: null, tried: false, is_new: true, link: null, ...over })
 const release = (over = {}) => ({ key: 'r-one', date: '2026-11-08', revision: 1, importance: 'important', title: 'Smarter capture', summary: 'Write tasks the way you speak.',
   items: [item(), item({ type: 'improved', title: 'Faster sync', body: 'Changes appear sooner.', feature: null, can_try: false, is_new: false }), item({ type: 'fixed', title: 'Dates near midnight', body: 'Fixed.', feature: null, can_try: false, is_new: false })], ...over })
@@ -32,8 +31,7 @@ for (const language of ['en', 'ar'] as const) {
     const box = await got.boundingBox(), size = page.viewportSize()!
     expect(box!.y + box!.height).toBeLessThanOrEqual(size.height)
 
-    const violations = (await new AxeBuilder({ page }).include('dialog[open]').withTags(TAGS).analyze()).violations
-    expect(violations.map(v => `${v.id}: ${v.nodes[0]?.target}`)).toEqual([])
+    expect(await a11yViolations(page, 'dialog[open]')).toEqual([])
 
     await got.click()
     await expect(dialog).toBeHidden()
@@ -77,6 +75,5 @@ test('the update history lists releases and has no accessibility violations', as
   await expect(page.getByRole('heading', { name: 'What’s new', level: 1 })).toBeVisible()
   await expect(page.getByRole('article')).toHaveCount(2)
   await expect(page.getByRole('heading', { name: 'Older update' })).toBeVisible()
-  const violations = (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations
-  expect(violations.map(v => `${v.id}: ${v.nodes[0]?.target}`)).toEqual([])
+  expect(await a11yViolations(page)).toEqual([])
 })

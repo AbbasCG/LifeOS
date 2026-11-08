@@ -1,7 +1,6 @@
-import AxeBuilder from '@axe-core/playwright'
 import { test, expect } from './fixtures'
+import { a11yViolations } from './axe'
 
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 const hint = { id: 'capture-hint', feature: 'quick-capture', target: 'quick-add', route: '/tasks', text: 'Type a phrase like “tomorrow 5pm” and LifeOS reads the time.' }
 
 /** Only the discovery endpoints are stubbed; the rest of the app is the real one. */
@@ -26,10 +25,7 @@ test('a hint appears once next to its target without taking focus, and is access
   expect(box!.x).toBeGreaterThanOrEqual(0)
   expect(box!.x + box!.width).toBeLessThanOrEqual(size.width)
   expect(await page.evaluate(() => document.activeElement?.closest('[data-testid="hint-bubble"]'))).toBeNull()
-  // Contrast is measured on the settled bubble, not halfway through its fade-in.
-  await bubble.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
-  const violations = (await new AxeBuilder({ page }).include('[data-testid="hint-bubble"]').withTags(TAGS).analyze()).violations
-  expect(violations.map(v => `${v.id}: ${v.nodes[0]?.target}`)).toEqual([])
+  expect(await a11yViolations(page, '[data-testid="hint-bubble"]')).toEqual([])
   await page.keyboard.press('Escape')
   await expect(bubble).toBeHidden()
   await expect.poll(() => recorded).toContain('hint/capture-hint dismissed')

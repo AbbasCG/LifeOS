@@ -1,7 +1,6 @@
-import AxeBuilder from '@axe-core/playwright'
 import { test, expect } from './fixtures'
+import { a11yViolations } from './axe'
 
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 const t = (en: string, ar: string, language: string) => (language === 'ar' ? ar : en)
 const tour = (language: 'en' | 'ar') => ({
   id: 'quick-tour', version: 1, title: t('Capture tour', 'جولة الالتقاط', language), state: { step_index: 0, completed: false, skipped: false },
@@ -42,10 +41,7 @@ for (const language of ['en', 'ar'] as const) {
     const inside = async () => { const b = (await card.boundingBox())!; expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(size.width + 1); expect(b.y).toBeGreaterThanOrEqual(0); expect(b.y + b.height).toBeLessThanOrEqual(size.height + 1) }
     await expect(page.locator('.tour-dim.has-target')).toBeVisible()
     await inside()
-    // Contrast is measured on the settled card, not halfway through its fade-in.
-    await card.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
-    const violations = (await new AxeBuilder({ page }).include('[data-testid="tour-card"]').withTags(TAGS).analyze()).violations
-    expect(violations.map(v => `${v.id}: ${v.nodes[0]?.target}`)).toEqual([])
+    expect(await a11yViolations(page, '[data-testid="tour-card"]')).toEqual([])
 
     await card.getByRole('button', { name: t('Next', 'التالي', language) }).click()
     await expect(card.getByRole('heading', { name: t('Tasks', 'المهام', language) })).toBeVisible()
