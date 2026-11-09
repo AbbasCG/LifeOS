@@ -23,17 +23,17 @@ export function ConnectedTasksPanel({ onCopied }: { onCopied?: () => void }) {
   const due = (task: ConnectedTask) => task.due_at ? new Date(task.due_at).toLocaleString(language, task.due_is_date ? { weekday: 'short', day: 'numeric', month: 'short' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null
   async function copy(task: ConnectedTask) {
     setBusy(task.id); setFailure('')
-    try { await api(`/api/connected/tasks/${task.id}/copy`, 'POST'); toast(t(`“${task.title}” is now a LifeOS task. The original in ${task.source} is unchanged.`, `أصبحت «${task.title}» مهمة في LifeOS. الأصل في ${task.source} لم يتغير.`)); reload(); onCopied?.() } catch (e) { setFailure((e as Error).message) } finally { setBusy(null) }
+    try { await api(`/api/connected/tasks/${task.id}/copy`, 'POST'); toast(t(`“${task.title}” is now a LifeOS task. The original in ${task.source} is unchanged.`, `أصبحت «${task.title}» مهمة في LifeOS. الأصل في ${task.source} لم يتغير.`, `“${task.title}” is nu een LifeOS-taak. Het origineel in ${task.source} is ongewijzigd.`)); reload(); onCopied?.() } catch (e) { setFailure((e as Error).message) } finally { setBusy(null) }
   }
   return <section className="panel reveal connected-tasks" aria-labelledby="connected-tasks-title">
-    <header className="row"><h2 id="connected-tasks-title"><Link2 size={18} />{t('From connected apps', 'من التطبيقات المرتبطة')}</h2><Link className="quiet" to="/settings/integrations">{t('Manage', 'إدارة')}</Link></header>
-    <p className="muted small">{t('Read-only. Copy a task into LifeOS to plan, focus on and complete it here.', 'للقراءة فقط. انسخ مهمة إلى LifeOS لتخطط لها وتركز عليها وتنجزها هنا.')}</p>
+    <header className="row"><h2 id="connected-tasks-title"><Link2 size={18} />{t('From connected apps', 'من التطبيقات المرتبطة', 'Uit gekoppelde apps')}</h2><Link className="quiet" to="/settings/integrations">{t('Manage', 'إدارة', 'Beheren')}</Link></header>
+    <p className="muted small">{t('Read-only. Copy a task into LifeOS to plan, focus on and complete it here.', 'للقراءة فقط. انسخ مهمة إلى LifeOS لتخطط لها وتركز عليها وتنجزها هنا.', 'Alleen lezen. Kopieer een taak naar LifeOS om hem hier te plannen, je erop te focussen en af te ronden.')}</p>
     <ErrorMessage error={failure} />
     <ul className="connected-list">{data.slice(0, 12).map(task => <li key={task.id} className={task.status === 'completed' ? 'done' : ''}>
       <span className={`source-badge src-${task.provider}`}>{task.source}</span>
       <div className="connected-main"><strong>{task.title}</strong><small className="muted">{[task.list, due(task)].filter(Boolean).join(' · ')}</small></div>
-      {task.url && <a className="icon-button" href={task.url} target="_blank" rel="noreferrer noopener" aria-label={t(`Open in ${task.source}`, `فتح في ${task.source}`)}><ExternalLink size={16} /></a>}
-      {task.status === 'completed' ? <span className="chip">{t(`Completed in ${task.source}`, `أُنجزت في ${task.source}`)}</span> : <button className="quiet" disabled={busy !== null} onClick={() => void copy(task)}><CopyPlus size={15} />{t('Copy to LifeOS', 'نسخ إلى LifeOS')}</button>}
+      {task.url && <a className="icon-button" href={task.url} target="_blank" rel="noreferrer noopener" aria-label={t(`Open in ${task.source}`, `فتح في ${task.source}`, `Openen in ${task.source}`)}><ExternalLink size={16} /></a>}
+      {task.status === 'completed' ? <span className="chip">{t(`Completed in ${task.source}`, `أُنجزت في ${task.source}`, `Voltooid in ${task.source}`)}</span> : <button className="quiet" disabled={busy !== null} onClick={() => void copy(task)}><CopyPlus size={15} />{t('Copy to LifeOS', 'نسخ إلى LifeOS', 'Naar LifeOS kopiëren')}</button>}
     </li>)}</ul>
   </section>
 }

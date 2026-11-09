@@ -28,16 +28,16 @@ export function CollectionPicker({ account, tasks, onSaved }: { account: Connect
   if (!account.collections.length) return null
   async function save() {
     setBusy(true); setError('')
-    try { await api(`/api/integrations/accounts/${account.id}`, 'PATCH', { included: chosen }); toast(tasks ? t('Lists updated and synced.', 'تم تحديث القوائم ومزامنتها.') : t('Calendars updated and synced.', 'تم تحديث التقويمات ومزامنتها.')); onSaved() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    try { await api(`/api/integrations/accounts/${account.id}`, 'PATCH', { included: chosen }); toast(tasks ? t('Lists updated and synced.', 'تم تحديث القوائم ومزامنتها.', 'Lijsten bijgewerkt en gesynchroniseerd.') : t('Calendars updated and synced.', 'تم تحديث التقويمات ومزامنتها.', 'Agenda’s bijgewerkt en gesynchroniseerd.')); onSaved() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   return <fieldset className="collection-picker">
-    <legend>{tasks ? t('Lists to import', 'القوائم المستوردة') : t('Calendars to include', 'التقويمات المضمّنة')}</legend>
+    <legend>{tasks ? t('Lists to import', 'القوائم المستوردة', 'Te importeren lijsten') : t('Calendars to include', 'التقويمات المضمّنة', 'Op te nemen agenda’s')}</legend>
     {account.collections.map(c => <label key={c.id} className="inline">
       <input type="checkbox" checked={chosen.includes(c.id)} onChange={() => setChosen(list => list.includes(c.id) ? list.filter(x => x !== c.id) : [...list, c.id])} />
-      <i className="swatch" style={{ background: c.color ?? 'var(--color-primary)' }} aria-hidden="true" /><span>{c.name}</span>{c.primary && <small className="muted">{t('primary', 'رئيسي')}</small>}
+      <i className="swatch" style={{ background: c.color ?? 'var(--color-primary)' }} aria-hidden="true" /><span>{c.name}</span>{c.primary && <small className="muted">{t('primary', 'رئيسي', 'hoofd')}</small>}
     </label>)}
     <ErrorMessage error={error} />
-    {dirty && <button className="primary" disabled={busy} onClick={() => void save()}>{busy ? t('Saving…', 'جارٍ الحفظ…') : t('Save and sync', 'حفظ ومزامنة')}</button>}
+    {dirty && <button className="primary" disabled={busy} onClick={() => void save()}>{busy ? t('Saving…', 'جارٍ الحفظ…', 'Opslaan…') : t('Save and sync', 'حفظ ومزامنة', 'Opslaan en synchroniseren')}</button>}
   </fieldset>
 }
 
@@ -51,20 +51,20 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
 }) {
   const t = useText(), { language } = useLanguage()
   const [history, setHistory] = useState(false)
-  const when = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : t('Never', 'أبداً')
+  const when = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : t('Never', 'أبداً', 'Nooit')
   const clock = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
   const waiting = account.retry_after ? new Date(account.retry_after) : null
   const state = accountState(account)
   const stateLabel = useAccountStateLabel()(state)
   const hint = {
     ok: null,
-    revoked: t('Access ended (revoked, password changed or expired). Reconnect to resume — your selections are kept.', 'انتهى الوصول (أُلغي أو تغيّرت كلمة المرور أو انتهت صلاحيته). أعد الربط للمتابعة — اختياراتك محفوظة.'),
-    scope: t('The read permission was not granted on the consent screen. Reconnect and keep the read access ticked.', 'لم يُمنح إذن القراءة في شاشة الموافقة. أعد الربط وأبقِ إذن القراءة محدداً.'),
-    waiting: waiting ? t(`The provider asked LifeOS to slow down. Sync resumes automatically after ${clock(waiting.toISOString())}.`, `طلب المزوّد من LifeOS التمهل. تستأنف المزامنة تلقائياً بعد ${clock(waiting.toISOString())}.`) : null,
-    error: (account.consecutive_failures ?? 0) >= 3 ? t('Several syncs failed in a row, so LifeOS now retries less often. Try “Sync now”, or reconnect if it keeps failing.', 'فشلت عدة مزامنات متتالية، لذا يعيد LifeOS المحاولة بوتيرة أقل. جرّب «مزامنة الآن» أو أعد الربط إن استمر الفشل.') : t('Data that was already imported is kept. LifeOS retries automatically.', 'البيانات المستوردة سابقاً محفوظة. يعيد LifeOS المحاولة تلقائياً.'),
+    revoked: t('Access ended (revoked, password changed or expired). Reconnect to resume — your selections are kept.', 'انتهى الوصول (أُلغي أو تغيّرت كلمة المرور أو انتهت صلاحيته). أعد الربط للمتابعة — اختياراتك محفوظة.', 'Toegang beëindigd (ingetrokken, wachtwoord gewijzigd of verlopen). Koppel opnieuw om verder te gaan — je keuzes blijven bewaard.'),
+    scope: t('The read permission was not granted on the consent screen. Reconnect and keep the read access ticked.', 'لم يُمنح إذن القراءة في شاشة الموافقة. أعد الربط وأبقِ إذن القراءة محدداً.', 'Het leesrecht is niet verleend op het toestemmingsscherm. Koppel opnieuw en laat leestoegang aangevinkt.'),
+    waiting: waiting ? t(`The provider asked LifeOS to slow down. Sync resumes automatically after ${clock(waiting.toISOString())}.`, `طلب المزوّد من LifeOS التمهل. تستأنف المزامنة تلقائياً بعد ${clock(waiting.toISOString())}.`, `De provider vroeg LifeOS om te vertragen. Synchroniseren hervat automatisch na ${clock(waiting.toISOString())}.`) : null,
+    error: (account.consecutive_failures ?? 0) >= 3 ? t('Several syncs failed in a row, so LifeOS now retries less often. Try “Sync now”, or reconnect if it keeps failing.', 'فشلت عدة مزامنات متتالية، لذا يعيد LifeOS المحاولة بوتيرة أقل. جرّب «مزامنة الآن» أو أعد الربط إن استمر الفشل.', 'Meerdere synchronisaties mislukten achter elkaar, dus LifeOS probeert het nu minder vaak. Probeer “Nu synchroniseren”, of koppel opnieuw als het blijft mislukken.') : t('Data that was already imported is kept. LifeOS retries automatically.', 'البيانات المستوردة سابقاً محفوظة. يعيد LifeOS المحاولة تلقائياً.', 'Gegevens die al waren geïmporteerd blijven bewaard. LifeOS probeert het automatisch opnieuw.'),
   }[state]
   const granted = (scope: string) => (account.granted_scopes ?? []).some(g => g.toLowerCase().includes(scope.toLowerCase()))
-  const runLabel = (r: SyncRunInfo) => ({ success: t('Synced', 'تمت'), partial: t('Partly synced', 'مزامنة جزئية'), failed: t('Failed', 'فشلت'), rate_limited: t('Rate-limited', 'محدودة المعدل'), revoked: t('Access revoked', 'أُلغي الوصول'), running: t('Running', 'جارية') }[r.status])
+  const runLabel = (r: SyncRunInfo) => ({ success: t('Synced', 'تمت', 'Gesynchroniseerd'), partial: t('Partly synced', 'مزامنة جزئية', 'Deels gesynchroniseerd'), failed: t('Failed', 'فشلت', 'Mislukt'), rate_limited: t('Rate-limited', 'محدودة المعدل', 'Begrensd'), revoked: t('Access revoked', 'أُلغي الوصول', 'Toegang ingetrokken'), running: t('Running', 'جارية', 'Bezig') }[r.status])
   const runs = account.recent_runs ?? []
   // What LifeOS may really send to the service now: the person's choice, when the service has given the access it needs (not merely the old "adding events" switch).
   const sends = account.permissions ? account.permissions.effective.some(o => o === 'create' || o === 'update' || o === 'delete') : !!account.write?.enabled
@@ -76,37 +76,37 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
       <span className={`pill pill-${state}`}>{state === 'ok' ? <CheckCircle2 size={12} /> : state === 'waiting' ? <Hourglass size={12} /> : <AlertTriangle size={12} />}{stateLabel}</span>
     </div>
     <dl className="account-facts">
-      <div><dt>{t('Last successful sync', 'آخر مزامنة ناجحة')}</dt><dd>{when(account.last_synced_at)}</dd></div>
-      <div><dt>{t('Last attempt', 'آخر محاولة')}</dt><dd>{when(account.last_attempt_at)}</dd></div>
-      <div><dt>{t('Mode', 'النمط')}</dt><dd>{account.sync_mode === 'incremental' ? t('Incremental (changes only)', 'تدريجي (التغييرات فقط)') : t('Full read', 'قراءة كاملة')}</dd></div>
-      <div><dt>{tasks ? t('Imported tasks', 'المهام المستوردة') : t('Upcoming commitments', 'الالتزامات القادمة')}</dt><dd>{account.events_count}</dd></div>
+      <div><dt>{t('Last successful sync', 'آخر مزامنة ناجحة', 'Laatste geslaagde synchronisatie')}</dt><dd>{when(account.last_synced_at)}</dd></div>
+      <div><dt>{t('Last attempt', 'آخر محاولة', 'Laatste poging')}</dt><dd>{when(account.last_attempt_at)}</dd></div>
+      <div><dt>{t('Mode', 'النمط', 'Modus')}</dt><dd>{account.sync_mode === 'incremental' ? t('Incremental (changes only)', 'تدريجي (التغييرات فقط)', 'Stapsgewijs (alleen wijzigingen)') : t('Full read', 'قراءة كاملة', 'Volledig lezen')}</dd></div>
+      <div><dt>{tasks ? t('Imported tasks', 'المهام المستوردة', 'Geïmporteerde taken') : t('Upcoming commitments', 'الالتزامات القادمة', 'Komende afspraken')}</dt><dd>{account.events_count}</dd></div>
     </dl>
     {(hint || account.last_error) && state !== 'ok' && <div className={`account-alert alert-${state}`} role="status">
       {state === 'scope' ? <ShieldAlert size={16} /> : <AlertTriangle size={16} />}
       <div>{account.last_error && <p className="small">{account.last_error}</p>}{hint && <p className="small muted">{hint}</p>}</div>
     </div>}
     <div className="permissions">
-      <span className="perm-title"><ShieldCheck size={14} />{t('Data access', 'الوصول إلى البيانات')}</span>
+      <span className="perm-title"><ShieldCheck size={14} />{t('Data access', 'الوصول إلى البيانات', 'Gegevenstoegang')}</span>
       {requiredScopes.map(scope => <span key={scope} className={`perm ${account.granted_scopes?.length ? (granted(scope) ? 'ok' : 'missing') : ''}`}>{account.granted_scopes?.length ? (granted(scope) ? <CheckCircle2 size={12} /> : <XCircle size={12} />) : <Lock size={12} />}<code dir="ltr">{scope}</code></span>)}
-      {feed && <span className="perm ok"><CheckCircle2 size={12} />{t('Public or secret feed — no account access', 'رابط عام أو سري — دون وصول إلى الحساب')}</span>}
+      {feed && <span className="perm ok"><CheckCircle2 size={12} />{t('Public or secret feed — no account access', 'رابط عام أو سري — دون وصول إلى الحساب', 'Openbare of geheime feed — geen accounttoegang')}</span>}
       {sends
         ? <span className="perm"><Lock size={12} />{t('Reads everything; changes only events it added, after you confirm', 'يقرأ كل شيء؛ ولا يغيّر إلا المواعيد التي أضافها بعد تأكيدك', 'Leest alles; wijzigt alleen afspraken die het toevoegde, na jouw bevestiging')}</span>
         : <span className="perm muted"><Lock size={12} />{t('Read-only — LifeOS never writes', 'للقراءة فقط — لا يكتب LifeOS أبداً', 'Alleen lezen — LifeOS schrijft nooit')}</span>}
     </div>
-    {skipped > 0 && <p className="muted small account-note">{t(`${skipped} repeating event(s) use a pattern LifeOS can’t expand yet, so they were left out rather than guessed.`, `${skipped} موعد متكرر يستخدم نمطاً لا يستطيع LifeOS توسيعه بعد، لذا تُرك بدلاً من التخمين.`)}</p>}
+    {skipped > 0 && <p className="muted small account-note">{t(`${skipped} repeating event(s) use a pattern LifeOS can’t expand yet, so they were left out rather than guessed.`, `${skipped} موعد متكرر يستخدم نمطاً لا يستطيع LifeOS توسيعه بعد، لذا تُرك بدلاً من التخمين.`, `${skipped} terugkerende afspraak/afspraken gebruiken een patroon dat LifeOS nog niet kan uitklappen, dus ze zijn weggelaten in plaats van geraden.`)}</p>}
     {account.status !== 'revoked' && !feed && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={tasks} onSaved={onSaved} />}
     {children}
     <div className="toolbar">
       {state === 'revoked' || state === 'scope'
-        ? <button className="primary" disabled={busy !== null} onClick={onReconnect}><Link2 size={15} />{feed ? t('Use a new link', 'استخدام رابط جديد') : t('Reconnect', 'إعادة الربط')}</button>
-        : <button className="quiet" disabled={busy !== null || state === 'waiting'} onClick={onSync} aria-busy={busy === `sync-${account.id}`}><RefreshCw size={15} className={busy === `sync-${account.id}` ? 'spin' : ''} />{busy === `sync-${account.id}` ? t('Syncing…', 'جارٍ المزامنة…') : t('Sync now', 'مزامنة الآن')}</button>}
-      {runs.length > 0 && <button className="quiet" aria-expanded={history} onClick={() => setHistory(h => !h)}><History size={15} />{t('Sync history', 'سجل المزامنة')}</button>}
-      <button className="quiet" disabled={busy !== null} onClick={onDisconnect}><Unplug size={15} />{t('Disconnect', 'فصل')}</button>
+        ? <button className="primary" disabled={busy !== null} onClick={onReconnect}><Link2 size={15} />{feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')}</button>
+        : <button className="quiet" disabled={busy !== null || state === 'waiting'} onClick={onSync} aria-busy={busy === `sync-${account.id}`}><RefreshCw size={15} className={busy === `sync-${account.id}` ? 'spin' : ''} />{busy === `sync-${account.id}` ? t('Syncing…', 'جارٍ المزامنة…', 'Synchroniseren…') : t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')}</button>}
+      {runs.length > 0 && <button className="quiet" aria-expanded={history} onClick={() => setHistory(h => !h)}><History size={15} />{t('Sync history', 'سجل المزامنة', 'Synchronisatiegeschiedenis')}</button>}
+      <button className="quiet" disabled={busy !== null} onClick={onDisconnect}><Unplug size={15} />{t('Disconnect', 'فصل', 'Loskoppelen')}</button>
     </div>
     <AnimatePresence initial={false}>{history && <m.ol className="sync-history" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 32 }}>
       {runs.map(r => <li key={r.id} className={`run run-${r.status}`}>
         <span className="run-status">{runLabel(r)}</span>
-        <span className="muted small"><Clock3 size={11} /> {when(r.started_at)} · {r.mode === 'incremental' ? t('changes', 'تغييرات') : t('full', 'كاملة')}{r.duration_ms !== null ? ` · ${(r.duration_ms / 1000).toFixed(1)}s` : ''}</span>
+        <span className="muted small"><Clock3 size={11} /> {when(r.started_at)} · {r.mode === 'incremental' ? t('changes', 'تغييرات', 'wijzigingen') : t('full', 'كاملة', 'volledig')}{r.duration_ms !== null ? ` · ${(r.duration_ms / 1000).toFixed(1)}s` : ''}</span>
         <span className="small">{t(`${r.upserted} updated · ${r.removed} removed${r.moved ? ` · ${r.moved} moved` : ''}`, `${r.upserted} محدّث · ${r.removed} محذوف${r.moved ? ` · ${r.moved} منقول` : ''}`)}</span>
         {r.error && <span className="small run-error">{r.error}</span>}
       </li>)}

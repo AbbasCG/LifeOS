@@ -3558,3 +3558,11 @@ Why: after P2–P9 the owner opened the site and What's new was empty. Three man
 - **Not automatic, on purpose:** creating a copy and deleting one. Outbound only updates what LifeOS already added.
 - **Tests:** `SyncEngineTest` (27), `sync-settings.test.tsx` (9), `e2e/sync-settings.spec.ts` (6 runs). Providers are faked; nothing writes to a real account.
 - **Not in this PR:** end-to-end QA across the whole flow, the full provider setup guides and the production checklist (PR 5).
+
+# V79 — Connected Accounts master plan, PR 5: QA, security review, Dutch, documentation (Integrations area, at the owner's request)
+
+- **Security:** `IntegrationsSecurityTest` (7): another person's ids and an administrator's role open and change nothing on all 16 connection routes, guests get 401, widening changes need a recent password (423), sensitive changes are rate limited, no token or secret in any owner answer, and a static guard fails if code calls a provider write without `ConnectionPermissions`. `throttle:auth` added to permissions, sync-settings and conflict resolution.
+- **UX:** every Hub text now has a Dutch version (`t(en, ar, nl)`), guarded by `hub-dutch.test.tsx`. The intro copy no longer claims LifeOS "never writes": it says connections are read-only by default.
+- **Docs:** `docs/INTEGRATIONS_SETUP.md` (provider setup, redirect URIs, scopes, permission matrix, sync directions, conflicts, security table, troubleshooting, go-live checklist).
+- **Needs the owner:** real OAuth apps at Google, Microsoft and Todoist; a try-out with a test account (cannot be done from CI).
+

@@ -17,19 +17,19 @@ export function FeedSubscribe({ replacing, onDone }: { replacing?: boolean; onDo
     e.preventDefault(); setBusy(true); setError('')
     try {
       const r = await api<{ account: ConnectedAccount }>('/api/integrations/ics', 'POST', { url })
-      toast(t(`Subscribed to “${r.account.display_name ?? r.account.email}”. ${r.account.events_count} upcoming event(s) imported.`, `تم الاشتراك في «${r.account.display_name ?? r.account.email}». استُورد ${r.account.events_count} موعداً قادماً.`))
+      toast(t(`Subscribed to “${r.account.display_name ?? r.account.email}”. ${r.account.events_count} upcoming event(s) imported.`, `تم الاشتراك في «${r.account.display_name ?? r.account.email}». استُورد ${r.account.events_count} موعداً قادماً.`, `Geabonneerd op “${r.account.display_name ?? r.account.email}”. ${r.account.events_count} komende afspraak/afspraken geïmporteerd.`))
       setUrl(''); onDone()
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
   return <form className="feed-subscribe" onSubmit={e => void submit(e)}>
-    <label htmlFor="feed-url">{replacing ? t('Paste the current calendar link', 'الصق رابط التقويم الحالي') : t('Calendar address (.ics or webcal)', 'عنوان التقويم (.ics أو webcal)')}</label>
+    <label htmlFor="feed-url">{replacing ? t('Paste the current calendar link', 'الصق رابط التقويم الحالي', 'Plak de huidige agendalink') : t('Calendar address (.ics or webcal)', 'عنوان التقويم (.ics أو webcal)', 'Agenda-adres (.ics of webcal)')}</label>
     <div className="feed-row">
       <input id="feed-url" type="url" inputMode="url" dir="ltr" required placeholder="webcal://…" autoComplete="off" spellCheck={false} value={url} onChange={e => setUrl(e.target.value)} />
-      <button className="primary" disabled={busy || !url.trim()}><Rss size={16} />{busy ? t('Checking…', 'جارٍ التحقق…') : t('Subscribe', 'اشتراك')}</button>
+      <button className="primary" disabled={busy || !url.trim()}><Rss size={16} />{busy ? t('Checking…', 'جارٍ التحقق…', 'Controleren…') : t('Subscribe', 'اشتراك', 'Abonneren')}</button>
     </div>
     <p className="muted small">{replacing
-      ? t('The old link stopped working. Subscribe with the new one, then disconnect the old subscription.', 'توقف الرابط القديم عن العمل. اشترك بالرابط الجديد ثم افصل الاشتراك القديم.')
-      : t('School timetables, sports fixtures, public holidays or a “secret address” from another calendar. Treat secret links like passwords — LifeOS stores them encrypted and never shows them again.', 'جداول المدرسة أو المباريات أو العطل الرسمية أو «عنوان سري» من تقويم آخر. عامل الروابط السرية ككلمات مرور — يخزنها LifeOS مشفرة ولا يعرضها مجدداً.')}</p>
+      ? t('The old link stopped working. Subscribe with the new one, then disconnect the old subscription.', 'توقف الرابط القديم عن العمل. اشترك بالرابط الجديد ثم افصل الاشتراك القديم.', 'De oude link werkt niet meer. Abonneer je met de nieuwe en koppel daarna het oude abonnement los.')
+      : t('School timetables, sports fixtures, public holidays or a “secret address” from another calendar. Treat secret links like passwords — LifeOS stores them encrypted and never shows them again.', 'جداول المدرسة أو المباريات أو العطل الرسمية أو «عنوان سري» من تقويم آخر. عامل الروابط السرية ككلمات مرور — يخزنها LifeOS مشفرة ولا يعرضها مجدداً.', 'Schoolroosters, sportprogramma’s, feestdagen of een “geheim adres” uit een andere agenda. Behandel geheime links als wachtwoorden — LifeOS slaat ze versleuteld op en toont ze nooit meer.')}</p>
     <ErrorMessage error={error} />
   </form>
 }

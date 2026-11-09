@@ -185,9 +185,9 @@ for (const [name, width, height] of sizes) {
       expect(await rows.count()).toBeGreaterThanOrEqual(5)
       for (const h of await rows.evaluateAll(els => els.map(e => e.getBoundingClientRect().height))) expect(h).toBeLessThanOrEqual(100)
       // The long explanations are not on the page; they open on request.
-      await expect(page.getByText(/never creates, edits or deletes/)).toHaveCount(0)
+      await expect(page.getByText(/creates, changes or deletes nothing there/)).toHaveCount(0)
       await page.getByRole('button', { name: 'About connections' }).tap()
-      await expect(page.getByText(/never creates, edits or deletes anything in them/)).toBeVisible()
+      await expect(page.getByText(/creates, changes or deletes nothing there unless you allow it/)).toBeVisible()
       await expectPhoneSheet(page)
       await page.locator('dialog[open]').getByRole('button', { name: 'Close' }).tap()
       // A subscription link opens in a sheet with a 16px field.

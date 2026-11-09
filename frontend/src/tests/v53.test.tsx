@@ -245,7 +245,7 @@ describe('Connected accounts, compact', () => {
     expect(await screen.findByText('Outlook Calendar')).toBeInTheDocument()
     expect(screen.queryByText(/never creates, edits or deletes|LifeOS never creates/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'About connections' }))
-    expect(await screen.findByText(/LifeOS never creates, edits or deletes anything in them/)).toBeInTheDocument()
+    expect(await screen.findByText(/creates, changes or deletes nothing there unless you allow it/)).toBeInTheDocument()
   })
   it('puts the status and the action on the row: sync is one icon button, details open on request', async () => {
     const calls = server([{ match: /\/api\/integrations$/, body: hub() }, { match: /\/api\/integrations\/accounts\/3\/sync$/, method: 'POST', body: { imported: 1, run: null } }, { match: /\/api\/user$/, body: { id: 1 } }])
