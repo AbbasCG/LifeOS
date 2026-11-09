@@ -173,3 +173,49 @@ What differs between providers (checked in the code, not assumed):
 **Calendar and Tasks are separate providers.** With `.env`, Google Calendar and Google Tasks read the same `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (Outlook and To Do the same `MICROSOFT_*`). On the Provider configuration screen each has its own record, so the administrator enters the client for each (the same Google OAuth app may be used for both: register both redirect addresses in it). Nothing is shared silently.
 
 Migration `2026_11_09_110001` adds a nullable `account_id` to `oauth_states` (the second consent that adds the write permission names the account it is for). It is additive; pending rows are unaffected.
+
+## What LifeOS may do with a connection (Connected Accounts plan, PR 3 of 5)
+
+Four things are kept apart, because mixing them would let a screen promise more than it can keep:
+
+1. **The provider's OAuth scopes** — what the token the service issued can do. LifeOS cannot narrow it. A broad write scope at Google still permits deletion *at Google*.
+2. **The provider's capabilities** — what LifeOS has an adapter for. A task service (Google Tasks, Microsoft To Do, Todoist) and a calendar feed (ICS) have no write adapter at all, so no write is ever offered for them.
+3. **The person's choice for this connection** — `calendar_accounts.permissions`, set in *Manage permissions*. **This is what LifeOS enforces on the server**: before anything is sent to a provider, and before background syncing or importing, `ConnectionPermissions::authorize()` is called. A disabled button in the browser is never the protection.
+4. **Sync policies** (direction, conflicts) — PR 4.
+
+So "Delete is off" means *LifeOS will not call the delete API*, not that the token cannot delete. The screen says this in words.
+
+### Permission matrix (from the code)
+
+| Service | Read | Sync | Import | Send changes (export) | Create | Update | Delete |
+|---|---|---|---|---|---|---|---|
+| Google Calendar | yes | yes | n/a | yes¹ | yes¹ | yes¹ | yes¹ |
+| Outlook Calendar | yes | yes | n/a | yes¹ | yes¹ | yes¹ | yes¹ |
+| Google Tasks | yes | yes | yes | **no** | **no** | **no** | **no** |
+| Microsoft To Do | yes | yes | yes | **no** | **no** | **no** | **no** |
+| Todoist | yes | yes | yes | **no** | **no** | **no** | **no** |
+| Calendar feed (ICS) | yes | yes | n/a | **no** | **no** | **no** | **no** |
+
+¹ Only where the server has adding events switched on (`LIFEOS_CALENDAR_WRITE`) **and** the provider gave the separate write access. Without that access the choice is saved but not effective, and the screen offers *Allow at the service* (the existing second consent), which is the re-consent step. "Import" means copying an item into LifeOS (tasks); calendar events are shown as busy time, never copied.
+
+### Meaning of each permission
+
+- **read** — always on; to stop it, disconnect.
+- **sync** — background syncing by the scheduler. Off = the scheduler and any already-queued scheduled run skip the account; *Sync now* still works.
+- **import** — copy an imported task into LifeOS.
+- **export** — send anything to the service at all. It is on exactly when at least one of create, update or delete is.
+- **create / update / delete** — add, change or remove **only events LifeOS itself added** (the copies tracked in `calendar_write_links`); each change still needs a preview and a confirmation. The check runs at the preview and again at the confirmation, so a choice changed in between is respected.
+
+Presets: *Read only* (read, sync, import) · *Read + Create* · *Read + Create + Update* · *Full access including Delete*, plus *Custom*. A preset is offered only if the service can do it.
+
+### Defaults and older connections
+
+- A **new** connection starts with the least: read, sync, import. Reconnecting keeps the person's choice.
+- A connection made **before** this had no choice stored (`permissions` is NULL). It keeps what it could do — reading, syncing, importing and, where the person had allowed adding events, adding and changing those copies — and is **not given Delete**. Removing a copy now needs Delete to be turned on first. Scheduled sync is unchanged.
+- Turning Delete **on** needs its own confirmation in the screen **and** `confirm_delete: true` in the request (the server refuses without it); changing permissions needs a recent password confirmation.
+
+### API
+
+`GET|PUT /api/integrations/accounts/{id}/permissions` — `PUT` takes `{preset}` or `{permissions: [...]}` (not both) and optionally `confirm_delete`. `GET /api/integrations` shows per provider `capabilities` and `presets`, and per account `permissions` (`granted`, `effective`, `blocked` with the reason, `preset`, `legacy`). A refused operation answers `403 {code: "permission_denied", operation, reason}` with reason `not_allowed`, `unsupported`, `reconsent_required` or `revoked`. Changes are audited (`integration_permissions_changed`: provider, account, operation names only) and so are refusals (`integration_permission_denied`).
+
+Migration `2026_11_09_120001`: nullable `calendar_accounts.permissions` (JSON) and `permissions_changed_at`; nothing is rewritten.

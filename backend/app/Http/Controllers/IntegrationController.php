@@ -12,6 +12,7 @@ use App\Integrations\Calendar\TokenSet;
 use App\Integrations\Calendar\WritableCalendar;
 use App\Integrations\ConnectedCatalog;
 use App\Integrations\OAuth\OAuthStateStore;
+use App\Integrations\Permissions\ConnectionPermissions;
 use App\Integrations\Vault\CredentialVault;
 use App\Models\CalendarAccount;
 use App\Models\ExternalTask;
@@ -59,6 +60,9 @@ class IntegrationController extends Controller
             'supports_write' => $this->writes->featureEnabled() && $provider instanceof WritableCalendar,
             'required_scopes' => $provider->requiredScopes(),
             'connect_mode' => $provider instanceof IcsProvider ? 'url' : 'oauth',
+            // What LifeOS can do with this service at all (read-only services have no write adapter), and the choices offered per connection.
+            'capabilities' => app(ConnectionPermissions::class)->capabilities($provider->name()),
+            'presets' => app(ConnectionPermissions::class)->presets($provider->name()),
         ];
 
         return response()->json([
@@ -123,6 +127,9 @@ class IntegrationController extends Controller
         if (! $account->exists) {
             // New connections start with only the primary calendar or list included; the user chooses the rest.
             $account->collections = [];
+            // ...and with the least LifeOS may do: read, sync and import. Sending anything to the provider is something the person turns on later.
+            $account->permissions = app(ConnectionPermissions::class)->defaultsForNewConnection($provider);
+            $account->permissions_changed_at = now();
         }
         $account->fill([
             'email' => $profile['email'],
@@ -284,6 +291,8 @@ class IntegrationController extends Controller
     {
         $user = $request->user();
         $external = ExternalTask::where('user_id', $user->id)->with('account')->findOrFail($id);
+        // Copying an item into LifeOS is "import": the person may have switched it off for this connection.
+        app(ConnectionPermissions::class)->authorize($external->account, ConnectionPermissions::IMPORT, $request);
         $ref = $external->sourceRef($external->account->provider);
         $existing = Task::where('user_id', $user->id)->where('source_ref', $ref)->first();
         if ($existing) {

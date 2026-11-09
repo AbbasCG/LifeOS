@@ -6,6 +6,7 @@ use App\Integrations\Calendar\CalendarProviders;
 use App\Integrations\Calendar\CalendarWriteException;
 use App\Integrations\Calendar\ProviderAuthException;
 use App\Integrations\Calendar\WritableCalendar;
+use App\Integrations\Permissions\ConnectionPermissions;
 use App\Models\CalendarAccount;
 use App\Models\CalendarEvent;
 use App\Models\CalendarWriteLink;
@@ -30,7 +31,7 @@ class CalendarWriteService
 {
     public const OPS = ['create', 'update', 'delete'];
 
-    public function __construct(private CalendarProviders $providers, private CalendarSyncService $sync, private AuditLogger $audit) {}
+    public function __construct(private CalendarProviders $providers, private CalendarSyncService $sync, private AuditLogger $audit, private ConnectionPermissions $permissions) {}
 
     public function featureEnabled(): bool
     {
@@ -167,6 +168,9 @@ class CalendarWriteService
             $fail('calendar', 'Adding events to connected calendars is turned off on this server.');
         }
         $account = CalendarAccount::where('user_id', $user->id)->find($accountId) ?? $fail('account_id', 'Choose one of your connected calendars.');
+        // What the person allowed for THIS connection, checked here for the preview and again for the confirmation (it may have changed in between). The provider's token is not the
+        // protection: a broad write scope would still let Delete through at the provider, so LifeOS refuses before it ever asks.
+        $this->permissions->authorize($account, $op);
         $state = $this->state($account);
         if (! $state['enabled']) {
             $fail('account_id', 'Adding events is not turned on for this account. Allow it and pick a calendar in Connected accounts first.');

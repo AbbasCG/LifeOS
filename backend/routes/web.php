@@ -8,6 +8,7 @@ use App\Http\Controllers\AvailabilityController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\CalendarWriteController;
 use App\Http\Controllers\CheckinController;
+use App\Http\Controllers\ConnectionPermissionsController;
 use App\Http\Controllers\CopilotController;
 use App\Http\Controllers\DayPlanController;
 use App\Http\Controllers\DiscoveryController;
@@ -133,6 +134,8 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('calendar-write/confirm', [CalendarWriteController::class, 'confirm'])->middleware('throttle:auth');
         Route::post('integrations/ics', [IntegrationController::class, 'subscribe'])->middleware('throttle:auth');
         Route::patch('integrations/accounts/{id}', [IntegrationController::class, 'update'])->whereNumber('id');
+        Route::get('integrations/accounts/{id}/permissions', [ConnectionPermissionsController::class, 'show'])->whereNumber('id');
+        Route::put('integrations/accounts/{id}/permissions', [ConnectionPermissionsController::class, 'update'])->whereNumber('id')->middleware('password.confirm:,900');
         Route::get('connected/tasks', [IntegrationController::class, 'tasks']);
         Route::get('intelligence/briefing', [IntelligenceController::class, 'briefing']);
         Route::get('intelligence/settings', [IntelligenceController::class, 'settings']);

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Integrations\Permissions\ConnectionPermissions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,7 +16,7 @@ class CalendarAccount extends Model
 
     protected function casts(): array
     {
-        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime', 'collections' => 'array', 'sync_state' => 'array', 'last_attempt_at' => 'immutable_datetime', 'retry_after' => 'immutable_datetime', 'scopes_ok' => 'boolean', 'write_granted_at' => 'immutable_datetime'];
+        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'token_expires_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime', 'collections' => 'array', 'permissions' => 'array', 'permissions_changed_at' => 'immutable_datetime', 'sync_state' => 'array', 'last_attempt_at' => 'immutable_datetime', 'retry_after' => 'immutable_datetime', 'scopes_ok' => 'boolean', 'write_granted_at' => 'immutable_datetime'];
     }
 
     /** @return BelongsTo<User, $this> */
@@ -68,6 +69,8 @@ class CalendarAccount extends Model
             'granted_scopes' => $this->scopes ? array_values(array_filter(preg_split('/[\s,]+/', (string) $this->scopes) ?: [], fn ($s) => $s !== '')) : [],
             'sync_mode' => collect($this->sync_state ?? [])->contains(fn ($s) => ! empty($s['token'])) ? 'incremental' : 'full',
             'connected_at' => $this->created_at?->toIso8601String(),
+            // What LifeOS itself may do with this connection (see ConnectionPermissions): the choice, what is possible now, and what the service can do at all.
+            'permissions' => app(ConnectionPermissions::class)->summary($this),
         ];
     }
 }

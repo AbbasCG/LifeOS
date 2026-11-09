@@ -313,6 +313,23 @@ class OAuthConnectionTest extends TestCase
         $this->assertSame(0, CalendarAccount::count(), 'our copy of the tokens is removed whatever the provider answers');
     }
 
+    // ---- what a new connection may do ----
+
+    public function test_a_new_connection_starts_with_the_least_it_may_do_and_a_reconnect_keeps_the_persons_choice(): void
+    {
+        $this->vault();
+        $query = $this->start();
+        $this->returnFrom('google', 'code=c&state='.$query['state'])->assertRedirect($this->backTo('connected=google'));
+        $account = CalendarAccount::firstOrFail();
+        $this->assertSame(['read', 'sync'], $account->permissions, 'reading and syncing only: nothing is ever sent to the provider until the person turns it on');
+        $this->assertNotNull($account->permissions_changed_at);
+
+        $account->forceFill(['permissions' => ['read']])->save();   // the person switched background syncing off
+        $again = $this->start();
+        $this->returnFrom('google', 'code=c2&state='.$again['state'])->assertRedirect($this->backTo('connected=google'));
+        $this->assertSame(['read'], $account->fresh()->permissions, 'reconnecting does not reset the choice');
+    }
+
     // ---- the providers differ ----
 
     public function test_microsoft_uses_pkce_and_its_own_endpoints(): void

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Integrations\Permissions\ConnectionPermissions;
 use App\Models\AuditLog;
 use App\Models\CalendarAccount;
 use App\Models\CalendarEvent;
@@ -55,6 +56,12 @@ class CalendarWriteBackTest extends TestCase
         $account->forceFill(['write_granted_at' => now(), 'write_calendar_id' => $calendar, 'write_calendar_name' => 'Work'])->save();
 
         return $account;
+    }
+
+    /** The person turned Delete on for this connection (an account that never chose keeps adding and changing, but is not given Delete). */
+    private function allowDelete(CalendarAccount $account): void
+    {
+        $account->forceFill(['permissions' => ConnectionPermissions::PRESETS['full']])->save();
     }
 
     private function writes(): Collection
@@ -162,6 +169,7 @@ class CalendarWriteBackTest extends TestCase
     public function test_updates_and_removals_touch_only_copies_lifeos_made_and_respect_edits_made_there(): void
     {
         $this->enable($this->google);
+        $this->allowDelete($this->google);
         $link = CalendarWriteLink::create(['user_id' => $this->user->id, 'calendar_account_id' => $this->google->id, 'calendar_event_id' => $this->event->id, 'calendar_id' => 'work@group', 'external_id' => 'lifeos123', 'etag' => '"e1"', 'title' => 'Deep work', 'starts_at' => $this->event->starts_at, 'ends_at' => $this->event->ends_at]);
         $other = CalendarEvent::create(['user_id' => $this->user->id, 'title' => 'Never added', 'starts_at' => '2027-03-24 09:00:00', 'ends_at' => '2027-03-24 10:00:00']);
         $patch = 0;
@@ -203,6 +211,7 @@ class CalendarWriteBackTest extends TestCase
     public function test_anything_changing_between_preview_and_confirm_is_refused_and_lost_answers_are_reported(): void
     {
         $this->enable($this->google);
+        $this->allowDelete($this->google);
         $round = 0;
         Http::fake(['www.googleapis.com/calendar/v3/calendars/*' => function (HttpRequest $r) use (&$round) {
             $round++;
