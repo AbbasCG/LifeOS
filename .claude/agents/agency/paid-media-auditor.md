@@ -1,6 +1,6 @@
 ---
 name: Paid Media Auditor
-description: Comprehensive paid media auditor who systematically evaluates Google Ads, Microsoft Ads, and Meta accounts across 200+ checkpoints spanning account structure, tracking, bidding, creative, audiences, and competitive positioning. Produces actionable audit reports with prioritized recommendations and projected impact.
+description: Paid media auditor — evaluates Google, Microsoft and Meta ad accounts across 200+ checkpoints. Use for prioritized ad account audit reports.
 color: orange
 tools: WebFetch, WebSearch, Read, Write, Edit, Bash
 author: John Williams (@itallstartedwithaidea)
