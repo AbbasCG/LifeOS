@@ -136,12 +136,12 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('integrations/ics', [IntegrationController::class, 'subscribe'])->middleware('throttle:auth');
         Route::patch('integrations/accounts/{id}', [IntegrationController::class, 'update'])->whereNumber('id');
         Route::get('integrations/accounts/{id}/permissions', [ConnectionPermissionsController::class, 'show'])->whereNumber('id');
-        Route::put('integrations/accounts/{id}/permissions', [ConnectionPermissionsController::class, 'update'])->whereNumber('id')->middleware('password.confirm:,900');
-        Route::put('integrations/accounts/{id}/sync-settings', [SyncSettingsController::class, 'update'])->whereNumber('id')->middleware('password.confirm:,900');
+        Route::put('integrations/accounts/{id}/permissions', [ConnectionPermissionsController::class, 'update'])->whereNumber('id')->middleware(['password.confirm:,900', 'throttle:auth']);
+        Route::put('integrations/accounts/{id}/sync-settings', [SyncSettingsController::class, 'update'])->whereNumber('id')->middleware(['password.confirm:,900', 'throttle:auth']);
         Route::post('integrations/accounts/{id}/sync/preview', [SyncSettingsController::class, 'preview'])->whereNumber('id')->middleware('throttle:auth');
         Route::post('integrations/accounts/{id}/sync/push', [SyncSettingsController::class, 'push'])->whereNumber('id')->middleware('throttle:auth');
         Route::get('integrations/accounts/{id}/sync-conflicts', [SyncSettingsController::class, 'conflicts'])->whereNumber('id');
-        Route::post('integrations/sync-conflicts/{conflict}/resolve', [SyncSettingsController::class, 'resolve'])->whereNumber('conflict')->middleware('password.confirm:,900');
+        Route::post('integrations/sync-conflicts/{conflict}/resolve', [SyncSettingsController::class, 'resolve'])->whereNumber('conflict')->middleware(['password.confirm:,900', 'throttle:auth']);
         Route::get('connected/tasks', [IntegrationController::class, 'tasks']);
         Route::get('intelligence/briefing', [IntelligenceController::class, 'briefing']);
         Route::get('intelligence/settings', [IntelligenceController::class, 'settings']);

@@ -30,28 +30,28 @@ export function WritePreview({ op, accountId, eventId, linkId, onDone, onCancel 
     try {
       await api('/api/calendar-write/confirm', 'POST', { token: preview.token })
       const where = `${preview.account.label}${preview.calendar.name ? ` · ${preview.calendar.name}` : ''}`
-      toast({ create: t(`Added to ${where}.`, `أُضيف إلى ${where}.`), update: t(`Updated in ${where}.`, `حُدّث في ${where}.`), delete: t(`Removed from ${where}.`, `أُزيل من ${where}.`) }[op])
+      toast({ create: t(`Added to ${where}.`, `أُضيف إلى ${where}.`, `Toegevoegd aan ${where}.`), update: t(`Updated in ${where}.`, `حُدّث في ${where}.`, `Bijgewerkt in ${where}.`), delete: t(`Removed from ${where}.`, `أُزيل من ${where}.`, `Verwijderd uit ${where}.`) }[op])
       onDone()
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
-  const verb = { create: t('Add event', 'إضافة الموعد'), update: t('Update copy', 'تحديث النسخة'), delete: t('Remove copy', 'إزالة النسخة') }[op]
+  const verb = { create: t('Add event', 'إضافة الموعد', 'Afspraak toevoegen'), update: t('Update copy', 'تحديث النسخة', 'Kopie bijwerken'), delete: t('Remove copy', 'إزالة النسخة', 'Kopie verwijderen') }[op]
   const Icon = { create: CalendarPlus, update: RefreshCw, delete: CalendarX2 }[op]
-  return <div className={`write-preview op-${op}`} role="group" aria-label={t('Change preview', 'معاينة التغيير')}>
+  return <div className={`write-preview op-${op}`} role="group" aria-label={t('Change preview', 'معاينة التغيير', 'Voorbeeld van de wijziging')}>
     {!preview && !error && <Skeleton lines={3} />}
     {preview && <>
-      <p className="write-where"><ShieldCheck size={15} />{t(`This changes ${preview.account.label} (${preview.account.email ?? ''}) — calendar “${preview.calendar.name ?? ''}”.`, `سيُغيّر هذا ${preview.account.label} (${preview.account.email ?? ''}) — تقويم «${preview.calendar.name ?? ''}».`)}</p>
+      <p className="write-where"><ShieldCheck size={15} />{t(`This changes ${preview.account.label} (${preview.account.email ?? ''}) — calendar “${preview.calendar.name ?? ''}”.`, `سيُغيّر هذا ${preview.account.label} (${preview.account.email ?? ''}) — تقويم «${preview.calendar.name ?? ''}».`, `Dit wijzigt ${preview.account.label} (${preview.account.email ?? ''}) — agenda “${preview.calendar.name ?? ''}”.`)}</p>
       <div className="write-diff">
-        {preview.before && <div className="was"><small>{op === 'delete' ? t('Will be removed', 'سيُزال') : t('Now there', 'الآن هناك')}</small><strong>{preview.before.title}</strong><span dir="ltr">{span(preview.before)}</span></div>}
+        {preview.before && <div className="was"><small>{op === 'delete' ? t('Will be removed', 'سيُزال', 'Wordt verwijderd') : t('Now there', 'الآن هناك', 'Nu daar')}</small><strong>{preview.before.title}</strong><span dir="ltr">{span(preview.before)}</span></div>}
         {preview.before && preview.after && <ArrowRight size={16} className="flip-rtl" aria-hidden="true" />}
-        {preview.after && <div className="will"><small>{op === 'create' ? t('Will be added', 'سيُضاف') : t('Will become', 'سيصبح')}</small><strong>{preview.after.title}</strong><span dir="ltr">{span(preview.after)}</span></div>}
+        {preview.after && <div className="will"><small>{op === 'create' ? t('Will be added', 'سيُضاف', 'Wordt toegevoegd') : t('Will become', 'سيصبح', 'Wordt')}</small><strong>{preview.after.title}</strong><span dir="ltr">{span(preview.after)}</span></div>}
       </div>
-      <p className="muted small">{t('Only this one change is made, and only if nothing changed since this preview. LifeOS never changes events it did not add.', 'يُنفَّذ هذا التغيير وحده، وفقط إن لم يتغير شيء منذ هذه المعاينة. لا يغيّر LifeOS أبداً مواعيد لم يُضفها.')}</p>
+      <p className="muted small">{t('Only this one change is made, and only if nothing changed since this preview. LifeOS never changes events it did not add.', 'يُنفَّذ هذا التغيير وحده، وفقط إن لم يتغير شيء منذ هذه المعاينة. لا يغيّر LifeOS أبداً مواعيد لم يُضفها.', 'Alleen deze ene wijziging wordt gedaan, en alleen als er sinds dit voorbeeld niets veranderd is. LifeOS wijzigt nooit afspraken die het niet zelf toevoegde.')}</p>
     </>}
     <ErrorMessage error={error} />
     <div className="toolbar">
-      <button className="quiet" onClick={onCancel}>{t('Cancel', 'إلغاء')}</button>
-      <button className={op === 'delete' ? 'danger' : 'primary'} disabled={!preview || busy} onClick={() => void confirm()}><Icon size={15} />{busy ? t('Working…', 'جارٍ التنفيذ…') : t(`Confirm: ${verb}`, `تأكيد: ${verb}`)}</button>
+      <button className="quiet" onClick={onCancel}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
+      <button className={op === 'delete' ? 'danger' : 'primary'} disabled={!preview || busy} onClick={() => void confirm()}><Icon size={15} />{busy ? t('Working…', 'جارٍ التنفيذ…', 'Bezig…') : t(`Confirm: ${verb}`, `تأكيد: ${verb}`, `Bevestig: ${verb}`)}</button>
     </div>
   </div>
 }

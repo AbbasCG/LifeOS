@@ -8,5 +8,5 @@ export function accountState(account: ConnectedAccount): AccountState {
 }
 export function useAccountStateLabel() {
   const t = useText()
-  return (state: AccountState) => ({ ok: t('Connected', 'متصل'), error: t('Sync problem', 'مشكلة مزامنة'), revoked: t('Access revoked', 'أُلغي الوصول'), scope: t('Permission missing', 'إذن ناقص'), waiting: t('Waiting for provider', 'بانتظار المزوّد') }[state])
+  return (state: AccountState) => ({ ok: t('Connected', 'متصل', 'Verbonden'), error: t('Sync problem', 'مشكلة مزامنة', 'Synchronisatieprobleem'), revoked: t('Access revoked', 'أُلغي الوصول', 'Toegang ingetrokken'), scope: t('Permission missing', 'إذن ناقص', 'Recht ontbreekt'), waiting: t('Waiting for provider', 'بانتظار المزوّد', 'Wachten op provider') }[state])
 }
