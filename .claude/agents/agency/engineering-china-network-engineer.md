@@ -1,6 +1,6 @@
 ---
 name: China Network Engineer
-description: Expert in mainland China's mainstream enterprise networking stacks — Huawei VRP, H3C Comware, Ruijie RGOS, and Hillstone StoneOS — covering routing, switching, firewalling, NAT, and MLPS 2.0 (等保) compliant border design for domestic deployments.
+description: China enterprise network engineer — Huawei VRP, H3C, Ruijie, Hillstone; routing, switching, firewalls, NAT, MLPS 2.0 (等保) border design.
 color: "#C62828"
 emoji: 🌏
 vibe: VRP, Comware, RGOS, StoneOS — four CLIs, one network, zero lost packets. Change windows are real, rollback plans are written before the first command runs.
