@@ -15,6 +15,7 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -62,6 +63,42 @@ class CalendarWriteService
             'calendar_name' => $account->write_calendar_name,
             'copies' => CalendarWriteLink::where('calendar_account_id', $account->id)->count(),
         ];
+    }
+
+    /**
+     * Bring one existing copy up to date with its LifeOS event, for the outbound synchronisation and for resolving a conflict. The same guards as a confirmed change: the writer must be
+     * available, the person must have allowed `update`, and the provider's etag is sent so an edit made at the service is never overwritten - unless the caller was told, by the
+     * person's policy or choice, to overwrite ($overwrite sends no etag). Throws CalendarWriteException / ProviderAuthException / PermissionDeniedException; the caller decides what to record.
+     */
+    public function pushUpdate(CalendarAccount $account, CalendarWriteLink $link, CalendarEvent $event, bool $overwrite = false): CalendarWriteLink
+    {
+        $this->permissions->authorize($account, ConnectionPermissions::UPDATE);
+        $writer = $this->writer($account) ?? throw new CalendarWriteException('denied', 'Adding events is not available for this account.');
+        $result = $writer->updateEvent($this->sync->freshToken($account), $link->calendar_id, $link->external_id, $overwrite ? null : $link->etag, $event->title, $event->starts_at, $event->ends_at);
+        $link->forceFill(['etag' => $result['etag'], 'title' => $event->title, 'starts_at' => $event->starts_at, 'ends_at' => $event->ends_at])->save();
+
+        return $link;
+    }
+
+    /**
+     * Add a NEW copy of a LifeOS event (used by "keep both"): needs `create` and a chosen calendar. The copy is made at the service FIRST; only when that worked is the link
+     * to the copy it replaces swapped for the new one, in one transaction (one LifeOS event has one link per account), so a failure at the service leaves everything as it was.
+     */
+    public function pushCreate(CalendarAccount $account, CalendarEvent $event, ?CalendarWriteLink $replacing = null): CalendarWriteLink
+    {
+        $this->permissions->authorize($account, ConnectionPermissions::CREATE);
+        $writer = $this->writer($account);
+        if (! $writer || $account->write_calendar_id === null) {
+            throw new CalendarWriteException('denied', 'Pick a calendar to add events to first.');
+        }
+        $result = $writer->createEvent($this->sync->freshToken($account), $account->write_calendar_id, 'lifeos'.bin2hex(random_bytes(12)), $event->title, $event->starts_at, $event->ends_at);
+
+        return DB::transaction(function () use ($account, $event, $result, $replacing) {
+            $replacing?->delete();
+
+            return CalendarWriteLink::create(['user_id' => $account->user_id, 'calendar_account_id' => $account->id, 'calendar_event_id' => $event->id, 'calendar_id' => $account->write_calendar_id,
+                'external_id' => $result['id'], 'etag' => $result['etag'], 'title' => $event->title, 'starts_at' => $event->starts_at, 'ends_at' => $event->ends_at]);
+        });
     }
 
     /**

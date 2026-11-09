@@ -219,3 +219,35 @@ Presets: *Read only* (read, sync, import) · *Read + Create* · *Read + Create +
 `GET|PUT /api/integrations/accounts/{id}/permissions` — `PUT` takes `{preset}` or `{permissions: [...]}` (not both) and optionally `confirm_delete`. `GET /api/integrations` shows per provider `capabilities` and `presets`, and per account `permissions` (`granted`, `effective`, `blocked` with the reason, `preset`, `legacy`). A refused operation answers `403 {code: "permission_denied", operation, reason}` with reason `not_allowed`, `unsupported`, `reconsent_required` or `revoked`. Changes are audited (`integration_permissions_changed`: provider, account, operation names only) and so are refusals (`integration_permission_denied`).
 
 Migration `2026_11_09_120001`: nullable `calendar_accounts.permissions` (JSON) and `permissions_changed_at`; nothing is rewritten.
+
+## Synchronisation: direction, conflicts, safety (Connected Accounts plan, PR 4 of 5)
+
+Built on the engine that was already there (one lock per account, `sync_runs`, incremental sync tokens, Retry-After handling, failure back-off, etag-guarded writes, copies tracked in `calendar_write_links`). No second engine.
+
+### What "sync" means here, honestly
+- **Inbound** (the service → LifeOS) is what has always happened: events are read into a read-only mirror (shown as busy time) and tasks are listed for copying. LifeOS events are not edited from the service.
+- **Outbound** (LifeOS → the service) is limited to the copies LifeOS itself added (`calendar_write_links`): when the LifeOS event changes, the **existing** copy is **updated**. Outbound **never creates** a copy and **never deletes** one by itself: adding and removing stay explicit, previewed and confirmed (and Delete stays off unless the person turned it on).
+
+### Directions (per connection, `calendar_accounts.sync_direction`)
+| Direction | On the schedule | Notes |
+|---|---|---|
+| `inbound` (default for every existing connection) | reads the service | today's behaviour; sends nothing by itself |
+| `outbound` | updates the copies LifeOS added | no scheduled reading |
+| `two_way` | both | |
+| `manual` | nothing | "Sync now" reads once |
+
+Only `inbound` and `manual` exist for a service LifeOS cannot send changes to (tasks, ICS). The direction is independent of the OAuth scopes but **can never go beyond the person's permissions**: a direction that sends is *in effect* only while `export` and `update` are allowed (Manage permissions); otherwise the screen shows what is really in effect and why (two-way with read-only permissions simply reads). `ConnectionPermissions` is asked again before every write.
+
+### Conflict policy (`conflict_policy`, applies when LifeOS finds a copy was changed at the service too)
+`ask` (default): record the conflict, send nothing, wait for the person · `prefer_external`: keep what is at the service, send nothing · `prefer_lifeos`: overwrite it (needs `update`; sent without the etag, which is what "overwrite" means) · `keep_both`: leave the service's version, add the LifeOS version as a new copy (needs `create` and a chosen calendar; the new copy is made first and the links are swapped in one transaction, so a failure leaves everything as it was). A policy that cannot be carried out leaves the conflict open. A person can also resolve an open conflict by hand; overwriting needs its own explicit confirmation (`confirm_overwrite`) and a recent password. Each resolution is audited (`sync_conflict_resolved`, by person or by policy). A conflict is recorded once per copy; `sync_conflicts` holds only the LifeOS side's title and times.
+
+### Safety rules
+- **No automatic deletion, ever.** A copy that vanished at the service (404) is forgotten (the link is dropped so it can be added again); nothing is deleted anywhere. A copy whose LifeOS event is gone is left for the person to remove with a preview.
+- A failed read never removes data: a collection that could not be read keeps what it had (partial run).
+- **Idempotent:** after an update the link matches its event, so a second run sends nothing; creation uses a client-chosen id.
+- **Loop prevention:** copies LifeOS added are excluded from the inbound mirror (matched by external id), so LifeOS never re-imports what it sent.
+- **Rate limits and tokens:** a rate limit stops the run at once and the account waits (`retry_after`); revoked access marks the account; tokens refresh under the existing per-account lock; failures are isolated per copy, a bounded batch (25) per run, one account per queued job.
+- **Dry run:** `POST …/sync/preview` lists exactly what would be sent and sends nothing.
+
+### API
+`PUT /api/integrations/accounts/{id}/sync-settings` (`direction`, `conflict_policy`, `paused`; recent password) · `POST …/sync/preview` · `POST …/sync/push` (a run now) · `GET …/sync-conflicts` · `POST /api/integrations/sync-conflicts/{id}/resolve` (`resolution` = `keep_external` | `keep_lifeos` + `confirm_overwrite` | `keep_both`). The hub list shows `sync` per account: direction, what is really in effect and why, the policy, pause, how many copies LifeOS added, how many wait to be updated, open conflicts and the last outbound run (from `sync_runs`, trigger `outbound`). Schedule: `lifeos:sync-outbound` every 15 minutes queues one `PushOutboundChanges` job per eligible connection. Migration `2026_11_09_130001`.

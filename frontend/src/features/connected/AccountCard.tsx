@@ -8,6 +8,7 @@ import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 import type { WriteState } from '../../lib/calendarWrite'
 import type { PermissionState } from '../../lib/connectionPermissions'
+import type { SyncState } from '../../lib/syncSettings'
 import { accountState, useAccountStateLabel } from '../../lib/accountState'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
@@ -16,7 +17,7 @@ export type ConnectedAccount = {
   id: number; provider: string; email: string | null; display_name: string | null; status: 'active' | 'error' | 'revoked'
   last_synced_at: string | null; last_attempt_at?: string | null; retry_after?: string | null; consecutive_failures?: number; scopes_ok?: boolean | null
   granted_scopes?: string[]; sync_mode?: 'full' | 'incremental'; last_error: string | null; events_count: number; connected_at: string | null
-  collections: Collection[]; collections_managed: boolean; recent_runs?: SyncRunInfo[]; write?: WriteState; permissions?: PermissionState
+  collections: Collection[]; collections_managed: boolean; recent_runs?: SyncRunInfo[]; write?: WriteState; permissions?: PermissionState; sync?: SyncState
 }
 
 /** Picks which calendars or task lists of one account LifeOS imports. Nothing is imported from unchecked ones. */
