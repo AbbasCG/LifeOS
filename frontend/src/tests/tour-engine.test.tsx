@@ -72,11 +72,12 @@ describe('tour engine', () => {
     shell()
     const opener = screen.getByRole('button', { name: 'Add' }); opener.focus()
     await begin()
-    expect(screen.getByTestId('tour-card')).toHaveFocus()
+    // The card takes focus in an effect, which on a slow machine runs after the card is already on screen: wait for it instead of assuming it.
+    await waitFor(() => expect(screen.getByTestId('tour-card')).toHaveFocus())
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByTestId('tour-card')).toBeNull()
+    await waitFor(() => expect(screen.queryByTestId('tour-card')).toBeNull())
     expect(puts()).toContain('tour/quick-tour skipped')
-    expect(opener).toHaveFocus()
+    await waitFor(() => expect(opener).toHaveFocus())
   })
 
   it('resumes where the person stopped, but starts over once it was finished', async () => {
@@ -84,6 +85,8 @@ describe('tour engine', () => {
     shell()
     expect(await begin()).toHaveTextContent('2 / 3')
     fireEvent.keyDown(document, { key: 'Escape' })
+    // Wait until the first tour is really gone; otherwise "the next card" can be the old one still on screen.
+    await waitFor(() => expect(screen.queryByTestId('tour-card')).toBeNull())
     server(tour({ state: { step_index: 1, completed: true, skipped: false } }))
     expect(await begin()).toHaveTextContent('1 / 3')
   })
