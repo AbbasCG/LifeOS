@@ -1,6 +1,6 @@
 /* Connection permissions (what LifeOS may do with one connected account). Logical properties only, so Arabic mirrors by itself. */
 .perms-summary { display: grid; gap: 6px; padding: var(--space-3, 12px); border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-muted); }
-.perms-summary h4 { margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
+.perms-summary h3 { margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
 .perms-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .perms-list li { padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); }
 .perms-list li.off { color: var(--color-text-muted); font-weight: 500; }

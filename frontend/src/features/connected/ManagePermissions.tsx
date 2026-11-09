@@ -59,7 +59,7 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
   }
 
   return <section className="perms-summary" aria-labelledby={`perms-${accountId}`}>
-    <h4 id={`perms-${accountId}`}><ShieldCheck size={15} aria-hidden="true" />{t('What LifeOS may do', 'ما يسمح به لـ LifeOS', 'Wat LifeOS mag doen')}</h4>
+    <h3 id={`perms-${accountId}`}><ShieldCheck size={15} aria-hidden="true" />{t('What LifeOS may do', 'ما يسمح به لـ LifeOS', 'Wat LifeOS mag doen')}</h3>
     <ul className="perms-list" aria-label={t('Allowed now', 'المسموح الآن', 'Nu toegestaan')}>
       {state.capabilities.map(op => <li key={op} className={show(op) ? '' : 'off'}><span className="sr-only">{show(op) ? t('Allowed: ', 'مسموح: ', 'Toegestaan: ') : t('Not allowed: ', 'غير مسموح: ', 'Niet toegestaan: ')}</span>{names[op]}</li>)}
     </ul>

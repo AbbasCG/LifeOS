@@ -13,6 +13,7 @@ import { BottomSheet } from '../../components/visual'
 import { FeedSubscribe } from '../connected/FeedSubscribe'
 import { WriteAccess } from '../connected/WriteAccess'
 import { ManagePermissions } from '../connected/ManagePermissions'
+import { SyncSettings } from '../connected/SyncSettings'
 import type { WriteData } from '../../lib/calendarWrite'
 
 export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned' | 'disabled'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; capabilities?: string[]; presets?: string[]; accounts: ConnectedAccount[] }
@@ -155,6 +156,7 @@ export default function IntegrationsSettings() {
       <ul className="account-list"><AccountCard account={detail.a} label={detail.p.label} tasks={detail.p.category === 'tasks'} requiredScopes={detail.p.required_scopes ?? []} busy={busy}
         onSync={() => void syncNow(detail.a)} onReconnect={() => detail.p.connect_mode === 'url' ? (setReplacingFeed(true), setInfo({ kind: 'feed' })) : void connect(detail.p)} onDisconnect={() => { setDisconnecting(detail.a); setInfo(null) }} onSaved={refresh}>
         {detail.a.permissions && detail.a.permissions.capabilities.length > 0 && <ManagePermissions accountId={detail.a.id} label={detail.p.label} state={detail.a.permissions} onChanged={refresh} />}
+        {detail.a.sync && <SyncSettings accountId={detail.a.id} label={detail.p.label} state={detail.a.sync} onChanged={refresh} />}
         {detail.a.write && <WriteAccess accountId={detail.a.id} label={detail.p.label} write={detail.a.write} orphans={(writes.data?.links ?? []).filter(l => l.orphan && l.account_id === detail.a.id)} onChanged={refresh} />}
       </AccountCard></ul>
     </BottomSheet>}

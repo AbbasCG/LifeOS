@@ -10,6 +10,7 @@ use App\Integrations\Calendar\ProviderException;
 use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\Calendar\SyncTokenExpiredException;
 use App\Integrations\Permissions\ConnectionPermissions;
+use App\Integrations\Sync\SyncPolicy;
 use App\Integrations\Tasks\TaskProvider;
 use App\Logging\SecretRedactor;
 use App\Models\CalendarAccount;
@@ -107,8 +108,9 @@ class CalendarSyncService
         if ($account->status === 'revoked' || $account->scopes_ok === false) {
             return false;
         }
-        // The person switched background syncing off for this connection (a manual "Sync now" is a different thing and needs only reading).
-        if (! app(ConnectionPermissions::class)->allows($account, ConnectionPermissions::SYNC)) {
+        // The person switched background syncing off for this connection, paused it, or chose a direction that does not read on the schedule
+        // (a manual "Sync now" is a different thing and needs only reading).
+        if (! app(ConnectionPermissions::class)->allows($account, ConnectionPermissions::SYNC) || ! app(SyncPolicy::class)->scheduledInbound($account)) {
             return false;
         }
         if ($account->retry_after && $account->retry_after->isFuture()) {
@@ -134,7 +136,7 @@ class CalendarSyncService
             return 0;
         }
         // A queued scheduled run that was prepared before the person switched background syncing off does nothing; manual and first-connection syncs need only reading.
-        if ($trigger === 'scheduled' && ! app(ConnectionPermissions::class)->allows($account, ConnectionPermissions::SYNC)) {
+        if ($trigger === 'scheduled' && (! app(ConnectionPermissions::class)->allows($account, ConnectionPermissions::SYNC) || ! app(SyncPolicy::class)->scheduledInbound($account))) {
             return 0;
         }
         $provider = $this->providers->get($account->provider);
