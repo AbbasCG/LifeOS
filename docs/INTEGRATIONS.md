@@ -147,3 +147,29 @@ Other controls:
 Security rules kept: administrator + two-factor for every change (`EnsureIntegrationAdmin`), a recent password confirmation for save, remove and the switch, the secret is `encrypted`-cast, hidden from serialisation and never in a response, a log or the browser's storage; the compatibility path (`.env`) is read as before and never copied into the database; `APP_KEY` and the other system secrets are not touched.
 
 New migration `2026_11_09_100001` adds `integration_app_credentials.connections_blocked_at` (nullable; every existing row stays unblocked).
+
+## Connecting an account (Connected Accounts plan, PR 2 of 5)
+
+A person connects Google, Outlook, Google Tasks, Microsoft To Do or Todoist without any key: Settings → Integrations → *Connect*, sign in on the provider's own page, allow the access, and come back to LifeOS with the account shown as connected. The OAuth client (client id and secret) comes from the **Provider configuration** screen, or from the server's `.env` as before (the saved client wins when both exist; they are never mixed).
+
+How the flow is protected:
+- **State and PKCE on the server.** `connect` creates a random 256-bit state and a PKCE verifier through `OAuthStateStore` (table `oauth_states`: the state only as a SHA-256 hash, the verifier encrypted, bound to one person and one provider, valid 10 minutes). Nothing about the flow lives in the browser session any more. The callback accepts a state **once**, for that person and that provider only; a forged, expired, replayed, foreign-person or foreign-provider state ends in `?error=state` and connects nothing. (A wrong-person or wrong-provider attempt does not spend the state, so it cannot be used to cancel somebody else's sign-in.)
+- **The callback only ever redirects to the app** (`app.frontend_url` + `/settings/integrations`), whatever the query holds; no address from the request is followed.
+- **Outcome codes** shown to the person: `connected=<provider>`, `error=state` (expired or already used), `error=denied` (cancelled at the provider; the state is spent), `error=exchange` (the provider refused the code), `error=scope` (the read permission was not granted), `error=not_configured` and `error=provider_disabled` (an administrator changed the provider while the person was signing in), `error=write_scope` / `error=write_account` (the separate permission to add events). None of them carries a provider message, a code or a token.
+- **Tokens** are encrypted at rest (`encrypted` cast), never returned by any endpoint, and removed on *Disconnect*, which also revokes them at the provider where one exists.
+- **Reconnect** updates the same account (matched by the provider's account id), so it never duplicates; it clears a revoked or error state.
+- A person who is **signed out** while on the provider's page gets the app's 401 (the route stays behind sign-in on purpose: `RouteSecurityTest` forbids redirects for guests on protected routes). Signing in again and pressing *Connect* once more fixes it; the unused state expires by itself.
+- An ordinary person never sees a variable name, a redirect address or a key. For a provider that is not set up they are told to ask an administrator; administrators are pointed to *Provider configuration*.
+
+What differs between providers (checked in the code, not assumed):
+
+| | Google Calendar / Google Tasks | Outlook / Microsoft To Do | Todoist |
+|---|---|---|---|
+| PKCE | yes (S256) | yes (S256) | **no** (Todoist offers none; the state still protects the flow, and no challenge or verifier is sent) |
+| Refresh tokens | yes (`access_type=offline`) | yes | **none**: a Todoist token does not expire; if it is refused the person reconnects |
+| Revoke on disconnect | yes (`oauth2.googleapis.com/revoke`) | no endpoint exists for delegated tokens; our copy is deleted | no endpoint; the person can also remove LifeOS under Todoist's own settings |
+| Redirect address | `/api/integrations/google/callback` and `/api/integrations/google_tasks/callback` | `/api/integrations/outlook/callback` and `/api/integrations/microsoft_todo/callback` | `/api/integrations/todoist/callback` |
+
+**Calendar and Tasks are separate providers.** With `.env`, Google Calendar and Google Tasks read the same `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (Outlook and To Do the same `MICROSOFT_*`). On the Provider configuration screen each has its own record, so the administrator enters the client for each (the same Google OAuth app may be used for both: register both redirect addresses in it). Nothing is shared silently.
+
+Migration `2026_11_09_110001` adds a nullable `account_id` to `oauth_states` (the second consent that adds the write permission names the account it is for). It is additive; pending rows are unaffected.

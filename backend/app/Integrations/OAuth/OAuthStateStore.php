@@ -18,7 +18,7 @@ class OAuthStateStore
     /**
      * @return array{state: string, verifier: string, challenge: string}
      */
-    public function begin(User $user, string $provider, ?string $returnTo = null): array
+    public function begin(User $user, string $provider, ?string $returnTo = null, ?int $accountId = null): array
     {
         $state = self::base64Url(random_bytes(32));
         $verifier = self::base64Url(random_bytes(48));
@@ -26,6 +26,7 @@ class OAuthStateStore
             'state_hash' => hash('sha256', $state),
             'user_id' => $user->id,
             'provider' => $provider,
+            'account_id' => $accountId,
             'verifier' => $verifier,
             'return_to' => self::safeReturnTo($returnTo),
             'expires_at' => now()->addSeconds((int) config('integrations.oauth_state_ttl', 600)),
@@ -35,7 +36,7 @@ class OAuthStateStore
     }
 
     /**
-     * @return array{verifier: string, return_to: ?string}|null null when the state is unknown, expired, already used, or belongs to someone else
+     * @return array{verifier: string, return_to: ?string, account_id: ?int}|null null when the state is unknown, expired, already used, or belongs to someone else
      */
     public function consume(string $state, User $user, string $provider): ?array
     {
@@ -53,7 +54,7 @@ class OAuthStateStore
         }
         $row = OauthState::where('state_hash', $hash)->first();
 
-        return $row ? ['verifier' => $row->verifier, 'return_to' => $row->return_to] : null;
+        return $row ? ['verifier' => $row->verifier, 'return_to' => $row->return_to, 'account_id' => $row->account_id] : null;
     }
 
     /** Delete expired and already-used states. */

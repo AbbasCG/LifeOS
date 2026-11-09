@@ -32,7 +32,9 @@ export default function IntegrationsSettings() {
     if (!connected && !problem && !granted) return
     if (granted) toast(t('Permission granted. Pick the calendar LifeOS may add events to — nothing is added until you confirm each one.', 'تم منح الإذن. اختر التقويم الذي يضيف إليه LifeOS المواعيد — لا يُضاف شيء قبل تأكيدك لكل موعد.'))
     if (connected) toast(t(`${connected} connected. Only the primary calendar or list is included — choose more below.`, `تم الربط. يُضمَّن التقويم أو القائمة الرئيسية فقط — اختر المزيد أدناه.`))
-    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.'), write_scope: t('The permission to add events was not granted, so nothing changed.', 'لم يُمنح إذن إضافة المواعيد، فلم يتغير شيء.'), write_account: t('A different account signed in. Allow adding events with the same account that is connected here.', 'سجّل حساب مختلف الدخول. اسمح بإضافة المواعيد بالحساب نفسه المرتبط هنا.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.'), 'error')
+    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.'), write_scope: t('The permission to add events was not granted, so nothing changed.', 'لم يُمنح إذن إضافة المواعيد، فلم يتغير شيء.'), write_account: t('A different account signed in. Allow adding events with the same account that is connected here.', 'سجّل حساب مختلف الدخول. اسمح بإضافة المواعيد بالحساب نفسه المرتبط هنا.'),
+      not_configured: t('This connection is not set up on this server. Ask an administrator.', 'هذا الربط غير مُعدّ على هذا الخادم. اطلب من المسؤول إعداده.', 'Deze koppeling is op deze server niet ingesteld. Vraag het een beheerder.'),
+      provider_disabled: t('New connections to this service are switched off by an administrator.', 'أوقف المسؤول الربط الجديد مع هذه الخدمة.', 'Nieuwe koppelingen met deze dienst zijn door een beheerder uitgezet.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.'), 'error')
     setParams({}, { replace: true })
   }, [params, setParams, toast, t])
   async function act<T>(key: string, fn: () => Promise<T>, success?: string) {
@@ -130,15 +132,19 @@ export default function IntegrationsSettings() {
     </BottomSheet>}
     {aboutProvider && <BottomSheet title={aboutProvider.label} onClose={closeInfo}>
       {aboutProvider.status === 'planned' ? <p className="muted">{aboutProvider.note?.[ar ? 'ar' : 'en']}</p>
+        : aboutProvider.status === 'disabled' ? <p className="banner compact"><Server size={15} aria-hidden="true" />{t('New connections to this service are switched off by an administrator. Accounts that are already connected keep working.', 'أوقف المسؤول الربط الجديد مع هذه الخدمة. الحسابات المرتبطة تبقى تعمل.', 'Nieuwe koppelingen met deze dienst zijn door een beheerder uitgezet. Gekoppelde accounts blijven werken.')}</p>
         : <div className="not-configured">
-          <p className="banner compact"><Server size={15} aria-hidden="true" />{t('Not configured on this server yet.', 'غير مُعدّ على هذا الخادم بعد.')}</p>
-          <h3>{t('Setup for administrators', 'الإعداد للمسؤولين')}</h3>
-          <ol className="setup-list">
+          <p className="banner compact"><Server size={15} aria-hidden="true" />{t('Not set up on this server yet.', 'غير مُعدّ على هذا الخادم بعد.', 'Nog niet ingesteld op deze server.')}</p>
+          {aboutProvider.env_keys && aboutProvider.env_keys.length > 0
+            ? <>
+              <h3>{t('Setup for administrators', 'الإعداد للمسؤولين')}</h3>
+              <ol className="setup-list">
                 <li>{t('Permissions requested:', 'الأذونات المطلوبة:')} <span dir="ltr">{aboutProvider.scopes}</span></li>
-                <li>{t('Add this redirect URI to the OAuth app:', 'أضف عنوان إعادة التوجيه هذا إلى تطبيق OAuth:')} <code dir="ltr">{aboutProvider.redirect_uri}</code></li>
-                <li>{t('Set these variables in the backend .env and restart:', 'عيّن هذه المتغيرات في ملف .env للخادم وأعد التشغيل:')} <code dir="ltr">{aboutProvider.env_keys?.join(', ')}</code></li>
-                <li>{t('Full instructions: docs/IMPLEMENTATION_STATUS.md, section “Connected Life”.', 'التعليمات الكاملة: docs/IMPLEMENTATION_STATUS.md، قسم «Connected Life».')}</li>
+                <li>{t('Create the OAuth app at the provider once and register this redirect address:', 'أنشئ تطبيق OAuth لدى المزود مرة واحدة وسجّل عنوان إعادة التوجيه هذا:', 'Maak de OAuth-app eenmalig aan bij de provider en registreer dit omleidingsadres:')} <code dir="ltr">{aboutProvider.redirect_uri}</code></li>
+                <li>{t('Enter the client ID and secret under “Provider configuration” on this page (no server access needed). The server’s .env variables still work:', 'أدخل معرّف العميل والسر ضمن «إعداد المزودين» في هذه الصفحة (دون الحاجة إلى الخادم). ومتغيرات .env ما زالت تعمل:', 'Voer de client-id en het geheim in onder “Providerconfiguratie” op deze pagina (geen servertoegang nodig). De .env-variabelen van de server werken nog steeds:')} <code dir="ltr">{aboutProvider.env_keys.join(', ')}</code></li>
               </ol>
+            </>
+            : <p className="muted">{t('You do not need to enter any keys. Ask a LifeOS administrator to set this connection up; then you can connect your account here.', 'لا تحتاج إلى إدخال أي مفاتيح. اطلب من مسؤول LifeOS إعداد هذا الربط، ثم تستطيع ربط حسابك من هنا.', 'Je hoeft geen sleutels in te voeren. Vraag een LifeOS-beheerder deze koppeling in te stellen; daarna kun je hier je account koppelen.')}</p>}
         </div>}
     </BottomSheet>}
     {info?.kind === 'feed' && <BottomSheet title={t('Calendar subscription', 'اشتراك في تقويم')} onClose={closeInfo}>
