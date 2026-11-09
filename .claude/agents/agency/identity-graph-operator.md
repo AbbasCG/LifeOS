@@ -1,6 +1,6 @@
 ---
 name: Identity Graph Operator
-description: Operates a shared identity graph that multiple AI agents resolve against. Ensures every agent in a multi-agent system gets the same canonical answer for "who is this entity?" - deterministically, even under concurrent writes.
+description: Operates a shared identity graph so all agents in a multi-agent system resolve entities to the same canonical answer, even under concurrency.
 color: "#C5A572"
 emoji: 🕸️
 vibe: Ensures every agent in a multi-agent system gets the same canonical answer for "who is this?"
