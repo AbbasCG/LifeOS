@@ -4,8 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\CalendarAccount;
 use App\Models\CalendarEvent;
+use App\Models\CalendarWriteLink;
 use App\Models\ExternalEvent;
 use App\Models\ExternalTask;
+use App\Models\OauthState;
+use App\Models\SyncConflict;
+use App\Models\SyncRun;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\UserSetting;
@@ -164,6 +168,54 @@ class ConnectedAccountsTest extends TestCase
         $this->assertSame(0, ExternalTask::count());
         $this->assertSame(1, Task::count(), 'copied LifeOS tasks are kept');
         Http::assertNotSent(fn (HttpRequest $r) => $r->method() !== 'GET' && str_contains($r->url(), 'tasks.googleapis.com'));
+    }
+
+    public function test_disconnecting_an_account_removes_everything_tied_to_it_but_keeps_copied_tasks(): void
+    {
+        // The provider refusing the token revocation must not stop the disconnect (first matching fake wins).
+        Http::fake(['oauth2.googleapis.com/revoke' => Http::response('boom', 500)]);
+        $this->fakeGoogle();
+        $account = $this->connect('google_tasks');
+        $other = CalendarAccount::create(['user_id' => $this->user->id, 'provider' => 'outlook', 'external_account_id' => 'o-1', 'access_token' => 'x', 'status' => 'active']);
+
+        $task = ExternalTask::where('calendar_account_id', $account->id)->where('title', 'Renew passport')->firstOrFail();
+        $copy = Task::findOrFail($this->postJson("/api/connected/tasks/{$task->id}/copy")->assertCreated()->json('id'));
+
+        $start = now()->addDay();
+        $lifeosEvent = CalendarEvent::create(['user_id' => $this->user->id, 'title' => 'Dentist', 'starts_at' => $start, 'ends_at' => $start->copy()->addHour()]);
+        $linked = [
+            $task,
+            ExternalEvent::create(['user_id' => $this->user->id, 'calendar_account_id' => $account->id, 'external_id' => 'e1', 'title' => 'Team sync', 'starts_at' => $start, 'ends_at' => $start->copy()->addHour()]),
+            SyncRun::create(['user_id' => $this->user->id, 'calendar_account_id' => $account->id, 'started_at' => now()]),
+            CalendarWriteLink::create(['user_id' => $this->user->id, 'calendar_account_id' => $account->id, 'calendar_event_id' => $lifeosEvent->id, 'calendar_id' => 'work-cal', 'external_id' => 'w1', 'title' => 'Dentist', 'starts_at' => $start, 'ends_at' => $start->copy()->addHour()]),
+            SyncConflict::create(['user_id' => $this->user->id, 'calendar_account_id' => $account->id, 'local_title' => 'Dentist']),
+            OauthState::create(['user_id' => $this->user->id, 'account_id' => $account->id, 'provider' => 'google_tasks', 'state_hash' => str_repeat('a', 64), 'verifier' => 'v', 'expires_at' => now()->addMinutes(10)]),
+        ];
+        $survivingEvent = ExternalEvent::create(['user_id' => $this->user->id, 'calendar_account_id' => $other->id, 'external_id' => 'o-e1', 'title' => 'Other calendar', 'starts_at' => $start, 'ends_at' => $start->copy()->addHour()]);
+
+        // Another user cannot disconnect it.
+        $this->actingAs(User::factory()->create())->deleteJson("/api/integrations/accounts/{$account->id}")->assertNotFound();
+        $this->assertModelExists($account);
+
+        $this->actingAs($this->user)->deleteJson("/api/integrations/accounts/{$account->id}")
+            ->assertOk()->assertJsonPath('message', 'Disconnected. Imported events and tasks were removed.');
+        Http::assertSent(fn (HttpRequest $r) => str_contains($r->url(), 'oauth2.googleapis.com/revoke'));
+
+        $this->assertModelMissing($account);
+        foreach ($linked as $row) {
+            $this->assertModelMissing($row);
+        }
+        // Only this account's data goes: other connections, LifeOS events, copied tasks and the user stay.
+        $this->assertModelExists($other);
+        $this->assertModelExists($survivingEvent);
+        $this->assertModelExists($lifeosEvent);
+        $this->assertModelExists($this->user);
+        $this->assertSame('google_tasks:L1|t1', $copy->fresh()->source_ref);
+        $this->assertSame('Renew passport', $copy->fresh()->title);
+        // The audit trail records the provider name and nothing else from the account.
+        $log = \DB::table('audit_logs')->where('action', 'integration_disconnected')->first();
+        $this->assertNotNull($log);
+        $this->assertSame(['provider' => 'google_tasks'], json_decode($log->meta, true));
     }
 
     public function test_todoist_uses_its_own_oauth_and_parses_dates_and_priorities(): void
