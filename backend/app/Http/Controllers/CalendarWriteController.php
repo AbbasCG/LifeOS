@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Integrations\Calendar\ProviderException;
+use App\Integrations\OAuth\OAuthStateStore;
 use App\Models\CalendarAccount;
 use App\Models\CalendarWriteLink;
 use App\Services\AuditLogger;
@@ -10,7 +11,6 @@ use App\Services\CalendarSyncService;
 use App\Services\CalendarWriteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -47,12 +47,10 @@ class CalendarWriteController extends Controller
         if ($account->status === 'revoked') {
             throw ValidationException::withMessages(['account' => ['Reconnect this account first.']]);
         }
-        $state = Str::random(40);
-        $verifier = Str::random(96);
-        $request->session()->put("oauth.{$state}", ['provider' => $account->provider, 'verifier' => $verifier, 'user_id' => $request->user()->id, 'expires' => now()->getTimestamp() + IntegrationController::STATE_TTL, 'write_account_id' => $account->id]);
-        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        // The state lives on the server, bound to this person, this provider and this account (see OAuthStateStore); it works once and expires.
+        $flow = app(OAuthStateStore::class)->begin($request->user(), $account->provider, '/settings/integrations', $account->id);
 
-        return response()->json(['authorization_url' => $writer->writeAuthorizationUrl($state, $challenge, $account->email)]);
+        return response()->json(['authorization_url' => $writer->writeAuthorizationUrl($flow['state'], $flow['challenge'], $account->email)]);
     }
 
     /** Calendars this account may add events to (after the write permission was granted). */

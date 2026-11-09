@@ -131,6 +131,35 @@ describe('calendar integrations', () => {
   const todoist = { provider: 'todoist', label: 'Todoist', category: 'tasks', implemented: true, configured: true, status: 'available', scopes: 'data:read', env_keys: [], redirect_uri: '', accounts: [{ id: 4, provider: 'todoist', email: 'me@todoist.test', display_name: null, status: 'active', last_synced_at: null, last_error: null, events_count: 2, connected_at: null, collections_managed: true, collections: [{ id: 'inbox', name: 'Inbox', color: null, primary: true, included: true }, { id: 'p2', name: 'Side project', color: null, primary: false, included: false }] }] }
   const notion = { provider: 'notion', label: 'Notion', category: 'productivity', implemented: false, configured: false, status: 'planned', scopes: '', note: { en: 'Planned: import pages from one database you pick.', ar: '' }, accounts: [] }
   const providers = { providers: [google, outlook, todoist], ai_connected_data: false, categories: [{ key: 'calendars', providers: [google, outlook] }, { key: 'tasks', providers: [todoist] }, { key: 'productivity', providers: [notion] }, { key: 'email', providers: [] }, { key: 'future', providers: [] }] }
+  it('tells an ordinary person to ask an administrator and asks them for no keys', async () => {
+    const plain = { ...google, env_keys: [], redirect_uri: null }
+    mockApi([user, { match: /\/api\/integrations$/, body: { ...providers, providers: [plain, outlook, todoist], categories: [{ key: 'calendars', providers: [plain, outlook] }, { key: 'tasks', providers: [todoist] }] } }])
+    render(wrap(<IntegrationsSettings />))
+    fireEvent.click(await screen.findByRole('button', { name: 'About Google Calendar' }))
+    expect(await screen.findByText(/Ask a LifeOS administrator to set this connection up/)).toBeInTheDocument()
+    expect(screen.queryByText(/GOOGLE_CLIENT_ID/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Setup for administrators')).not.toBeInTheDocument()
+    expect(screen.queryByText(/redirect/i)).not.toBeInTheDocument()
+  })
+
+  it('shows an administrator where to enter the client instead of asking for server access', async () => {
+    mockApi([user, { match: /\/api\/integrations$/, body: providers }])
+    render(wrap(<IntegrationsSettings />))
+    fireEvent.click(await screen.findByRole('button', { name: 'About Google Calendar' }))
+    expect(await screen.findByText('Setup for administrators')).toBeInTheDocument()
+    expect(screen.getByText(/Provider configuration/)).toBeInTheDocument()
+  })
+
+  it('a switched-off provider says so and offers no Connect', async () => {
+    const off = { ...google, configured: true, status: 'disabled', env_keys: [], redirect_uri: null }
+    mockApi([user, { match: /\/api\/integrations$/, body: { ...providers, providers: [off, outlook, todoist], categories: [{ key: 'calendars', providers: [off, outlook] }, { key: 'tasks', providers: [todoist] }] } }])
+    render(wrap(<IntegrationsSettings />))
+    expect(await screen.findByText('Off', { selector: '.pill' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Google Calendar' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'About Google Calendar' }))
+    expect(await screen.findByText(/switched off by an administrator/)).toBeInTheDocument()
+  })
+
   it('explains setup for unconfigured providers and never pretends to be connected', async () => {
     mockApi([user, { match: /\/api\/integrations$/, body: providers }])
     render(wrap(<IntegrationsSettings />))
@@ -138,7 +167,7 @@ describe('calendar integrations', () => {
     expect(await screen.findByText('Setup needed')).toBeInTheDocument()
     expect(screen.queryByText('https://app/api/integrations/google/callback')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'About Google Calendar' }))
-    expect(await screen.findByText('Not configured on this server yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Not set up on this server yet.')).toBeInTheDocument()
     expect(screen.getByText('https://app/api/integrations/google/callback')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('button', { name: 'Connect Google Calendar' })).not.toBeInTheDocument()

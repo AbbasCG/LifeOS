@@ -99,7 +99,7 @@ class CalendarIntegrationTest extends TestCase
         $this->assertStringStartsWith('https://accounts.google.com/o/oauth2/v2/auth?', $url);
         $this->assertSame('S256', $q['code_challenge_method']);
         $this->assertSame(43, strlen($q['code_challenge']));
-        $this->assertSame(40, strlen($q['state']));
+        $this->assertSame(43, strlen($q['state']), 'a 256-bit random state, base64url');
         $this->assertStringContainsString('calendar.readonly', $q['scope']);
         $this->assertStringNotContainsString('auth/calendar ', $q['scope'].' ');
         $this->assertSame('offline', $q['access_type']);
@@ -111,12 +111,14 @@ class CalendarIntegrationTest extends TestCase
         $this->get('/api/integrations/google/callback?code=x&state=forged')->assertRedirect('https://app.lifeos.test/settings/integrations?error=state');
         $url = $this->postJson('/api/integrations/google/connect')->json('authorization_url');
         parse_str(parse_url($url, PHP_URL_QUERY), $q);
+        // Another provider's callback cannot use it (and does not end it); the right one works once, and a replay is refused.
         $this->get('/api/integrations/outlook/callback?code=x&state='.$q['state'])->assertRedirect('https://app.lifeos.test/settings/integrations?error=state');
+        $this->get('/api/integrations/google/callback?code=x&state='.$q['state'])->assertRedirect('https://app.lifeos.test/settings/integrations?connected=google');
         $this->get('/api/integrations/google/callback?code=x&state='.$q['state'])->assertRedirect('https://app.lifeos.test/settings/integrations?error=state');
         $url = $this->postJson('/api/integrations/google/connect')->json('authorization_url');
         parse_str(parse_url($url, PHP_URL_QUERY), $q);
         $this->get('/api/integrations/google/callback?error=access_denied&state='.$q['state'])->assertRedirect('https://app.lifeos.test/settings/integrations?error=denied');
-        $this->assertDatabaseCount('calendar_accounts', 0);
+        $this->assertDatabaseCount('calendar_accounts', 1);   // only the one successful callback created an account
     }
 
     public function test_connecting_stores_encrypted_tokens_imports_busy_events_and_never_exposes_tokens(): void
@@ -124,7 +126,7 @@ class CalendarIntegrationTest extends TestCase
         $this->fakeGoogle();
         $account = $this->connectGoogle();
 
-        Http::assertSent(fn (HttpRequest $r) => $r->url() === 'https://oauth2.googleapis.com/token' && $r['grant_type'] === 'authorization_code' && strlen($r['code_verifier']) === 96);
+        Http::assertSent(fn (HttpRequest $r) => $r->url() === 'https://oauth2.googleapis.com/token' && $r['grant_type'] === 'authorization_code' && strlen($r['code_verifier']) === 64);
         $raw = DB::table('calendar_accounts')->first();
         $this->assertStringNotContainsString('g-access', $raw->access_token);
         $this->assertStringNotContainsString('g-refresh', $raw->refresh_token);

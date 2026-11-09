@@ -3534,3 +3534,11 @@ Why: after P2–P9 the owner opened the site and What's new was empty. Three man
 - **Screen:** `ProviderConfiguration` (new file), mounted on the `integrations` settings route for administrators; a `disabled` pill in the hub. Texts in ar, en and nl.
 - **Tests:** `ProviderConfigurationTest` (15, PHPUnit), `provider-config.test.tsx` (11), `e2e/provider-config.spec.ts` (4 runs: axe, no sideways overflow, the secret is nowhere in the page, storage or URL afterwards).
 - **Not in this PR:** OAuth connection UX (PR 2), per-connection permissions and their enforcement (PR 3), sync direction and conflict policies (PR 4), end-to-end QA (PR 5).
+
+# V76 — Connected Accounts master plan, PR 2: self-service OAuth connection (Integrations area, at the owner's request)
+
+- **Server:** `connect`, `callback` and the write-permission consent now use `OAuthStateStore` (state and PKCE verifier on the server, hashed and encrypted, one person and one provider, ten minutes, usable once) instead of the browser session. The callback redirects only to the app and, after the state, checks that the provider is still configured and still switched on. An ordinary person no longer receives variable names or redirect addresses from `GET /api/integrations`. Migration `2026_11_09_110001` (nullable `oauth_states.account_id`).
+- **Screen:** new outcome messages (`not_configured`, `provider_disabled`), an honest "not set up" sheet (ordinary people are told to ask an administrator and are asked for nothing; administrators are pointed to Provider configuration), the `Off` state of a switched-off provider.
+- **Changed expectations in existing tests:** the state is 43 characters and the verifier 64 (was 40 and 96; both are random and RFC 7636 allows 43 to 128); a callback from another provider no longer spends the state (it is the store's tested behaviour).
+- **Tests:** `OAuthConnectionTest` (21), +3 in `v4.test.tsx`, `e2e/oauth-connection.spec.ts` (8 runs). Providers are faked everywhere; no test reaches Google, Microsoft or Todoist.
+- **Not in this PR:** permissions per connection (PR 3), sync direction and conflict policy (PR 4), end-to-end QA, documentation of provider setup in full (PR 5).

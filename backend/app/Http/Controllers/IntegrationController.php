@@ -11,6 +11,7 @@ use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\Calendar\TokenSet;
 use App\Integrations\Calendar\WritableCalendar;
 use App\Integrations\ConnectedCatalog;
+use App\Integrations\OAuth\OAuthStateStore;
 use App\Integrations\Vault\CredentialVault;
 use App\Models\CalendarAccount;
 use App\Models\ExternalTask;
@@ -22,7 +23,6 @@ use App\Services\CalendarWriteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class IntegrationController extends Controller
@@ -43,6 +43,7 @@ class IntegrationController extends Controller
         $all = CalendarAccount::where('user_id', $request->user()->id)->orderBy('created_at')->get();
         $runs = SyncRun::whereIn('calendar_account_id', $all->pluck('id'))->orderByDesc('started_at')->limit(200)->get()->groupBy('calendar_account_id');
         $accounts = $all->map(fn (CalendarAccount $a) => $a->setAttribute('recent_runs', $runs->get($a->id, collect())->take(5)->map(fn (SyncRun $r) => $r->present())->values()))->groupBy('provider');
+        $admin = $request->user()->can('manage-integrations');
         $present = fn (ConnectedProvider $provider) => [
             'provider' => $provider->name(),
             'label' => $provider->label(),
@@ -51,8 +52,9 @@ class IntegrationController extends Controller
             'configured' => $provider->isConfigured(),
             'status' => ! $provider->isConfigured() ? 'needs_configuration' : (app(CredentialVault::class)->connectionsAllowed($provider->name()) ? 'available' : 'disabled'),
             'scopes' => $provider->scopeSummary(),
-            'env_keys' => $provider->envKeys(),
-            'redirect_uri' => $provider->redirectUri(),
+            // Setup details (variable names, redirect address) are for administrators; an ordinary person is only told to ask one.
+            'env_keys' => $admin ? $provider->envKeys() : [],
+            'redirect_uri' => $admin ? $provider->redirectUri() : null,
             'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary() + ['recent_runs' => $a->getAttribute('recent_runs'), 'write' => $this->writes->state($a)])->values(),
             'supports_write' => $this->writes->featureEnabled() && $provider instanceof WritableCalendar,
             'required_scopes' => $provider->requiredScopes(),
@@ -76,12 +78,11 @@ class IntegrationController extends Controller
         if (! app(CredentialVault::class)->connectionsAllowed($provider)) {
             throw ValidationException::withMessages(['provider' => ["New {$driver->label()} connections are switched off by an administrator. Accounts that are already connected keep working."]]);
         }
-        $state = Str::random(40);
-        $verifier = Str::random(96);
-        $request->session()->put("oauth.{$state}", ['provider' => $provider, 'verifier' => $verifier, 'user_id' => $request->user()->id, 'expires' => now()->getTimestamp() + self::STATE_TTL]);
-        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        // A random state and PKCE verifier kept on the server, bound to this person and this provider, valid for ten minutes and usable once.
+        // A provider without PKCE (Todoist) simply ignores the challenge.
+        $flow = app(OAuthStateStore::class)->begin($request->user(), $provider, '/settings/integrations');
 
-        return response()->json(['authorization_url' => $driver->authorizationUrl($state, $challenge)]);
+        return response()->json(['authorization_url' => $driver->authorizationUrl($flow['state'], $flow['challenge'])]);
     }
 
     /**
@@ -91,14 +92,21 @@ class IntegrationController extends Controller
     {
         $driver = $this->providers->get($provider);
         abort_unless($driver !== null, 404);
-        $state = (string) $request->query('state', '');
-        $pending = $state !== '' ? $request->session()->pull("oauth.{$state}") : null;
         $back = fn (string $param) => redirect()->away(rtrim((string) config('app.frontend_url'), '/').'/settings/integrations?'.$param);
-        if (! $pending || $pending['provider'] !== $provider || $pending['user_id'] !== $request->user()->id || $pending['expires'] < now()->getTimestamp()) {
+        // The route is behind sign-in (a guest is sent back by bootstrap/app.php with error=session); the state must belong to exactly this person.
+        $pending = app(OAuthStateStore::class)->consume((string) $request->query('state', ''), $request->user(), $provider);
+        if (! $pending) {
             return $back('error=state');
         }
         if ($request->filled('error') || ! $request->filled('code')) {
             return $back('error=denied');
+        }
+        // An administrator may have switched the provider off, or removed its credentials, while the person was signing in.
+        if (! $driver->isConfigured()) {
+            return $back('error=not_configured&provider='.$provider);
+        }
+        if (! app(CredentialVault::class)->connectionsAllowed($provider)) {
+            return $back('error=provider_disabled&provider='.$provider);
         }
         try {
             $tokens = $driver->exchangeCode((string) $request->query('code'), $pending['verifier']);
@@ -108,8 +116,8 @@ class IntegrationController extends Controller
 
             return $back('error=exchange');
         }
-        if (isset($pending['write_account_id'])) {
-            return $back($this->grantWrite($request, $driver, $pending['write_account_id'], $tokens, $profile));
+        if ($pending['account_id'] !== null) {
+            return $back($this->grantWrite($request, $driver, $pending['account_id'], $tokens, $profile));
         }
         $account = CalendarAccount::firstOrNew(['user_id' => $request->user()->id, 'provider' => $provider, 'external_account_id' => $profile['id']]);
         if (! $account->exists) {
