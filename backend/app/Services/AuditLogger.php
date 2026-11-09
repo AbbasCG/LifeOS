@@ -18,7 +18,7 @@ class AuditLogger
         'integration_connected', 'integration_disconnected', 'integration_revoked', 'integration_collections_changed', 'connected_task_copied',
         'push_subscribed', 'push_unsubscribed', 'ai_action_executed', 'automation_changed', 'checkins_deleted',
         'ai_settings_changed', 'ai_action_undone',
-        'admin_granted', 'admin_revoked', 'integration_credentials_set', 'integration_credentials_removed', 'integration_provider_enabled', 'integration_provider_disabled', 'integration_config_tested', 'webhook_endpoint_created', 'webhook_secret_rotated',
+        'admin_granted', 'admin_revoked', 'integration_credentials_set', 'integration_credentials_removed', 'integration_provider_enabled', 'integration_permissions_changed', 'integration_permission_denied', 'integration_provider_disabled', 'integration_config_tested', 'webhook_endpoint_created', 'webhook_secret_rotated',
         'release_approved', 'release_withdrawn', 'release_rollout_changed', 'discovery_tester_added', 'discovery_tester_removed',
     ];
 

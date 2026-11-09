@@ -7,6 +7,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 import type { WriteState } from '../../lib/calendarWrite'
+import type { PermissionState } from '../../lib/connectionPermissions'
 import { accountState, useAccountStateLabel } from '../../lib/accountState'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
@@ -15,7 +16,7 @@ export type ConnectedAccount = {
   id: number; provider: string; email: string | null; display_name: string | null; status: 'active' | 'error' | 'revoked'
   last_synced_at: string | null; last_attempt_at?: string | null; retry_after?: string | null; consecutive_failures?: number; scopes_ok?: boolean | null
   granted_scopes?: string[]; sync_mode?: 'full' | 'incremental'; last_error: string | null; events_count: number; connected_at: string | null
-  collections: Collection[]; collections_managed: boolean; recent_runs?: SyncRunInfo[]; write?: WriteState
+  collections: Collection[]; collections_managed: boolean; recent_runs?: SyncRunInfo[]; write?: WriteState; permissions?: PermissionState
 }
 
 /** Picks which calendars or task lists of one account LifeOS imports. Nothing is imported from unchecked ones. */
@@ -64,6 +65,8 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
   const granted = (scope: string) => (account.granted_scopes ?? []).some(g => g.toLowerCase().includes(scope.toLowerCase()))
   const runLabel = (r: SyncRunInfo) => ({ success: t('Synced', 'تمت'), partial: t('Partly synced', 'مزامنة جزئية'), failed: t('Failed', 'فشلت'), rate_limited: t('Rate-limited', 'محدودة المعدل'), revoked: t('Access revoked', 'أُلغي الوصول'), running: t('Running', 'جارية') }[r.status])
   const runs = account.recent_runs ?? []
+  // What LifeOS may really send to the service now: the person's choice, when the service has given the access it needs (not merely the old "adding events" switch).
+  const sends = account.permissions ? account.permissions.effective.some(o => o === 'create' || o === 'update' || o === 'delete') : !!account.write?.enabled
   const feed = account.provider === 'ics', skipped = runs[0]?.details?.skipped ?? 0
   return <li className={`account-card state-${state}`}>
     <div className="account-head">
@@ -85,8 +88,9 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
       <span className="perm-title"><ShieldCheck size={14} />{t('Data access', 'الوصول إلى البيانات')}</span>
       {requiredScopes.map(scope => <span key={scope} className={`perm ${account.granted_scopes?.length ? (granted(scope) ? 'ok' : 'missing') : ''}`}>{account.granted_scopes?.length ? (granted(scope) ? <CheckCircle2 size={12} /> : <XCircle size={12} />) : <Lock size={12} />}<code dir="ltr">{scope}</code></span>)}
       {feed && <span className="perm ok"><CheckCircle2 size={12} />{t('Public or secret feed — no account access', 'رابط عام أو سري — دون وصول إلى الحساب')}</span>}
-      {account.write?.enabled ? <span className="perm"><Lock size={12} />{t('Reads everything; adds only events you confirm', 'يقرأ كل شيء؛ ويضيف فقط ما تؤكده')}</span>
-        : <span className="perm muted"><Lock size={12} />{t('Read-only — LifeOS never writes', 'للقراءة فقط — لا يكتب LifeOS أبداً')}</span>}
+      {sends
+        ? <span className="perm"><Lock size={12} />{t('Reads everything; changes only events it added, after you confirm', 'يقرأ كل شيء؛ ولا يغيّر إلا المواعيد التي أضافها بعد تأكيدك', 'Leest alles; wijzigt alleen afspraken die het toevoegde, na jouw bevestiging')}</span>
+        : <span className="perm muted"><Lock size={12} />{t('Read-only — LifeOS never writes', 'للقراءة فقط — لا يكتب LifeOS أبداً', 'Alleen lezen — LifeOS schrijft nooit')}</span>}
     </div>
     {skipped > 0 && <p className="muted small account-note">{t(`${skipped} repeating event(s) use a pattern LifeOS can’t expand yet, so they were left out rather than guessed.`, `${skipped} موعد متكرر يستخدم نمطاً لا يستطيع LifeOS توسيعه بعد، لذا تُرك بدلاً من التخمين.`)}</p>}
     {account.status !== 'revoked' && !feed && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={tasks} onSaved={onSaved} />}

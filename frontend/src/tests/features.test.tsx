@@ -53,7 +53,8 @@ describe('notification center', () => {
     expect(screen.getByText('2')).toBeInTheDocument()
     fireEvent.click(bell)
     expect(await screen.findByText('Reminder: Call')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Mark all read/ }))
+    // The list appears a moment before the browser has opened the dialog; wait for the button itself, not just for the text.
+    fireEvent.click(await screen.findByRole('button', { name: /Mark all read/ }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Notifications' })).toBeInTheDocument())
     expect(fetcher).toHaveBeenCalledWith('/api/notifications/read-all', expect.objectContaining({ method: 'POST' }))
   })
