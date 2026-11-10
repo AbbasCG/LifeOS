@@ -23,15 +23,15 @@ export function ConfirmPasswordProvider({ children }: { children: ReactNode }) {
     e.preventDefault(); setBusy(true); setError('')
     try { await api('/api/security/confirm-password', 'POST', { password }); setOpen(false); pending.current?.resolve() } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
-  function cancel() { setOpen(false); pending.current?.reject(new Error(t('Password confirmation was cancelled.', 'أُلغي تأكيد كلمة المرور.'))) }
+  function cancel() { setOpen(false); pending.current?.reject(new Error(t('Password confirmation was cancelled.', 'أُلغي تأكيد كلمة المرور.', 'Bevestiging van het wachtwoord is geannuleerd.'))) }
   return <SensitiveContext.Provider value={run}>
     {children}
-    {open && <Dialog title={t('Confirm it’s you', 'أكّد هويتك')} onClose={cancel}>
+    {open && <Dialog title={t('Confirm it’s you', 'أكّد هويتك', 'Bevestig dat jij het bent')} onClose={cancel}>
       <form onSubmit={submit} className="confirm-password">
-        <p className="muted"><ShieldCheck size={16} /> {t('For your security, enter your password to continue. You won’t be asked again for 15 minutes.', 'لأمانك، أدخل كلمة المرور للمتابعة. لن يُطلب منك ذلك مجدداً لمدة ١٥ دقيقة.')}</p>
+        <p className="muted"><ShieldCheck size={16} /> {t('For your security, enter your password to continue. You won’t be asked again for 15 minutes.', 'لأمانك، أدخل كلمة المرور للمتابعة. لن يُطلب منك ذلك مجدداً لمدة ١٥ دقيقة.', 'Voer voor jouw veiligheid je wachtwoord in om door te gaan. Je wordt de komende 15 minuten niet opnieuw gevraagd.')}</p>
         <ErrorMessage error={error} />
-        <label>{t('Password', 'كلمة المرور')}<input type="password" data-autofocus required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
-        <div className="toolbar"><button type="button" className="quiet" onClick={cancel}>{t('Cancel', 'إلغاء')}</button><button className="primary" disabled={busy || !password}>{busy ? t('Checking…', 'جارٍ التحقق…') : t('Confirm', 'تأكيد')}</button></div>
+        <label>{t('Password', 'كلمة المرور', 'Wachtwoord')}<input type="password" data-autofocus required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+        <div className="toolbar"><button type="button" className="quiet" onClick={cancel}>{t('Cancel', 'إلغاء', 'Annuleren')}</button><button className="primary" disabled={busy || !password}>{busy ? t('Checking…', 'جارٍ التحقق…', 'Controleren…') : t('Confirm', 'تأكيد', 'Bevestigen')}</button></div>
       </form>
     </Dialog>}
   </SensitiveContext.Provider>

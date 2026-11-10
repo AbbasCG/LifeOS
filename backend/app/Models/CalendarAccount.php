@@ -47,9 +47,10 @@ class CalendarAccount extends Model
     /**
      * Safe representation for the API.
      *
+     * @param  array{copies: int, pending: int, open_conflicts: int, last_outbound: ?SyncRun}|null  $syncFacts  prefetched by SyncPolicy::facts() so a list of accounts costs no per-account queries
      * @return array<string, mixed>
      */
-    public function summary(): array
+    public function summary(?array $syncFacts = null): array
     {
         return [
             'id' => $this->id,
@@ -73,7 +74,7 @@ class CalendarAccount extends Model
             // What LifeOS itself may do with this connection (see ConnectionPermissions): the choice, what is possible now, and what the service can do at all.
             'permissions' => app(ConnectionPermissions::class)->summary($this),
             // How it is synchronised (direction, conflict policy, pause) and what can be shown about it from the database (see SyncPolicy::summary).
-            'sync' => app(SyncPolicy::class)->summary($this),
+            'sync' => app(SyncPolicy::class)->summary($this, $syncFacts),
         ];
     }
 }

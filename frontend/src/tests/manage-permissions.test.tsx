@@ -97,6 +97,22 @@ describe('manage permissions', () => {
     expect(puts()[0].body).toEqual({ preset: 'full', confirm_delete: true })
   })
 
+  it('revealing the Delete confirmation moves focus to its tick and explains why Save is off', async () => {
+    server()
+    shell(calendar())
+    open()
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Full access including Delete/, hidden: true }))
+    const tick = within(dialog).getByRole('checkbox', { name: /I understand and want to turn Delete on/, hidden: true })
+    expect(tick).toHaveFocus()
+    const save = within(dialog).getByRole('button', { name: 'Save', hidden: true })
+    const hint = document.getElementById(save.getAttribute('aria-describedby') ?? 'none')
+    expect(hint).toHaveTextContent('Save is off until you tick the box above.')
+    fireEvent.click(tick)
+    expect(save).not.toHaveAttribute('aria-describedby')
+    expect(within(dialog).queryByText(/Save is off until/)).toBeNull()
+  })
+
   it('keeping Delete on asks nothing more', async () => {
     server()
     shell(calendar({ granted: ['read', 'sync', 'export', 'create', 'update', 'delete'], effective: ['read', 'sync', 'export', 'create', 'update', 'delete'], preset: 'full' }))

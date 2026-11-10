@@ -3,6 +3,8 @@
 namespace Tests\Feature\Integrations;
 
 use App\Integrations\Calendar\HostResolver;
+use App\Integrations\Calendar\IcsFeedFetcher;
+use App\Integrations\Calendar\ProviderException;
 use App\Integrations\Http\GuardedTarget;
 use App\Integrations\Http\OutboundBlockedException;
 use App\Integrations\Http\OutboundHttpGuard;
@@ -134,5 +136,35 @@ class OutboundHttpGuardTest extends TestCase
         }
         $this->assertFalse(PublicAddress::isNeverAllowed('10.0.0.1'), 'RFC1918 can be approved by a rule');
         $this->assertTrue(PublicAddress::isNeverAllowed('not-an-ip'));
+    }
+
+    public function test_ipv6_forms_that_embed_a_private_ipv4_address_are_refused(): void
+    {
+        $refused = ['64:ff9b::a9fe:a9fe', '64:ff9b::7f00:1', '2002:a9fe:a9fe::', '2002:7f00:1::', '::127.0.0.1', 'fec0::1',
+            '64:ff9b::a00:1', '2002:c0a8:1::', '100::1', '2001:db8::1', '::ffff:169.254.169.254',
+            // Teredo: server 8.8.8.8 with client 127.0.0.1 (stored inverted), then the reverse
+            '2001:0:808:808::80ff:fffe', '2001:0:7f00:1::f7f7:f7f7',
+            '64:ff9b:1::1', '::ffff:0:7f00:1', '2001:2::1', '2001:10::1', '3fff::1'];
+        foreach ($refused as $ip) {
+            $this->assertFalse(PublicAddress::isPublic($ip), $ip);
+        }
+        foreach (['64:ff9b::a9fe:a9fe', '64:ff9b::7f00:1', '2002:a9fe:a9fe::', '2002:7f00:1::', '::127.0.0.1', '::ffff:0:7f00:1', '2001:0:808:808::80ff:fffe'] as $ip) {
+            $this->assertTrue(PublicAddress::isNeverAllowed($ip), $ip);
+        }
+        foreach (['8.8.8.8', '2606:4700:4700::1111', '64:ff9b::808:808', '2002:808:808::', '2001:0:808:808::f7f7:f7f7'] as $ip) {
+            $this->assertTrue(PublicAddress::isPublic($ip), $ip);
+            $this->assertFalse(PublicAddress::isNeverAllowed($ip), $ip);
+        }
+    }
+
+    public function test_the_guard_and_feed_fetcher_refuse_embedded_ipv4_addresses(): void
+    {
+        foreach (['64:ff9b::a9fe:a9fe', '2002:7f00:1::', '::127.0.0.1'] as $ip) {
+            $this->dns['erp.example.com'] = [$ip];
+            $this->blocked('https://erp.example.com/', 'never');
+        }
+        $this->dns['feed.example.com'] = ['64:ff9b::a9fe:a9fe'];
+        $this->expectException(ProviderException::class);
+        app(IcsFeedFetcher::class)->fetch('https://feed.example.com/cal.ics');
     }
 }

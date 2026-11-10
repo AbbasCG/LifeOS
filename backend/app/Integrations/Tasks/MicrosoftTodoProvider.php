@@ -3,6 +3,7 @@
 namespace App\Integrations\Tasks;
 
 use App\Integrations\Calendar\ChangeSet;
+use App\Integrations\Calendar\MicrosoftCalendarProvider;
 use App\Integrations\Calendar\OAuthProvider;
 use App\Integrations\Calendar\SyncTokenExpiredException;
 use Carbon\CarbonImmutable;
@@ -84,7 +85,7 @@ class MicrosoftTodoProvider extends OAuthProvider implements TaskProvider
         // Graph delta for To Do tasks: the first read returns every task, later reads (deltaLink) only changes and
         // "@removed" deletions.
         $url = $syncToken ?? 'https://graph.microsoft.com/v1.0/me/todo/lists/'.rawurlencode($listId).'/tasks/delta';
-        if (! str_starts_with($url, 'https://graph.microsoft.com/')) {
+        if (! MicrosoftCalendarProvider::isGraphUrl($url)) {
             throw new SyncTokenExpiredException('Unexpected delta link.');
         }
         $upserts = [];
@@ -107,8 +108,8 @@ class MicrosoftTodoProvider extends OAuthProvider implements TaskProvider
                 $upserts[] = ['id' => $id, 'list_id' => $listId, 'title' => mb_substr($title, 0, 500), 'due_at' => $due?->utc(), 'due_is_date' => true, 'priority' => ($item['importance'] ?? '') === 'high' ? 'high' : null, 'url' => null,
                     'status' => $done ? 'completed' : 'open', 'completed_at' => $done && $completed ? CarbonImmutable::parse($completed, $item['completedDateTime']['timeZone'] ?? 'UTC')->utc() : null];
             }
-            $url = $page['@odata.nextLink'] ?? null;
-            $next = $page['@odata.deltaLink'] ?? $next;
+            $url = MicrosoftCalendarProvider::graphLink($page['@odata.nextLink'] ?? null);
+            $next = MicrosoftCalendarProvider::graphLink($page['@odata.deltaLink'] ?? null) ?? $next;
         }
 
         return new ChangeSet($upserts, $removed, $next, $syncToken === null);

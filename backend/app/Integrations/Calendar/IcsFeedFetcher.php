@@ -122,7 +122,7 @@ class IcsFeedFetcher
             throw new ProviderException('The calendar address could not be found. Check the link.');
         }
         foreach ($ips as $ip) {
-            if (! $this->isPublic($ip)) {
+            if (PublicAddress::isNeverAllowed($ip) || ! $this->isPublic($ip)) {
                 throw new ProviderException('This calendar address points to a private network and cannot be used.');
             }
         }

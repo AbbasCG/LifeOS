@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ShieldCheck, TriangleAlert } from 'lucide-react'
 import { Dialog, ErrorMessage } from '../../components/ui/Shared'
 import { api } from '../../lib/api'
@@ -20,6 +20,7 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
   const initial = (): { mode: PermissionPreset | 'custom'; ops: PermissionOp[] } => state.preset ? { mode: state.preset, ops: state.granted } : { mode: 'custom', ops: state.granted }
   const [mode, setMode] = useState<PermissionPreset | 'custom'>(initial().mode), [ops, setOps] = useState<PermissionOp[]>(initial().ops), [confirmDelete, setConfirmDelete] = useState(false)
 
+  const deleteBox = useRef<HTMLInputElement>(null)
   const names: Record<PermissionOp, string> = {
     read: t('Read', 'قراءة', 'Lezen'), sync: t('Sync in the background', 'مزامنة في الخلفية', 'Op de achtergrond synchroniseren'), import: t('Import into LifeOS', 'استيراد إلى LifeOS', 'Importeren in LifeOS'),
     export: t('Send changes to the service', 'إرسال التغييرات إلى الخدمة', 'Wijzigingen naar de dienst sturen'), create: t('Create', 'إنشاء', 'Aanmaken'), update: t('Update', 'تعديل', 'Bijwerken'), delete: t('Delete', 'حذف', 'Verwijderen'),
@@ -34,6 +35,8 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
   const wasDelete = state.granted.includes('delete'), wantsDelete = chosen.includes('delete')
   const needsConfirm = wantsDelete && !wasDelete
   const customOps = state.capabilities
+  // When the Delete confirmation appears, focus moves to its checkbox so the extra step is noticed.
+  useEffect(() => { if (open && needsConfirm) deleteBox.current?.focus() }, [open, needsConfirm])
   const writeOps: PermissionOp[] = ['create', 'update', 'delete']
   const toggle = (op: PermissionOp) => setOps(old => {
     const next = old.includes(op) ? old.filter(o => o !== op) : [...old, op]
@@ -82,11 +85,12 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
         {needsConfirm && <div className="perms-warn" role="group" aria-labelledby={`del-${accountId}`}>
           <strong id={`del-${accountId}`}><TriangleAlert size={15} aria-hidden="true" /> {t('Delete cannot be undone', 'الحذف لا يمكن التراجع عنه', 'Verwijderen kan niet ongedaan worden')}</strong>
           <span>{t('With Delete on, LifeOS can remove the events it added to this calendar, after you confirm each one. It never removes events it did not add.', 'عند تفعيل الحذف يستطيع LifeOS حذف المواعيد التي أضافها إلى هذا التقويم بعد أن تؤكد كل واحد. ولا يحذف أبدًا ما لم يضفه.', 'Met verwijderen aan kan LifeOS afspraken verwijderen die het aan deze agenda toevoegde, na jouw bevestiging van elke. Het verwijdert nooit afspraken die het niet toevoegde.')}</span>
-          <label><input type="checkbox" checked={confirmDelete} onChange={e => setConfirmDelete(e.target.checked)} />{t('I understand and want to turn Delete on.', 'أفهم وأريد تفعيل الحذف.', 'Ik begrijp het en wil verwijderen aanzetten.')}</label>
+          <label><input ref={deleteBox} type="checkbox" checked={confirmDelete} onChange={e => setConfirmDelete(e.target.checked)} />{t('I understand and want to turn Delete on.', 'أفهم وأريد تفعيل الحذف.', 'Ik begrijp het en wil verwijderen aanzetten.')}</label>
         </div>}
         <ErrorMessage error={problem} />
+        {needsConfirm && !confirmDelete && <p id={`save-hint-${accountId}`} className="muted small perms-note">{t('Save is off until you tick the box above.', 'الحفظ متوقف حتى تحدد المربع أعلاه.', 'Opslaan staat uit tot je het vakje hierboven aanvinkt.')}</p>}
         <div className="rel-actions">
-          <button type="submit" className="primary" disabled={busy || (needsConfirm && !confirmDelete)}>{t('Save', 'حفظ', 'Opslaan')}</button>
+          <button type="submit" className="primary" disabled={busy || (needsConfirm && !confirmDelete)} aria-describedby={needsConfirm && !confirmDelete ? `save-hint-${accountId}` : undefined}>{t('Save', 'حفظ', 'Opslaan')}</button>
           <button type="button" className="quiet" disabled={busy} onClick={() => setOpen(false)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
         </div>
         <p className="muted small perms-note">{t('You may be asked for your password.', 'قد يُطلب منك إدخال كلمة المرور.', 'Je wordt mogelijk om je wachtwoord gevraagd.')}</p>

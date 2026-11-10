@@ -47,11 +47,11 @@ class CalendarWriteService
     }
 
     /**
-     * What the hub shows about writing for one account. Never includes tokens.
+     * What the hub shows about writing for one account. Never includes tokens. The hub passes the copy count it already fetched for all accounts.
      *
      * @return array{available: bool, granted: bool, enabled: bool, calendar_id: ?string, calendar_name: ?string, copies: int}
      */
-    public function state(CalendarAccount $account): array
+    public function state(CalendarAccount $account, ?int $copies = null): array
     {
         $available = $this->writer($account) !== null && $account->status !== 'revoked';
 
@@ -61,7 +61,7 @@ class CalendarWriteService
             'enabled' => $available && $account->write_granted_at !== null && $account->write_calendar_id !== null,
             'calendar_id' => $account->write_calendar_id,
             'calendar_name' => $account->write_calendar_name,
-            'copies' => CalendarWriteLink::where('calendar_account_id', $account->id)->count(),
+            'copies' => $copies ?? CalendarWriteLink::where('calendar_account_id', $account->id)->count(),
         ];
     }
 

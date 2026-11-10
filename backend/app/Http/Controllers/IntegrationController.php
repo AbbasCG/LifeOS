@@ -13,6 +13,7 @@ use App\Integrations\Calendar\WritableCalendar;
 use App\Integrations\ConnectedCatalog;
 use App\Integrations\OAuth\OAuthStateStore;
 use App\Integrations\Permissions\ConnectionPermissions;
+use App\Integrations\Sync\SyncPolicy;
 use App\Integrations\Vault\CredentialVault;
 use App\Models\CalendarAccount;
 use App\Models\ExternalTask;
@@ -42,7 +43,11 @@ class IntegrationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $all = CalendarAccount::where('user_id', $request->user()->id)->orderBy('created_at')->get();
-        $runs = SyncRun::whereIn('calendar_account_id', $all->pluck('id'))->orderByDesc('started_at')->limit(200)->get()->groupBy('calendar_account_id');
+        // The newest five runs of EACH account (a window function, so a chatty account cannot crowd out the others), and the database facts of all accounts in a few queries.
+        $newest = SyncRun::query()->whereIn('calendar_account_id', $all->pluck('id'))
+            ->selectRaw('sync_runs.*, row_number() over (partition by calendar_account_id order by started_at desc, id desc) as run_rank');
+        $runs = SyncRun::query()->fromSub($newest, 'sync_runs')->where('run_rank', '<=', 5)->orderBy('calendar_account_id')->orderByDesc('started_at')->orderByDesc('id')->get()->groupBy('calendar_account_id');
+        $facts = app(SyncPolicy::class)->facts($all->pluck('id'));
         $accounts = $all->map(fn (CalendarAccount $a) => $a->setAttribute('recent_runs', $runs->get($a->id, collect())->take(5)->map(fn (SyncRun $r) => $r->present())->values()))->groupBy('provider');
         $admin = $request->user()->can('manage-integrations');
         $present = fn (ConnectedProvider $provider) => [
@@ -56,7 +61,7 @@ class IntegrationController extends Controller
             // Setup details (variable names, redirect address) are for administrators; an ordinary person is only told to ask one.
             'env_keys' => $admin ? $provider->envKeys() : [],
             'redirect_uri' => $admin ? $provider->redirectUri() : null,
-            'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary() + ['recent_runs' => $a->getAttribute('recent_runs'), 'write' => $this->writes->state($a)])->values(),
+            'accounts' => $accounts->get($provider->name(), collect())->map(fn (CalendarAccount $a) => $a->summary($facts[$a->id]) + ['recent_runs' => $a->getAttribute('recent_runs'), 'write' => $this->writes->state($a, $facts[$a->id]['copies'])])->values(),
             'supports_write' => $this->writes->featureEnabled() && $provider instanceof WritableCalendar,
             'required_scopes' => $provider->requiredScopes(),
             'connect_mode' => $provider instanceof IcsProvider ? 'url' : 'oauth',
@@ -140,7 +145,10 @@ class IntegrationController extends Controller
             'scopes' => $tokens->scopes,
             'status' => 'active',
             'last_error' => null,
-        ])->save();
+        ] + ($driver instanceof WritableCalendar && trim((string) $tokens->scopes) !== '' && ! $driver->writeScopeGranted($tokens->scopes)
+            // The provider reported scopes and they do not carry the write permission (a read-only reconnect; a response without a scope field says nothing, so the grant stays), so the old grant must not keep showing as active.
+            ? ['write_granted_at' => null, 'write_calendar_id' => null, 'write_calendar_name' => null]
+            : []))->save();
         $this->audit->log($request->user(), 'integration_connected', $request, ['provider' => $provider]);
         // Some consent screens let people untick permissions. Without the read scope nothing can be imported, so say so
         // instead of showing an empty "connected" account.

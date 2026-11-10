@@ -23,7 +23,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         return <div key={toast.id} className={`toast ${toast.type}`} role={toast.type === 'error' ? 'alert' : undefined}>
           <Icon size={18} aria-hidden="true" /><p>{toast.message}</p>
           {toast.action && <button className="toast-action" onClick={() => { toast.action!.onClick(); dismiss(toast.id) }}>{toast.action.label}</button>}
-          <button className="icon-button" aria-label={t('Dismiss', 'إغلاق')} onClick={() => dismiss(toast.id)}><X size={15} /></button>
+          <button className="icon-button" aria-label={t('Dismiss', 'إغلاق', 'Sluiten')} onClick={() => dismiss(toast.id)}><X size={15} /></button>
         </div>
       })}
     </div>

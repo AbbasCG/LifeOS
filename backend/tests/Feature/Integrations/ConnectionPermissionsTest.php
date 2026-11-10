@@ -18,6 +18,7 @@ use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -244,6 +245,31 @@ class ConnectionPermissionsTest extends TestCase
         $this->postJson('/api/calendar-write/confirm', ['token' => $preview['token']])->assertForbidden()->assertJsonPath('code', 'permission_denied');
         $this->assertSame([], $this->sent());
         $this->assertSame(0, CalendarWriteLink::count());
+        $denied = AuditLog::where('action', 'integration_permission_denied')->sole();   // the allowed preview wrote none; the refused confirm wrote exactly one
+        $this->assertSame(['provider' => 'google', 'account_id' => $this->google->id, 'operation' => 'create', 'reason' => 'not_allowed'], $denied->meta);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function denialReasons(): array
+    {
+        return ['not_allowed' => ['not_allowed'], 'reconsent_required' => ['reconsent_required'], 'revoked' => ['revoked']];
+    }
+
+    #[DataProvider('denialReasons')]
+    public function test_each_kind_of_refusal_is_audited_once_with_its_own_reason(string $reason): void
+    {
+        Http::fake();
+        match ($reason) {
+            'not_allowed' => $this->writable($this->google, ['read', 'sync']),
+            'reconsent_required' => $this->google->forceFill(['permissions' => $this->perms()->presetOps('google', 'read_create')])->save(),   // allowed here, never granted by the provider
+            'revoked' => tap($this->writable($this->google, $this->perms()->presetOps('google', 'full')))->forceFill(['status' => 'revoked'])->save(),
+        };
+
+        $this->preview('create', ['event_id' => $this->event->id])->assertForbidden()->assertJsonPath('reason', $reason);
+
+        Http::assertNothingSent();
+        $row = AuditLog::where('action', 'integration_permission_denied')->sole();
+        $this->assertSame(['provider' => 'google', 'account_id' => $this->google->id, 'operation' => 'create', 'reason' => $reason], $row->meta);
     }
 
     public function test_delete_works_only_after_the_person_turned_it_on(): void

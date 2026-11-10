@@ -26,7 +26,7 @@ function Panel() {
   const { language } = useLanguage()
   const { data, error, loading, reload } = useApi<{ data: ProviderConfig[] }>(credentialsPath)
   const [editing, setEditing] = useState<ProviderConfig | null>(null), [removing, setRemoving] = useState<ProviderConfig | null>(null)
-  const [busy, setBusy] = useState<string | null>(null), [tests, setTests] = useState<Record<string, TestResult>>({}), [showAudit, setShowAudit] = useState(false)
+  const [removeError, setRemoveError] = useState(''), [busy, setBusy] = useState<string | null>(null), [tests, setTests] = useState<Record<string, TestResult>>({}), [showAudit, setShowAudit] = useState(false)
   const name = (p: ProviderConfig) => language === 'ar' ? p.name.ar : p.name.en
 
   async function toggle(p: ProviderConfig) {
@@ -42,9 +42,10 @@ function Panel() {
     try { const result = await sensitive(() => testProvider(p.provider)); setTests(old => ({ ...old, [p.provider]: result })) } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(null) }
   }
   async function remove(p: ProviderConfig) {
-    setBusy(p.provider)
-    try { await sensitive(() => removeCredentials(p.provider)); toast(t('The saved client was removed.', 'أُزيل العميل المحفوظ.', 'De opgeslagen client is verwijderd.'), 'success'); setRemoving(null); setTests(old => Object.fromEntries(Object.entries(old).filter(([key]) => key !== p.provider))); reload() } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(null) }
+    setBusy(p.provider); setRemoveError('')
+    try { await sensitive(() => removeCredentials(p.provider)); toast(t('The saved client was removed.', 'أُزيل العميل المحفوظ.', 'De opgeslagen client is verwijderd.'), 'success'); setRemoving(null); setTests(old => Object.fromEntries(Object.entries(old).filter(([key]) => key !== p.provider))); reload() } catch (e) { setRemoveError((e as Error).message) } finally { setBusy(null) }
   }
+  const closeRemove = () => { setRemoving(null); setRemoveError('') }
 
   const sourceText = (p: ProviderConfig) => p.source === 'database' ? t('Saved in LifeOS (encrypted)', 'محفوظ في LifeOS (مشفّر)', 'Opgeslagen in LifeOS (versleuteld)')
     : p.source === 'environment' ? t('From the server’s .env (compatibility)', 'من ملف .env على الخادم (توافق)', 'Uit de .env van de server (compatibiliteit)') : t('Not set', 'غير مُعدّ', 'Niet ingesteld')
@@ -67,7 +68,7 @@ function Panel() {
             <button type="button" className="primary compact" onClick={() => setEditing(p)}>{p.source === 'database' ? t('Edit', 'تعديل', 'Bewerken') : t('Set up', 'إعداد', 'Instellen')}<span className="sr-only"> {name(p)}</span></button>
             <button type="button" className="quiet" disabled={busy === p.provider || !p.configured} onClick={() => void test(p)}>{t('Test configuration', 'اختبار الإعداد', 'Configuratie testen')}<span className="sr-only"> {name(p)}</span></button>
             <button type="button" className="quiet" disabled={busy === p.provider} aria-pressed={!p.connections_allowed} onClick={() => void toggle(p)}>{p.connections_allowed ? t('Switch off new connections', 'إيقاف الربط الجديد', 'Nieuwe koppelingen uitzetten') : t('Switch on new connections', 'تفعيل الربط الجديد', 'Nieuwe koppelingen aanzetten')}<span className="sr-only"> {name(p)}</span></button>
-            {p.source === 'database' && <button type="button" className="quiet danger-text" disabled={busy === p.provider} onClick={() => setRemoving(p)}>{t('Remove saved client', 'إزالة العميل المحفوظ', 'Opgeslagen client verwijderen')}<span className="sr-only"> {name(p)}</span></button>}
+            {p.source === 'database' && <button type="button" className="quiet danger-text" disabled={busy === p.provider} onClick={() => { setRemoveError(''); setRemoving(p) }}>{t('Remove saved client', 'إزالة العميل المحفوظ', 'Opgeslagen client verwijderen')}<span className="sr-only"> {name(p)}</span></button>}
           </div>
           {result && <TestChecks result={result} />}
         </li>
@@ -76,11 +77,12 @@ function Panel() {
     <button type="button" className="quiet pc-audit-toggle" aria-expanded={showAudit} onClick={() => setShowAudit(v => !v)}>{showAudit ? t('Hide the change log', 'إخفاء سجل التغييرات', 'Wijzigingslog verbergen') : t('Show the change log', 'عرض سجل التغييرات', 'Wijzigingslog tonen')}</button>
     {showAudit && <AuditList />}
     {editing && <EditDialog provider={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
-    {removing && <Dialog title={t(`Remove the saved ${name(removing)} client?`, `إزالة عميل ${name(removing)} المحفوظ؟`, `De opgeslagen ${name(removing)}-client verwijderen?`)} onClose={() => setRemoving(null)}>
+    {removing && <Dialog title={t(`Remove the saved ${name(removing)} client?`, `إزالة عميل ${name(removing)} المحفوظ؟`, `De opgeslagen ${name(removing)}-client verwijderen?`)} onClose={closeRemove}>
       <p>{t('The client id and secret saved in LifeOS are deleted. If the server’s .env has values for this provider, those are used again. Accounts that are already connected keep their sign-in until it needs a new token.', 'يُحذف معرّف العميل والسر المحفوظان في LifeOS. إن كان في .env على الخادم قيم لهذا المزود فستُستخدم من جديد. الحسابات المرتبطة تبقى متصلة حتى تحتاج رمزًا جديدًا.', 'De client-id en het geheim in LifeOS worden verwijderd. Staan er waarden in de .env van de server, dan worden die weer gebruikt. Gekoppelde accounts blijven werken tot ze een nieuw token nodig hebben.')}</p>
+      <ErrorMessage error={removeError} />
       <div className="rel-actions">
         <button type="button" className="danger" disabled={busy === removing.provider} onClick={() => void remove(removing)}>{t('Remove', 'إزالة', 'Verwijderen')}</button>
-        <button type="button" className="quiet" onClick={() => setRemoving(null)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
+        <button type="button" className="quiet" onClick={closeRemove}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
       </div>
     </Dialog>}
   </section>

@@ -103,18 +103,57 @@ class SyncPolicy
         return ['direction' => $set, 'reason' => null];
     }
 
-    /** @return array<string, mixed> only facts that can be shown from the database */
-    public function summary(CalendarAccount $account): array
+    /**
+     * The database facts summary() shows, for many accounts at once (a handful of queries however many accounts there are).
+     *
+     * @param  iterable<int>  $accountIds
+     * @return array<int, array{copies: int, pending: int, open_conflicts: int, last_outbound: ?SyncRun}> keyed by account id; every requested id is present
+     */
+    public function facts(iterable $accountIds): array
     {
-        $links = CalendarWriteLink::where('calendar_account_id', $account->id)->with('event')->get();
-        $pending = $links->filter(fn (CalendarWriteLink $l) => $l->calendar_event_id !== null && $l->event && ! $l->inSync())->count();
+        $ids = collect($accountIds)->map(fn ($id) => (int) $id)->unique()->values();
+        $facts = $ids->mapWithKeys(fn (int $id) => [$id => ['copies' => 0, 'pending' => 0, 'open_conflicts' => 0, 'last_outbound' => null]])->all();
+        if ($ids->isEmpty()) {
+            return $facts;
+        }
+        // Only the columns inSync() compares are loaded (links and their events), never whole rows or payloads.
+        CalendarWriteLink::query()->whereIn('calendar_account_id', $ids)
+            ->select(['id', 'calendar_account_id', 'calendar_event_id', 'title', 'starts_at', 'ends_at'])
+            ->with('event:id,title,starts_at,ends_at')
+            ->get()
+            ->each(function (CalendarWriteLink $l) use (&$facts) {
+                $facts[$l->calendar_account_id]['copies']++;
+                if ($l->calendar_event_id !== null && $l->event && ! $l->inSync()) {
+                    $facts[$l->calendar_account_id]['pending']++;
+                }
+            });
+        SyncConflict::query()->whereIn('calendar_account_id', $ids)->where('status', SyncConflict::OPEN)
+            ->selectRaw('calendar_account_id, count(*) as aggregate')->groupBy('calendar_account_id')->pluck('aggregate', 'calendar_account_id')
+            ->each(function ($count, $accountId) use (&$facts) {
+                $facts[(int) $accountId]['open_conflicts'] = (int) $count;
+            });
+        $latest = SyncRun::query()->whereIn('calendar_account_id', $ids)->where('trigger', 'outbound')->selectRaw('max(id) as id')->groupBy('calendar_account_id')->pluck('id');
+        SyncRun::query()->whereIn('id', $latest)->get()->each(function (SyncRun $r) use (&$facts) {
+            $facts[$r->calendar_account_id]['last_outbound'] = $r;
+        });
+
+        return $facts;
+    }
+
+    /**
+     * @param  array{copies: int, pending: int, open_conflicts: int, last_outbound: ?SyncRun}|null  $facts  prefetched by facts(); looked up for this one account when omitted
+     * @return array<string, mixed> only facts that can be shown from the database
+     */
+    public function summary(CalendarAccount $account, ?array $facts = null): array
+    {
+        $facts ??= $this->facts([$account->id])[$account->id];
         $effective = $this->effective($account);
-        $last = SyncRun::where('calendar_account_id', $account->id)->where('trigger', 'outbound')->orderByDesc('id')->first();
+        $last = $facts['last_outbound'];
 
         return [
             'direction' => $this->direction($account), 'effective_direction' => $effective['direction'], 'effective_reason' => $effective['reason'], 'available_directions' => $this->available($account),
             'conflict_policy' => $this->policy($account), 'paused' => $this->paused($account), 'paused_at' => $account->sync_paused_at?->toIso8601String(),
-            'copies' => $links->count(), 'copies_pending' => $pending, 'open_conflicts' => SyncConflict::where('calendar_account_id', $account->id)->where('status', SyncConflict::OPEN)->count(),
+            'copies' => $facts['copies'], 'copies_pending' => $facts['pending'], 'open_conflicts' => $facts['open_conflicts'],
             'last_outbound' => $last?->present(),
         ];
     }
