@@ -57,10 +57,22 @@ class OAuthStateStore
         return $row ? ['verifier' => $row->verifier, 'return_to' => $row->return_to, 'account_id' => $row->account_id] : null;
     }
 
-    /** Delete expired and already-used states. */
+    /**
+     * Delete states that expired more than an hour ago, in chunks. A used state expires within minutes of being issued, so this also covers
+     * consumed ones; filtering on expires_at alone keeps the query on its index.
+     */
     public function prune(): int
     {
-        return OauthState::where('expires_at', '<', now()->subHour())->orWhere('consumed_at', '<', now()->subDay())->delete();
+        $cutoff = now()->subHour();
+        $deleted = 0;
+        do {
+            $ids = OauthState::where('expires_at', '<', $cutoff)->orderBy('id')->limit(1000)->pluck('id');
+            if ($ids->isNotEmpty()) {
+                $deleted += OauthState::whereIn('id', $ids)->delete();
+            }
+        } while ($ids->count() === 1000);
+
+        return $deleted;
     }
 
     /** PKCE S256: BASE64URL(SHA256(verifier)). */

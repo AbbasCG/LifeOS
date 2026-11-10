@@ -3,6 +3,7 @@
 namespace Tests\Feature\Integrations;
 
 use App\Integrations\Permissions\ConnectionPermissions;
+use App\Integrations\Sync\ConflictResolver;
 use App\Integrations\Sync\OutboundSync;
 use App\Jobs\PushOutboundChanges;
 use App\Models\AuditLog;
@@ -279,17 +280,52 @@ class SyncEngineTest extends TestCase
         $this->assertSame([], array_merge($this->sent('DELETE'), $this->sent('POST')));
     }
 
-    public function test_a_rate_limit_stops_the_run_and_the_account_waits(): void
+    /**
+     * How the provider's answer to an update is classified, and how long the account waits. Retry-After is clamped to 30..3600 seconds and defaults to 60.
+     * Expectations follow what the code does (OAuthProvider::write): a 503 only counts as "slow down" when it carries a Retry-After; a bare 503 is an ordinary failure that does
+     * not stop the run (every copy is tried, the run is "failed", and no wait is set).
+     *
+     * @return array<string, array{int, array<string, string>, array<string, mixed>, ?int, string, int}>
+     */
+    public static function limits(): array
     {
-        Http::fake([self::EVENT_URL => Http::response(['error' => ['code' => 429]], 429, ['Retry-After' => '120'])]);
+        $rateReason = ['error' => ['code' => 403, 'errors' => [['reason' => 'rateLimitExceeded']]]];
+
+        return [
+            '429 Retry-After 120' => [429, ['Retry-After' => '120'], ['error' => ['code' => 429]], 120, 'rate_limited', 1],
+            '429 without Retry-After defaults to 60' => [429, [], ['error' => ['code' => 429]], 60, 'rate_limited', 1],
+            '429 Retry-After 99999 is capped at one hour' => [429, ['Retry-After' => '99999'], ['error' => ['code' => 429]], 3600, 'rate_limited', 1],
+            '429 Retry-After 5 is raised to the 30 s floor' => [429, ['Retry-After' => '5'], ['error' => ['code' => 429]], 30, 'rate_limited', 1],
+            '503 with Retry-After 45 is a limit' => [503, ['Retry-After' => '45'], ['error' => ['code' => 503]], 45, 'rate_limited', 1],
+            '403 rateLimitExceeded is a limit, not revoked access' => [403, [], $rateReason, 60, 'rate_limited', 1],
+            '503 without Retry-After is a plain failure and the run goes on' => [503, [], ['error' => ['code' => 503]], null, 'failed', 2],
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $headers
+     * @param  array<string, mixed>  $body
+     */
+    #[DataProvider('limits')]
+    public function test_a_rate_limit_stops_the_run_and_the_account_waits(int $status, array $headers, array $body, ?int $wait, string $runStatus, int $requests): void
+    {
+        Http::fake([self::EVENT_URL => Http::response($body, $status, $headers)]);
         $this->direction('outbound');
         $this->stale('a');
         $this->stale('b');
         $result = $this->push();
         $this->assertSame(0, $result['pushed']);
-        $this->assertCount(1, $this->sent(), 'it stopped at the first sign of a limit');
-        $this->assertTrue($this->google->fresh()->retry_after->isFuture());
-        $this->assertSame('rate_limited', SyncRun::where('trigger', 'outbound')->sole()->status);
+        $this->assertCount($requests, $this->sent(), $wait === null ? 'a failure that is not a limit does not stop the run' : 'it stopped at the first sign of a limit');
+        $account = $this->google->fresh();
+        $this->assertSame('active', $account->status, 'neither a limit nor a failed copy is revoked access');
+        $this->assertSame($runStatus, SyncRun::where('trigger', 'outbound')->sole()->status);
+        if ($wait === null) {
+            $this->assertNull($account->retry_after);
+            $this->assertSame(2, $result['failed']);
+
+            return;
+        }
+        $this->assertSame($wait, $account->retry_after->getTimestamp() - now()->getTimestamp(), 'time is frozen, so the wait is exact');
         $this->artisan('lifeos:sync-outbound')->expectsOutputToContain('Queued 0')->assertSuccessful();   // not asked again until the wait is over
     }
 
@@ -407,6 +443,30 @@ class SyncEngineTest extends TestCase
         $this->postJson('/api/integrations/sync-conflicts/'.SyncConflict::sole()->id.'/resolve', ['resolution' => 'keep_both'])->assertForbidden()->assertJsonPath('operation', 'create');
         $this->assertCount($before, $this->sent());
         $this->assertSame('open', SyncConflict::sole()->status);
+        $denied = AuditLog::where('action', 'integration_permission_denied')->sole();   // exactly one: the refusal is on record once, not once per layer
+        $this->assertSame(['provider' => 'google', 'account_id' => $this->google->id, 'operation' => 'create', 'reason' => 'not_allowed'], $denied->meta);
+    }
+
+    public function test_resolving_with_an_expired_token_that_cannot_be_refreshed_changes_nothing_and_marks_the_account(): void
+    {
+        $link = $this->conflicting();
+        $conflict = app(ConflictResolver::class)->record($this->google, $link, $link->event);
+        $this->google->forceFill(['token_expires_at' => now()->subMinute()])->save();
+        Http::fake(['oauth2.googleapis.com/*' => Http::response(['error' => 'invalid_grant'], 400)]);
+
+        $this->postJson("/api/integrations/sync-conflicts/{$conflict->id}/resolve", ['resolution' => 'keep_lifeos', 'confirm_overwrite' => true])
+            ->assertUnprocessable()->assertJsonValidationErrors('resolution')
+            ->assertJsonPath('errors.resolution.0', fn ($message) => str_contains($message, 'nothing was changed'));
+
+        $this->assertSame('revoked', $this->google->fresh()->status);
+        $this->assertSame('open', $conflict->fresh()->status, 'the conflict is still waiting for the person');
+        $this->assertSame('Old title', $link->fresh()->title);
+        Http::assertNotSent(fn (HttpRequest $r) => str_contains($r->url(), 'www.googleapis.com/calendar'));
+    }
+
+    public function test_the_outbound_push_refused_by_the_permissions_is_not_audited_today(): void
+    {
+        $this->markTestSkipped('OPEN POLICY QUESTION FOR THE OWNER: POST sync/push answers 403 permission_denied (SyncSettingsController::push) from OutboundSync::run reason not_allowed without writing an integration_permission_denied audit row, unlike the preview/confirm and conflict paths. Decide whether it should; if yes assert exactly one row with operation update and reason not_allowed here.');
     }
 
     /** @return array<string, array{string, int, int, string}> */

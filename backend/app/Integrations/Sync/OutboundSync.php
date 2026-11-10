@@ -4,7 +4,10 @@ namespace App\Integrations\Sync;
 
 use App\Integrations\Calendar\CalendarWriteException;
 use App\Integrations\Calendar\ProviderAuthException;
+use App\Integrations\Calendar\ProviderException;
+use App\Integrations\Calendar\RateLimitedException;
 use App\Integrations\Permissions\PermissionDeniedException;
+use App\Logging\SecretRedactor;
 use App\Models\CalendarAccount;
 use App\Models\CalendarWriteLink;
 use App\Models\SyncConflict;
@@ -91,6 +94,18 @@ class OutboundSync
                 } catch (PermissionDeniedException $e) {
                     // The person changed their mind while this ran: stop, send nothing more.
                     $out['reason'] = $e->reason;
+                    break;
+                } catch (RateLimitedException $e) {
+                    // The token refresh (not the write) was rate-limited: wait as for a rate-limited write, send nothing more.
+                    $account->forceFill(['retry_after' => now()->addSeconds(max(30, $e->retryAfter))])->save();
+                    $status = 'rate_limited';
+                    $error = SecretRedactor::scrub($e->getMessage());
+                    break;
+                } catch (ProviderException $e) {
+                    // The token refresh failed for a reason that is not revoked access (outage, 5xx, malformed answer): the run fails and stops; the account is neither revoked nor notified about.
+                    $out['failed']++;
+                    $status = $out['pushed'] > 0 ? 'partial' : 'failed';
+                    $error = SecretRedactor::scrub($e->getMessage());
                     break;
                 }
             }

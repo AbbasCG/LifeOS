@@ -9,6 +9,9 @@ return [
     // OAuth authorization state lifetime, in seconds.
     'oauth_state_ttl' => 600,
 
+    // sync_runs older than this are pruned daily (the newest 20 runs of every account are always kept).
+    'sync_run_retention_days' => (int) env('INTEGRATIONS_SYNC_RUN_RETENTION_DAYS', 30),
+
     // How long a request waits for another process that is refreshing the same account's token.
     'refresh_lock_wait' => 10,
 
