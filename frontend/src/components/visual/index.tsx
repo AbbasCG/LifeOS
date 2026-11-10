@@ -29,15 +29,15 @@ export function RingStat({ value, max, display, caption, tone, to }: { value: nu
   return to ? <Link className="ring-stat" to={to}>{body}</Link> : <div className="ring-stat">{body}</div>
 }
 
-const PRIORITY: Record<string, { icon: LucideIcon; en: string; ar: string }> = {
-  urgent: { icon: Flame, en: 'Urgent', ar: 'عاجل' }, high: { icon: ArrowUp, en: 'High', ar: 'عالية' }, medium: { icon: Minus, en: 'Medium', ar: 'متوسطة' }, low: { icon: ArrowDown, en: 'Low', ar: 'منخفضة' },
+const PRIORITY: Record<string, { icon: LucideIcon; en: string; ar: string; nl: string }> = {
+  urgent: { icon: Flame, en: 'Urgent', ar: 'عاجل', nl: 'Dringend' }, high: { icon: ArrowUp, en: 'High', ar: 'عالية', nl: 'Hoog' }, medium: { icon: Minus, en: 'Medium', ar: 'متوسطة', nl: 'Gemiddeld' }, low: { icon: ArrowDown, en: 'Low', ar: 'منخفضة', nl: 'Laag' },
 }
 
 /** Priority as icon + color, with the word for screen readers (or shown when `labelled`). */
 export function PriorityMark({ priority, labelled = false }: { priority?: string | null; labelled?: boolean }) {
   const t = useText(), p = PRIORITY[priority ?? ''] ?? PRIORITY.medium
   const Icon = p.icon
-  return <span className={`prio prio-${priority ?? 'medium'}`} title={t(p.en, p.ar)}><Icon size={13} aria-hidden="true" />{labelled ? <span>{t(p.en, p.ar)}</span> : <span className="sr-only">{t(p.en, p.ar)}</span>}</span>
+  return <span className={`prio prio-${priority ?? 'medium'}`} title={t(p.en, p.ar, p.nl)}><Icon size={13} aria-hidden="true" />{labelled ? <span>{t(p.en, p.ar, p.nl)}</span> : <span className="sr-only">{t(p.en, p.ar, p.nl)}</span>}</span>
 }
 
 /** A deadline as a short relative chip: "Today 14:00", "Tomorrow", "Tue", "3d late" (late is red with an icon). */
@@ -49,9 +49,9 @@ export function DueChip({ due, done = false }: { due?: string | null; done?: boo
   const diff = Math.round((day(d) - day(now)) / 86400000)
   const late = !done && d.getTime() < now.getTime()
   const time = d.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
-  const text = late && diff < 0 ? t(`${-diff}d late`, `متأخرة ${-diff} يوم`)
-    : diff === 0 ? (d.getHours() || d.getMinutes() ? `${t('Today', 'اليوم')} ${time}` : t('Today', 'اليوم'))
-      : diff === 1 ? t('Tomorrow', 'غداً')
+  const text = late && diff < 0 ? t(`${-diff}d late`, `متأخرة ${-diff} يوم`, `${-diff} d te laat`)
+    : diff === 0 ? (d.getHours() || d.getMinutes() ? `${t('Today', 'اليوم', 'Vandaag')} ${time}` : t('Today', 'اليوم', 'Vandaag'))
+      : diff === 1 ? t('Tomorrow', 'غداً', 'Morgen')
         : diff > 1 && diff < 7 ? d.toLocaleDateString(language, { weekday: 'short' })
           : d.toLocaleDateString(language, { day: 'numeric', month: 'short' })
   return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={d.toLocaleString(language)}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}<time dateTime={due}>{text}</time></span>
@@ -122,14 +122,14 @@ export function BottomSheet({ title, onClose, children, footer, tall, dirty }: {
     <SheetCloseContext.Provider value={request}>
       <div className="sheet-inner">
         <span className="sheet-handle" aria-hidden="true" />
-        <header className="sheet-head"><h2 id={id}>{title}</h2><button type="button" className="icon-button" onClick={request} aria-label={t('Close', 'إغلاق')}><X size={18} /></button></header>
+        <header className="sheet-head"><h2 id={id}>{title}</h2><button type="button" className="icon-button" onClick={request} aria-label={t('Close', 'إغلاق', 'Sluiten')}><X size={18} /></button></header>
         <div className="sheet-body">{children}</div>
         {confirming && <div className="sheet-confirm" role="alertdialog" aria-labelledby={`${id}-discard`} aria-describedby={`${id}-discard-why`}>
-          <strong id={`${id}-discard`}>{t('Discard your changes?', 'تجاهل التغييرات؟')}</strong>
-          <p id={`${id}-discard-why`} className="muted small">{t('What you entered here has not been saved.', 'ما أدخلته هنا لم يُحفظ.')}</p>
+          <strong id={`${id}-discard`}>{t('Discard your changes?', 'تجاهل التغييرات؟', 'Wijzigingen negeren?')}</strong>
+          <p id={`${id}-discard-why`} className="muted small">{t('What you entered here has not been saved.', 'ما أدخلته هنا لم يُحفظ.', 'Wat je hier hebt ingevoerd is niet opgeslagen.')}</p>
           <div className="sheet-confirm-actions">
-            <button type="button" ref={keepRef} className="primary" onClick={keepEditing}>{t('Keep editing', 'متابعة التعديل')}</button>
-            <button type="button" className="quiet danger-text" onClick={onClose}>{t('Discard', 'تجاهل')}</button>
+            <button type="button" ref={keepRef} className="primary" onClick={keepEditing}>{t('Keep editing', 'متابعة التعديل', 'Blijven bewerken')}</button>
+            <button type="button" className="quiet danger-text" onClick={onClose}>{t('Discard', 'تجاهل', 'Negeren')}</button>
           </div>
         </div>}
         {footer && <footer className="sheet-foot">{footer}</footer>}

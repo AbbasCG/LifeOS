@@ -81,7 +81,7 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
       <div><dt>{t('Mode', 'النمط', 'Modus')}</dt><dd>{account.sync_mode === 'incremental' ? t('Incremental (changes only)', 'تدريجي (التغييرات فقط)', 'Stapsgewijs (alleen wijzigingen)') : t('Full read', 'قراءة كاملة', 'Volledig lezen')}</dd></div>
       <div><dt>{tasks ? t('Imported tasks', 'المهام المستوردة', 'Geïmporteerde taken') : t('Upcoming commitments', 'الالتزامات القادمة', 'Komende afspraken')}</dt><dd>{account.events_count}</dd></div>
     </dl>
-    {(hint || account.last_error) && state !== 'ok' && <div className={`account-alert alert-${state}`} role="status">
+    {(hint || account.last_error) && state !== 'ok' && <div className={`account-alert alert-${state}`} role="alert">
       {state === 'scope' ? <ShieldAlert size={16} /> : <AlertTriangle size={16} />}
       <div>{account.last_error && <p className="small">{account.last_error}</p>}{hint && <p className="small muted">{hint}</p>}</div>
     </div>}
@@ -107,7 +107,7 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
       {runs.map(r => <li key={r.id} className={`run run-${r.status}`}>
         <span className="run-status">{runLabel(r)}</span>
         <span className="muted small"><Clock3 size={11} /> {when(r.started_at)} · {r.mode === 'incremental' ? t('changes', 'تغييرات', 'wijzigingen') : t('full', 'كاملة', 'volledig')}{r.duration_ms !== null ? ` · ${(r.duration_ms / 1000).toFixed(1)}s` : ''}</span>
-        <span className="small">{t(`${r.upserted} updated · ${r.removed} removed${r.moved ? ` · ${r.moved} moved` : ''}`, `${r.upserted} محدّث · ${r.removed} محذوف${r.moved ? ` · ${r.moved} منقول` : ''}`)}</span>
+        <span className="small">{t(`${r.upserted} updated · ${r.removed} removed${r.moved ? ` · ${r.moved} moved` : ''}`, `${r.upserted} محدّث · ${r.removed} محذوف${r.moved ? ` · ${r.moved} منقول` : ''}`, `${r.upserted} bijgewerkt · ${r.removed} verwijderd${r.moved ? ` · ${r.moved} verplaatst` : ''}`)}</span>
         {r.error && <span className="small run-error">{r.error}</span>}
       </li>)}
     </m.ol>}</AnimatePresence>

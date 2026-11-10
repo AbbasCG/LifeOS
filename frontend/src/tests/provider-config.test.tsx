@@ -166,6 +166,23 @@ describe('provider configuration', () => {
     await waitFor(() => expect(writes().some(c => c.method === 'DELETE')).toBe(true))
   })
 
+  it('a failed removal is shown inside the open dialog as an alert, and is cleared when the dialog is reopened', async () => {
+    list = [provider({ configured: true, source: 'database', client_id: 'cid', has_secret: true })]
+    server()
+    const base = globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>
+    vi.stubGlobal('fetch', vi.fn(async (u: string, i?: RequestInit) => i?.method === 'DELETE' ? json({ message: 'The server refused.' }, 500) : base(u, i)))
+    shell()
+    fireEvent.click(await screen.findByRole('button', { name: /Remove saved client/ }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove', hidden: true }))
+    const alert = await within(dialog).findByRole('alert', { hidden: true })
+    expect(alert).toHaveTextContent('The server refused.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel', hidden: true }))
+    fireEvent.click(screen.getByRole('button', { name: /Remove saved client/ }))
+    const again = await screen.findByRole('dialog', { hidden: true })
+    expect(within(again).queryByRole('alert', { hidden: true })).toBeNull()
+  })
+
   it('shows the change log on request, with who did what and no secret', async () => {
     audit = [{ id: 2, action: 'integration_credentials_set', at: '2026-11-08T10:00:00+00:00', actor: 'Ada', provider: 'google', secret_changed: true, ok: null },
       { id: 1, action: 'integration_provider_disabled', at: '2026-11-07T10:00:00+00:00', actor: 'Ada', provider: 'todoist', secret_changed: null, ok: null }]

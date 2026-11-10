@@ -136,6 +136,36 @@ describe('sync settings', () => {
     expect(writes()[0].body).toEqual({ resolution: 'keep_lifeos', confirm_overwrite: true })
   })
 
+  it('the overwrite confirmation is a named group and focus moves to its checkbox', async () => {
+    conflictsAnswer = [conflict]
+    server()
+    shell(state({ direction: 'outbound', effective_direction: 'outbound', open_conflicts: 1 }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use the LifeOS version…' }))
+    const group = screen.getByRole('group', { name: /This replaces what is at the service/ })
+    expect(within(group).getByRole('checkbox')).toHaveFocus()
+  })
+
+  it('after resolving a conflict focus moves to the next one, or to the heading when none is left', async () => {
+    const second: Conflict = { ...conflict, id: 6, title: 'Dentist' }
+    conflictsAnswer = [conflict, second]
+    server()
+    shell(state({ direction: 'outbound', effective_direction: 'outbound', open_conflicts: 2 }))
+    await screen.findByText('Dentist')
+    conflictsAnswer = [second]
+    fireEvent.click(screen.getAllByRole('button', { name: 'Keep the one at the service' })[0])
+    await waitFor(() => expect(screen.queryByText('Team lunch')).toBeNull())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Keep the one at the service' })).toHaveFocus())
+    conflictsAnswer = []
+    fireEvent.click(screen.getByRole('button', { name: 'Keep the one at the service' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'How it syncs' })).toHaveFocus())
+  })
+
+  it('a failed run is announced as an alert', () => {
+    server()
+    shell(state({ last_outbound: { id: 1, status: 'failed', started_at: '2027-03-22T08:00:00Z', upserted: 0, error: 'The service said no.', details: {} } }))
+    expect(screen.getByRole('alert')).toHaveTextContent('The service said no.')
+  })
+
   it('speaks Arabic and Dutch', () => {
     server()
     localStorage.setItem('lifeos-language', 'ar')
