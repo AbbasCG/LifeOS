@@ -91,7 +91,7 @@ class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvide
             'startDateTime' => $from->toIso8601ZuluString(),
             'endDateTime' => $to->toIso8601ZuluString(),
         ]);
-        if (! str_starts_with($url, 'https://graph.microsoft.com/')) {
+        if (! self::isGraphUrl($url)) {
             throw new SyncTokenExpiredException('Unexpected delta link.');
         }
         $upserts = [];
@@ -125,11 +125,47 @@ class MicrosoftCalendarProvider extends OAuthProvider implements CalendarProvide
                     'timezone' => WindowsZones::toIana($item['originalStartTimeZone'] ?? null),
                 ];
             }
-            $url = $page['@odata.nextLink'] ?? null;
-            $next = $page['@odata.deltaLink'] ?? $next;
+            $url = self::graphLink($page['@odata.nextLink'] ?? null);
+            $next = self::graphLink($page['@odata.deltaLink'] ?? null) ?? $next;
         }
 
         return new ChangeSet($upserts, $removed, $next, $syncToken === null);
+    }
+
+    /**
+     * Whether a URL may receive the Graph bearer token: https, exactly graph.microsoft.com, default port, no userinfo,
+     * and none of the characters URL parsers disagree about.
+     */
+    public static function isGraphUrl(mixed $url): bool
+    {
+        if (! is_string($url) || $url === '' || preg_match('/[\\\\\s\x00-\x1f\x7f]/', $url)) {
+            return false;
+        }
+        $parts = parse_url($url);
+
+        return is_array($parts)
+            && strtolower($parts['scheme'] ?? '') === 'https'
+            && strtolower($parts['host'] ?? '') === 'graph.microsoft.com'
+            && ! isset($parts['user']) && ! isset($parts['pass'])
+            && (! isset($parts['port']) || (int) $parts['port'] === 443)
+            && str_starts_with($parts['path'] ?? '', '/');
+    }
+
+    /**
+     * A paging or delta link returned by Graph, accepted only when it stays on Graph. The URL is never echoed.
+     *
+     * @throws ProviderException
+     */
+    public static function graphLink(mixed $link): ?string
+    {
+        if ($link === null) {
+            return null;
+        }
+        if (! self::isGraphUrl($link)) {
+            throw new ProviderException('Microsoft returned an unexpected link, so the sync was stopped.');
+        }
+
+        return $link;
     }
 
     public function revoke(string $token): void
