@@ -1,9 +1,14 @@
-# Integrations core (Phase 2)
+# Integrations core
 
 The foundation for the Universal Integrations Hub: a provider registry, an encrypted credential vault, server-side OAuth state,
-signed webhooks, an outbound-request policy and an administrator role. It is **backend only**; the gallery UI is Phase 3. The existing
-connectors (Google, Outlook, Google Tasks, Microsoft To Do, Todoist, ICS) keep working unchanged and read their OAuth client from the
-vault first and `.env` second.
+signed webhooks, an outbound-request policy and an administrator role. The sections from "Provider configuration screen" onward
+describe the screens and flows built on it (Settings → Integrations). The connectors (Google, Outlook, Google Tasks, Microsoft To Do,
+Todoist, ICS) read their OAuth client from the vault first and `.env` second.
+
+**Status of the building blocks.** Provider registry, vault, OAuth state, permissions and sync are in use. Two pieces are
+**dormant infrastructure**: nothing calls `OutboundHttpGuard` yet (its only users are its own class and tests; ICS feeds use `PublicAddress` directly), and no
+route or handler creates a webhook endpoint: `WebhookEndpointService` is referenced only by the prune command, so `POST /api/webhooks/{publicId}` can receive
+only endpoints that already exist in the database (none are created by the application today). Both are tested and ready for the connectors that will use them.
 
 Nothing here simulates a connection: a provider is "connected" only when the server holds a real account for it, and "ready" only when
 its OAuth client has real credentials.
@@ -29,8 +34,8 @@ tests and boot). Fields: `id`, `category`, `auth` (`oauth2_pkce | oauth2 | api_k
 
 The response contains each user's own accounts only, and never tokens or credentials.
 
-The old `IntegrationController::PROVIDERS` and `ConnectedCatalog` lists are untouched; Phase 3 moves the UI to the catalog and Phase 4
-retires them.
+The older `IntegrationController::PROVIDERS` and `ConnectedCatalog` lists still exist and still drive `GET /api/integrations`, which is what the
+Settings screen calls today; the frontend does not call `GET /api/integrations/catalog` yet. The two lists are not merged.
 
 ## Credential vault and administrators
 
@@ -64,8 +69,8 @@ Rules:
 Authorization state lives in the `oauth_states` table, not the browser session: a random state and PKCE verifier bound to one user and
 one provider, stored as a SHA-256 hash and an encrypted verifier, valid for 10 minutes and consumable **once** by a single atomic
 `UPDATE` (two concurrent callbacks cannot both win; another user, another provider, an expired or reused state yields nothing).
-`return_to` keeps only same-site paths. `lifeos:integrations:prune` (daily) deletes old rows. The existing connect/callback routes still
-use their session-based state until Phase 4 moves them onto this store; their callback now has an `integrations` rate limit.
+`return_to` keeps only same-site paths. `lifeos:integrations:prune` (daily) deletes old rows. The connect and callback routes use this
+store (`IntegrationController::connect` / `callback`), not the browser session; the callback has an `integrations` rate limit.
 
 `CalendarSyncService::freshToken()` now takes a per-account lock and re-reads the account before refreshing, so a queued sync and a manual
 action can never refresh the same account twice (providers that rotate refresh tokens would otherwise invalidate one of them). A caller
@@ -95,15 +100,40 @@ message (the cause is not revealed); a valid request without a well-formed deliv
 handed to `ProcessWebhookDelivery` on the queue. The timestamp must be within 5 minutes (limits replay). Rate limited per endpoint+IP and
 per IP. After `WebhookEndpointService::rotate()` the previous secret keeps working for 24 hours. Connectors react by tagging a
 `WebhookHandler` with `integrations.webhook_handlers`; deliveries nobody handles are recorded as `ignored`. Payloads are encrypted, removed
-once handled and deleted after 7 days. Provider-specific schemes (e.g. GitHub's `X-Hub-Signature-256`) are added by connectors in Phase 5.
+once handled and deleted after 7 days. Provider-specific schemes (e.g. GitHub's `X-Hub-Signature-256`) would be added by a connector; none exists yet. There is also no route or handler that creates endpoints, so the endpoint is dormant until one is added.
 
 ## Outbound requests (`OutboundHttpGuard`)
 
-For addresses a person typed in (custom integrations, Phase 6): HTTPS only, no embedded credentials, port 443, public addresses only
-(every DNS answer is checked and the connection is pinned to the checked address; redirects are not followed). A private-network system
-(an internal ERP) is reachable only through an explicit `outbound_host_rules` row for that exact host and port with `allow_private`.
-Loopback (this server's PostgreSQL, PHP-FPM…), link-local/metadata (169.254.0.0/16, fe80::/10), multicast and unspecified addresses are
-**never** allowed, even with a rule. `PublicAddress` is shared with the calendar-feed fetcher.
+**Not wired in yet.** No code path calls this guard today (see the status note at the top); it is the policy for addresses a person types in
+for future custom integrations. When used: HTTPS only, no embedded credentials, port 443, public addresses only
+(every DNS answer is checked and the connection is pinned to the checked address; the guard does not follow redirects). A private-network system
+(an internal ERP) would be reachable only through an explicit `outbound_host_rules` row for that exact host and port with `allow_private`
+(`OutboundHttpGuard.php:44`). Loopback, link-local/metadata (169.254.0.0/16, fe80::/10), multicast and unspecified addresses are
+**never** allowed, even with a rule (`PublicAddress::isNeverAllowed`).
+
+`PublicAddress` is the single definition of "public", shared with the calendar-feed fetcher (`IcsFeedFetcher`). **Never allowed (`isNeverAllowed`: no rule can approve them):** loopback, link-local including the 169.254.0.0/16 cloud-metadata range, multicast, the unspecified address, 0.0.0.0/8 and 240.0.0.0/4, and IPv6 forms that wrap any of these. **Refused as non-public:** private IPv4 ranges, carrier-grade NAT (100.64.0.0/10), IPv6 unique-local (fc00::/7), site-local (fec0::/10), discard-only (100::/64), documentation (2001:db8::/32 and 3fff::/20), benchmarking (2001:2::/48), deprecated ORCHID (2001:10::/28) and local-use NAT64 (64:ff9b:1::/48). **IPv6 forms that wrap an IPv4 address** (IPv4-mapped, IPv4-compatible, SIIT `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::/96`, 6to4 and Teredo) are judged by the wrapped address.
+The feed fetcher uses
+`PublicAddress` directly: it checks every resolved address, follows at most 3 redirects manually and re-checks each, and does **not**
+honour outbound host rules, so a calendar feed can never point at a private host.
+
+**Microsoft Graph links.** Pagination (`@odata.nextLink`) and delta links, including a stored sync token, are followed only when they are
+`https://graph.microsoft.com` with no credentials and port 443 (`MicrosoftCalendarProvider::isGraphUrl`, used in `MicrosoftCalendarProvider.php:94`, `:164`
+and `MicrosoftTodoProvider.php:88`). Anything else stops the sync or forces a fresh sync.
+
+## Retention of sync history
+
+`lifeos:integrations:prune` runs daily at 03:20 (`routes/console.php:18`, without overlapping). Besides expired OAuth states and old webhook deliveries it
+now deletes old rows from `sync_runs` (`SyncRunPruner`).
+
+- A run is deleted only when it started more than `INTEGRATIONS_SYNC_RUN_RETENTION_DAYS` ago (default **30**, minimum 1; `config/integrations.php:13`) **and** it is not among the newest **20** runs of its account (`SyncRunPruner::KEEP_NEWEST`). A quiet account therefore always keeps its recent history.
+- Deletion happens in chunks of 1000 per account, so no single statement is large. Running the command twice changes nothing the second time.
+- **The first run after deploy deletes the whole old backlog** (a connected account adds about 96 runs a day), in chunks. Expect that first run to take longer and to report a large number of removed runs.
+- OAuth states are deleted once they expired more than an hour ago, also in chunks of 1000.
+
+Migration `2026_11_10_100001_add_retention_and_hub_indexes` adds indexes for the prune and the hub (`sync_runs(started_at)`, `sync_runs(calendar_account_id, trigger, id)`, and
+the foreign keys `oauth_states(user_id)`, `oauth_states(account_id)`, `sync_conflicts(user_id)`). On PostgreSQL it builds them with `CREATE INDEX CONCURRENTLY`, so
+writes to `sync_runs` are not blocked while it builds. That statement cannot run inside a transaction: the migration sets `$withinTransaction = false`, and **deploy tooling must not wrap it in a transaction**. If a build is interrupted, the migration drops
+the invalid index it left behind, so running the migration again repairs it. On SQLite (tests) it creates ordinary indexes. It is additive.
 
 ## Logs and error text
 
@@ -114,18 +144,18 @@ written by Laravel's own exception logging are not rewritten, so connectors must
 
 ## Tests
 
-`backend/tests/Feature/Integrations/*` (81 tests): manifests, OAuth state (RFC 7636 vector, replay, user/provider binding, expiry,
+`backend/tests/Feature/Integrations/*`: manifests, OAuth state (RFC 7636 vector, replay, user/provider binding, expiry,
 concurrency), vault (encryption at rest, source precedence, key rotation), administrator API (403/423/422 paths, no secret in any response
 or audit entry), webhooks (signature, raw bytes, replay, timestamps, size, rotation, rate limit, no cookies/CSRF, handlers), outbound guard
 (IPv4/IPv6, mapped addresses, rebinding via mixed answers, rules), catalogue states and per-user isolation, redaction, and the refresh lock.
 `TestCase` now calls `Http::preventStrayRequests()`, so a test that forgets to fake an outbound call fails instead of reaching the network.
 The suite passes on SQLite and on PostgreSQL 16 (client zone `Europe/Amsterdam`); the new migrations roll back and re-apply on PostgreSQL.
 
-## Not in this phase
-Hub UI (Phase 3); moving Google/Microsoft/Todoist onto the new state store and catalogue (Phase 4); GitHub, Notion, Trello, Telegram
-(Phase 5); custom systems such as EMC and Tharaa and the administrator screens for outbound rules and webhook endpoints (Phase 6);
-n8n bridge and AI-provider key management (Phase 7). The deployment needs no `.env`, Docker, n8n or PostgreSQL configuration change; the
-five migrations are additive and run through the normal deploy (verified `pg_dump` first).
+## Not built yet
+Moving the hub UI onto the catalogue endpoint; connectors for GitHub, Notion, Trello and Telegram; custom systems (EMC, Tharaa) and screens for
+outbound rules and webhook endpoints (which is why `OutboundHttpGuard` and the webhook endpoints are dormant); n8n bridge and AI-provider key
+management. These are not scheduled in this document. Deploying the existing features needs no Docker, n8n or PostgreSQL configuration change; the migrations
+are additive and run through the normal deploy (take a verified `pg_dump` first).
 
 ## Provider configuration screen (Connected Accounts master plan, PR 1 of 5)
 
@@ -135,7 +165,7 @@ What an administrator does, once per provider:
 1. At the provider (Google Cloud, Microsoft Entra, Todoist), create the OAuth app. This is still required once; LifeOS cannot create it for you. The panel links to the provider's documentation.
 2. In the panel, press *Set up*. Copy the **redirect address** it shows (generated from the site's own trusted address; it cannot be typed) and register it at the provider exactly as shown.
 3. Paste the **client id** and **client secret**, save (a password confirmation may be asked; two-factor must be on). The secret is stored encrypted, is not shown again, and the page clears it from memory as soon as it was sent.
-4. Press *Test configuration*. It checks, **without contacting the provider**, that a client id exists, the secret can be read with the current key, the redirect address is the one this site expects, and a sign-in address can be built. Only a real sign-in proves that the provider accepts the client.
+4. Press *Test configuration*. It is an **offline configuration check**, not a connection test: it checks, **without contacting the provider**, that a client id exists, the secret can be read with the current key, the redirect address is the one this site expects, and a sign-in address can be built. Only a real sign-in proves that the provider accepts the client.
 
 Other controls:
 - **Switch off new connections** (`PATCH /api/admin/integrations/credentials/{provider}/enabled`): people can no longer start a connection to that provider; the catalogue shows it as `disabled`. Accounts that are already connected keep syncing and refreshing, and nothing is deleted. It also works for a provider configured only through `.env` (a row with no client id or secret is created; the environment values are never copied). Saving credentials again does not switch it back on; removing the saved client keeps it off.

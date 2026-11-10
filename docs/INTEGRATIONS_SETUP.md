@@ -4,9 +4,18 @@ For the administrator who sets up providers and for whoever reviews the Hub. How
 
 ## 1. Set up a provider (administrator)
 
-Open **Settings → Integrations → Provider configuration** (administrators only). For each provider create an OAuth client at the provider, paste the client id and secret, press **Test**, then switch it **on**. The secret is stored encrypted and is never shown again. The `.env` variables (`GOOGLE_CLIENT_ID`, …) still work as a fallback when nothing is saved on the screen.
+**Before you start: an administrator with two-factor must exist.** Nobody can open the Provider configuration screen or save credentials until both are true:
 
-The redirect URI must match exactly, including `https` and no trailing slash. Replace `https://life.softbuild.nl` with your own `FRONTEND_URL`.
+1. The account is an administrator. On the server run `php artisan lifeos:make-admin <email>` (the account must already exist; `--revoke` removes the role).
+2. That administrator has turned on two-factor authentication in Security settings. Changes are refused without it. The check is controlled by `INTEGRATIONS_ADMIN_REQUIRES_2FA` (default `true`); set it to `false` only on a local development machine, never in production.
+
+Then open **Settings → Integrations → Provider configuration**. For each provider create an OAuth client at the provider, paste the client id and secret, press **Test**, then switch it **on**. The secret is stored encrypted and is never shown again. The `.env` variables (`GOOGLE_CLIENT_ID`, …) still work as a fallback when nothing is saved on the screen; the saved client wins and the two are never mixed.
+
+**`FRONTEND_URL` must be the public https origin of the site, and that origin must also serve `/api`.** The redirect address is built from it. The Vite proxy that forwards `/api` is for local development only; in production your web server must route `/api` to the backend on the same origin.
+
+**Each provider is its own record.** Google Calendar and Google Tasks (and Outlook Calendar and Microsoft To Do) are separate providers: enter the client for each one separately, each with its own redirect URI. They may use the same OAuth app at Google or Microsoft, as long as both redirect URIs are registered in it.
+
+The redirect URI must match exactly, including `https` and no trailing slash. **The *suggested redirect address* shown on the screen for each provider is the source of truth.** The table below uses the example domain `https://life.softbuild.nl`; copy the address from the screen, not from this table.
 
 | Provider | Redirect URI | Scopes requested for reading | Extra scope, only if the person allows changes |
 |---|---|---|---|
@@ -21,7 +30,7 @@ Provider notes:
 - **Google:** Google Cloud Console → APIs & Services → enable *Google Calendar API* (and *Tasks API*) → OAuth consent screen → Credentials → *OAuth client ID*, type *Web application*. While the app is in *Testing*, only listed test users can connect and refresh tokens expire after 7 days; publish the app (and complete verification for sensitive scopes) before real use.
 - **Microsoft:** Entra ID → App registrations → New registration, supported accounts as you need (default tenant `common`), platform *Web* with the redirect URIs above, then *Certificates & secrets* → new client secret. Note the secret's expiry date and renew it before then.
 - **Todoist:** Todoist App Management → create an app, set the OAuth redirect URL. Todoist tokens do not expire and have no refresh token.
-- ICS feeds need no setup; they are fetched read-only with SSRF protection.
+- ICS feeds need no setup; they are fetched read-only, over https on port 443 only, with no username or password in the address, and a size limit of 5 MB. LifeOS only connects to public addresses. **Never allowed (nobody can approve them):** loopback, link-local including the 169.254.0.0/16 cloud-metadata range, multicast, the unspecified address, 0.0.0.0/8 and 240.0.0.0/4, and IPv6 forms that wrap any of these. **Refused as non-public:** private IPv4 ranges, carrier-grade NAT (100.64.0.0/10), IPv6 unique-local (fc00::/7), site-local (fec0::/10), discard-only (100::/64), documentation (2001:db8::/32 and 3fff::/20), benchmarking (2001:2::/48), deprecated ORCHID (2001:10::/28) and local-use NAT64 (64:ff9b:1::/48). **IPv6 forms that wrap an IPv4 address** (IPv4-mapped, IPv4-compatible, SIIT `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::/96`, 6to4 and Teredo) are judged by the wrapped address. The check applies to every address the host name resolves to, and again to every redirect (up to 3, followed manually). There is no way to approve a private host for a calendar feed.
 
 ## 2. What a person can allow
 
@@ -35,7 +44,9 @@ Every new connection is **read-only**. Under **Manage permissions** the person c
 | export | send a LifeOS item to the service on request | calendars with write support |
 | create / update / delete | change things at the service | calendars with write support |
 
-Presets: *Read only*, *Read and create*, *Read, create and update*, *Full* (includes delete and asks for a confirmation). The effective permission is the person's choice limited by what the provider connection really granted; a missing scope shows as "re-consent required". Changing permissions requires a recent password confirmation. Disconnecting revokes the token at the provider when it supports revocation and deletes the stored tokens.
+Presets: *Read only*, *Read and create*, *Read, create and update*, *Full* (includes delete and asks for a confirmation). The effective permission is the person's choice limited by what the provider connection really granted; a missing scope shows as "re-consent required". Changing permissions requires a recent password confirmation. Write permissions are only offered when the server has `LIFEOS_CALENDAR_WRITE=true` (default `false`). Without it, only read, sync and import exist: the write presets (*Read and create*, *Read, create and update*, *Full*) and the export, create, update and delete permissions are not offered at all, for any provider.
+
+**Disconnect** deletes the connection, its stored tokens, the mirrored events and tasks, the sync history and the links to the copies LifeOS added. Events LifeOS already added to the provider's calendar stay there, but LifeOS can no longer update or remove them. Tasks the person copied into LifeOS are kept. Token revocation depends on the provider: Google's token is revoked at Google. Microsoft and Todoist offer no revoke call, so the person removes the app on their account pages (for Todoist: *Settings → Integrations*). If the revoke call fails, the disconnect still completes.
 
 ## 3. Sync directions and conflicts
 
@@ -62,7 +73,8 @@ The direction in effect is never wider than the permissions. Conflict policy: *a
 | Sensitive changes | password confirmation (423) and rate limit on permissions, sync settings and conflict resolution | `IntegrationsSecurityTest` |
 | Audit | connect, disconnect, permission, sync-setting, conflict and write events are logged without secrets | `OAuthConnectionTest`, `SyncEngineTest` |
 | Webhooks | signed, timestamped, replay protected | `WebhookTest` |
-| SSRF (ICS and outbound) | scheme/port/host rules, private ranges refused after DNS resolution, no redirects to private hosts | `OutboundHttpGuardTest` |
+| SSRF (ICS feeds) | https and port 443 only; every resolved address must be public and each redirect is re-checked; the connection is pinned to the checked address. Never allowed: loopback, link-local/metadata, multicast, unspecified, 0/8, 240/4 and IPv6 forms wrapping them. Refused as non-public: private IPv4, CGNAT 100.64.0.0/10, IPv6 unique-local, site-local, discard-only, documentation, benchmarking, ORCHID and local-use NAT64 ranges; wrapped IPv4 (mapped, compatible, SIIT, NAT64, 6to4, Teredo) is judged by the wrapped address | `OutboundHttpGuardTest` (covers `PublicAddress`, which the feed fetcher uses) |
+| SSRF (outbound guard) | same address rules via `OutboundHttpGuard`, plus optional approval of a specific private host and port by an outbound host rule (never for loopback, link-local/metadata, multicast or unspecified). Not used by any feature yet | `OutboundHttpGuardTest` |
 | Unauthenticated access | every protected route answers 401 JSON | `RouteSecurityTest` |
 
 Known limits: the OAuth callback requires the person to be signed in (a guest is sent to sign in first); background workers need `APP_KEY` stable, because rotating it makes stored tokens unreadable and every account must then be reconnected.
@@ -83,11 +95,17 @@ Known limits: the OAuth callback requires the person to be signed in (a guest is
 
 ## 6. Production readiness checklist
 
-- [ ] `APP_KEY` set and backed up; `FRONTEND_URL` is the public https URL.
+- [ ] `APP_KEY` set and backed up; `FRONTEND_URL` is the public https origin and that origin serves `/api` (not just the Vite dev proxy).
 - [ ] Queue worker and the scheduler (`schedule:run` every minute) run under a supervised account.
 - [ ] Each provider: OAuth client created, redirect URI exact, consent screen published or test users added, secret expiry noted in a calendar.
 - [ ] Test connection passes on the Provider configuration screen for every enabled provider.
-- [ ] One administrator account has two-factor enabled.
-- [ ] Connect a test account of your own, check *read-only* is the default, widen one permission, sync, disconnect, and confirm the access disappears at the provider's security page.
-- [ ] Log files show no tokens or secrets (they must not).
+- [ ] An administrator exists (`php artisan lifeos:make-admin <email>`) and has two-factor enabled; `INTEGRATIONS_ADMIN_REQUIRES_2FA` is not set to `false`. Without this, provider credentials cannot be saved.
+- [ ] Decide on write access: `LIFEOS_CALENDAR_WRITE=true` only if people may add events to their calendars (default `false`; leave it off if you want read, sync and import only).
+- [ ] Connect a test account of your own, check *read-only* is the default, widen one permission (only possible when `LIFEOS_CALENDAR_WRITE=true`), sync, disconnect, and confirm the access disappears at the provider's security page. Google is revoked by LifeOS; for Microsoft and Todoist remove the app on the account page yourself. Events LifeOS added to the calendar stay there after disconnecting.
+- [ ] Log files show no tokens or secrets (they must not). With the default `single` log channel, from the `backend` directory:
+  ```bash
+  grep -rlEi 'Bearer [A-Za-z0-9._~+/-]{20,}|ya29\.|eyJ[A-Za-z0-9_-]{10,}\.eyJ|(refresh_token|client_secret|access_token)=[^&[:space:]]{8,}' storage/logs/
+  ```
+  It prints the names of files that contain a match and nothing otherwise (exit status 1 means no match). It is a heuristic for common token shapes, not proof. If you use a different log channel, point it at that location.
+- [ ] Sync history retention: `INTEGRATIONS_SYNC_RUN_RETENTION_DAYS` (default 30) is acceptable; the daily `lifeos:integrations:prune` removes older runs (the newest 20 per account stay), and the first run after deploy deletes the whole old backlog in chunks. The index migration `2026_11_10_100001` uses `CREATE INDEX CONCURRENTLY` on PostgreSQL, so your deploy tooling must not wrap it in a transaction; if it is interrupted, run the migration again.
 - [ ] Rollback known: the migrations of this feature are additive; disabling a provider on the screen stops new connections without losing existing ones.
