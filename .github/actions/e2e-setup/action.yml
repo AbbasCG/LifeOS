@@ -46,26 +46,6 @@ runs:
     - name: Install Chromium
       shell: bash
       working-directory: frontend
-      run: |
-        # The system packages come from the Ubuntu mirrors through apt. When the runner cannot resolve those hosts (CI run 205: every browser job
-        # sat in this step for 8-18 minutes of silent apt timeouts and then failed before any test ran), apt is told to give up quickly on a dead
-        # mirror, and the whole install is retried a bounded number of times, which rides out a short outage. If the mirrors stay unreachable the
-        # step still FAILS, loudly and with the apt output above: nothing is skipped and no test runs against a half-installed browser.
-        printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\nAcquire::https::Timeout "15";\n' | sudo tee /etc/apt/apt.conf.d/80-ci-network > /dev/null
-        if [ "${{ steps.browsers.outputs.cache-hit }}" = "true" ]; then
-          install=(npx playwright install-deps chromium)
-        else
-          install=(npx playwright install --with-deps chromium)
-        fi
-        attempts=3
-        for attempt in $(seq 1 "$attempts"); do
-          if timeout 300 "${install[@]}"; then
-            exit 0
-          fi
-          echo "::warning::Installing Chromium's system packages failed (attempt $attempt of $attempts)"
-          if [ "$attempt" -lt "$attempts" ]; then
-            sleep $((attempt * 30))
-          fi
-        done
-        echo "::error::Chromium's system packages could not be installed after $attempts attempts (usually the Ubuntu mirrors are unreachable from the runner; see the apt errors above). No test was run."
-        exit 1
+      # The OS libraries come from the Ubuntu archives through apt. The script probes them with a real package download, falls back to the other
+      # official hosts, retries a bounded number of times and fails loudly with the per-host evidence (CI runs 205 and PR 92 sat 15 minutes in apt).
+      run: ../scripts/ci-install-chromium-deps.sh "${{ steps.browsers.outputs.cache-hit }}"

@@ -189,8 +189,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shell syntax
         run: |
-          bash -n scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/deploy-resolve.sh scripts/ci-install-actionlint.sh scripts/release-notes-draft.sh scripts/tests/deploy-production.test.sh scripts/tests/deploy-resolve.test.sh scripts/tests/workflow-lint.test.sh scripts/tests/release-notes-draft.test.sh
-          shellcheck -x -S warning scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/deploy-resolve.sh scripts/ci-install-actionlint.sh scripts/release-notes-draft.sh scripts/tests/deploy-production.test.sh scripts/tests/deploy-resolve.test.sh scripts/tests/workflow-lint.test.sh scripts/tests/release-notes-draft.test.sh
+          bash -n scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/deploy-resolve.sh scripts/ci-install-actionlint.sh scripts/ci-install-chromium-deps.sh scripts/release-notes-draft.sh scripts/tests/deploy-production.test.sh scripts/tests/deploy-resolve.test.sh scripts/tests/workflow-lint.test.sh scripts/tests/ci-install-chromium-deps.test.sh scripts/tests/release-notes-draft.test.sh
+          shellcheck -x -S warning scripts/deploy-production.sh scripts/deploy-ssh-entrypoint.sh scripts/deploy-resolve.sh scripts/ci-install-actionlint.sh scripts/ci-install-chromium-deps.sh scripts/release-notes-draft.sh scripts/tests/deploy-production.test.sh scripts/tests/deploy-resolve.test.sh scripts/tests/workflow-lint.test.sh scripts/tests/ci-install-chromium-deps.test.sh scripts/tests/release-notes-draft.test.sh
       # The binary is cached by version, so most runs need no download at all. On a cache miss scripts/ci-install-actionlint.sh tries `go install`
       # (module proxy) and then pip (GitHub Releases), each with retries, and fails the job if neither works: the lint is never skipped.
       - name: Cache actionlint
@@ -210,3 +210,5 @@ jobs:
         run: scripts/tests/deploy-resolve.test.sh
       - name: Release-notes draft scenarios (offline, temporary git repository)
         run: scripts/tests/release-notes-draft.test.sh
+      - name: Chromium dependency installer scenarios (offline, stubbed apt/curl)
+        run: scripts/tests/ci-install-chromium-deps.test.sh
