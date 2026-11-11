@@ -37,7 +37,8 @@ configure_apt() {
 
 # Prints the first download URL apt would use for the probe package ("" when it cannot tell).
 probe_uri() {
-  "${SUDO_CMD[@]}" apt-get update -qq > /dev/null 2>&1 || true
+  # Bounded: a dead mirror must not keep this probe waiting for minutes (it did in PR 92: 3.5 minutes inside `apt-get update`).
+  timeout "${CI_APT_UPDATE_TIMEOUT:-60}" "${SUDO_CMD[@]}" apt-get update -qq > /dev/null 2>&1 || true
   apt-get --print-uris -qq download "$PROBE_PKG" 2> /dev/null | sed -n "s/^'\([^']*\)'.*/\1/p" | head -n 1
 }
 
@@ -58,8 +59,16 @@ choose_mirror() {
     log "  could not work out a package URL for $PROBE_PKG; keeping the runner's default mirror"
     return 0
   fi
-  rest="${uri#*/ubuntu/}"
-  current="${uri%%/ubuntu/*}/ubuntu"
+  # apt prints either a plain http(s) URL or "mirror+file:/etc/apt/apt-mirrors.txt/pool/..." (the runner's mirror list). The path below the
+  # archive root ("pool/...") is the same on every official host; the runner's own host is the first line of its mirror list.
+  rest="pool/${uri#*/pool/}"
+  if [[ "$uri" == mirror+file:* ]]; then
+    current="$(head -n 1 "${CI_APT_MIRRORS_FILE:-/etc/apt/apt-mirrors.txt}" 2> /dev/null | awk '{print $1}')"
+    current="${current%/}"
+    uri="${current:-${FALLBACK_BASES[0]}}/$rest"
+  else
+    current="${uri%%/pool/*}"
+  fi
   log "  runner default: $current"
   if serves_package "$uri"; then
     return 0

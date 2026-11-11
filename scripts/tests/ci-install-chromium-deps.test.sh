@@ -17,7 +17,9 @@ setup() {
 #!/usr/bin/env bash
 echo "apt-get \$*" >> "$T/calls.log"
 case "\$*" in
-  *--print-uris*) echo "'http://azure.archive.ubuntu.com/ubuntu/pool/universe/f/fonts-unifont/x.deb' x.deb 100 SHA256:0" ;;
+  *--print-uris*)
+    if [[ -n "\${MIRROR_FORM:-}" ]]; then echo "'mirror+file:/etc/apt/apt-mirrors.txt/pool/universe/f/fonts-unifont/x.deb' x.deb 100 SHA256:0"
+    else echo "'http://azure.archive.ubuntu.com/ubuntu/pool/universe/f/fonts-unifont/x.deb' x.deb 100 SHA256:0"; fi ;;
 esac
 exit 0
 STUB
@@ -38,7 +40,8 @@ STUB
   chmod +x "$T/bin/"*
 }
 run() { # run <cache-hit>; uses GOOD_HOSTS / NPX_FAILS from the environment
-  PATH="$T/bin:$PATH" CI_SUDO='' CI_APT_CONF="$T/80-ci" CI_APT_SOURCE_FILES="$T/ubuntu.sources" CI_APT_PAUSE=30 \
+  printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n' > "$T/apt-mirrors.txt"
+  PATH="$T/bin:$PATH" CI_APT_MIRRORS_FILE="$T/apt-mirrors.txt" CI_SUDO='' CI_APT_CONF="$T/80-ci" CI_APT_SOURCE_FILES="$T/ubuntu.sources" CI_APT_PAUSE=30 \
     bash "$SCRIPT" "$1" > "$T/out.log" 2>&1
   echo $? > "$T/rc"
 }
@@ -73,6 +76,12 @@ check "install fails twice then works: three install attempts" test "$(calls '^n
 
 setup; GOOD_HOSTS="azure.archive.ubuntu.com" NPX_FAILS=9 run false
 check "install keeps failing: fails after 3 attempts" test "$(rc)" = 1 -a "$(calls '^npx')" = 3
+
+# The runner's real shape: apt prints mirror+file: URLs; the probe must still hit real hosts with the right path.
+setup; GOOD_HOSTS="archive.ubuntu.com" MIRROR_FORM=1 run false
+check "mirror+file form: succeeds via a fallback host" test "$(rc)" = 0
+check "mirror+file form: probes a well-formed URL" grep -q 'probe http://azure.archive.ubuntu.com/ubuntu/pool/universe/f/fonts-unifont/x.deb -> HTTP 000' "$T/out.log"
+check "mirror+file form: never probes a mirror+file URL" bash -c "! grep -q 'probe mirror+file' '$T/out.log'"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]
