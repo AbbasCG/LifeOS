@@ -41,6 +41,68 @@ export function dueForDay(day: string, now = new Date()): string | null {
 }
 
 /**
+ * The task dialog's deadline field. Its value is 'YYYY-MM-DDTHH:mm' (or '' for no deadline) on the BROWSER's wall clock, exactly as the
+ * date pickers have always stored it ("a deadline typed as 14:30 comes back as 14:30 on the same device"). The quick choices pick their
+ * DAY on the ACCOUNT calendar (as they always did) and keep the field's own HH:mm; there is no instant arithmetic in field space. A
+ * deadline always has a time (the schema has no date-only deadline), so with none yet the visible default is 17:00.
+ * Known follow-up: typed times could use the account zone instead of the browser's; that is a product decision, not made here.
+ */
+export const DEFAULT_DEADLINE_TIME = '17:00'
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const FIELD = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/
+
+/** Deadline field value for an instant: its day and time on the browser's wall clock. Empty or invalid: ''. */
+export function deadlineField(iso?: string | null): string {
+  if (!iso || Number.isNaN(Date.parse(iso))) return ''
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+/** The instant (ISO, UTC) a field value means on the browser's wall clock (what the form posts); null for '' or something that is not a date. */
+export function deadlineInstant(field: string): string | null {
+  const m = FIELD.exec(field)
+  if (!m) return null
+  const at = new Date(`${m[1]}T${m[2] ?? DEFAULT_DEADLINE_TIME}`)
+  return Number.isNaN(at.getTime()) ? null : at.toISOString()
+}
+
+/** The day "This week" means: the coming Sunday, or today when it is Sunday. */
+export const weekEndDay = (today: string) => shiftDay(today, (7 - weekdayOf(today)) % 7)
+export type DeadlineWhen = 'none' | 'today' | 'tomorrow' | 'week' | 'custom'
+/**
+ * Which "When" choice a deadline field value is. The field is read as the instant it means on the browser's clock, and that instant's
+ * ACCOUNT day is compared with the account's today, tomorrow and Sunday. Empty: none. Today, then tomorrow, then the end of this week win
+ * in that order; any other day, past or future, is 'custom' so no tile claims it. When the browser and account zones differ, the tile follows
+ * the account day of the typed moment (e.g. 23:30 in a browser an hour behind the account can read as the account's tomorrow).
+ */
+export function deriveWhen(field: string, now = new Date()): DeadlineWhen {
+  const iso = deadlineInstant(field)
+  if (!field || !iso) return 'none'
+  const today = accountDay(now), day = accountDay(new Date(iso))
+  return day === today ? 'today' : day === shiftDay(today, 1) ? 'tomorrow' : day === weekEndDay(today) ? 'week' : 'custom'
+}
+/** The next half hour after `now` on the browser's wall clock ('HH:mm'); '23:59' when that would be tomorrow. */
+export function nextHalfHour(now = new Date()): string {
+  const next = (Math.floor((now.getHours() * 60 + now.getMinutes()) / 30) + 1) * 30
+  return next >= 24 * 60 ? '23:59' : `${pad2(Math.floor(next / 60))}:${pad2(next % 60)}`
+}
+/**
+ * A deadline field value after tapping a "When" tile: the chosen DAY (account calendar) with the HH:mm already in the field. With no time
+ * yet it is 17:00, or, when that day is today and 17:00 has already passed on the field's clock, the next half hour (never a silent
+ * late-night time). 'none' clears it.
+ */
+export function whenField(when: When, field: string, now = new Date()): string {
+  if (when === 'none') return ''
+  const today = accountDay(now)
+  const day = when === 'tomorrow' ? shiftDay(today, 1) : when === 'week' ? weekEndDay(today) : when === 'nextweek' ? nextWeekDay(now) : today
+  const time = FIELD.exec(field)?.[2] ?? (day === today && now.getHours() * 60 + now.getMinutes() >= 17 * 60 ? nextHalfHour(now) : DEFAULT_DEADLINE_TIME)
+  return `${day}T${time}`
+}
+/** A task's new deadline (ISO) when moved to a quick choice, keeping the time of day it already had (see whenField). null clears it. */
+export function dueKeepingTime(when: When, currentIso: string | null | undefined, now = new Date()): string | null {
+  return deadlineInstant(whenField(when, deadlineField(currentIso), now))
+}
+
+/**
  * What a dictated phrase says about when and how important ("buy milk tomorrow, urgent"), in English, Arabic or Dutch, so the
  * "When" and "Priority" chips can be set for the user to see and change. Only used for dictation; typed text is left alone,
  * and the text itself is never rewritten.

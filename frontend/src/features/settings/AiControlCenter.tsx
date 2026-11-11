@@ -10,6 +10,7 @@ import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import { WeeklyDraftSettings } from './WeeklyDraftSettings'
 import { hasVoiceConsent, setVoiceConsent } from '../../lib/voice'
 import type { AiActivity, IntelligencePrefs, IntelligenceSettingsData, LearningScope } from '../../lib/intelligence'
+import { formatMediumDateTime } from '../../lib/clock'
 
 function Toggle({ id, label, hint, checked, disabled, onChange }: { id: string; label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return <div className="ai-toggle">
@@ -34,7 +35,7 @@ export default function AiControlCenter() {
   if (error) return <ErrorMessage error={error} />
   if (!data) return <Skeleton lines={6} />
   const s = data.settings
-  const when = (iso: string | null) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : ''
+  const when = (iso: string | null) => iso ? formatMediumDateTime(iso, { language }) : ''
   async function run(fn: () => Promise<unknown>, done: string) {
     setBusy(true); setFailure('')
     try { await fn(); toast(done); reload(); activity.reload() } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }

@@ -40,7 +40,7 @@ class TodayService
         $peak = $c['focus_start'] && $c['focus_end'] ? ['start' => $c['focus_start'], 'end' => $c['focus_end']] : null;
 
         $deadlines = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->whereNotNull('due_at')
-            ->where('due_at', '<=', $day->addDays(7)->utc())->orderBy('due_at')->limit(12)->get()
+            ->where('due_at', '<', $day->addDays(7)->utc())->orderBy('due_at')->limit(12)->get()
             ->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'due_at' => $t->due_at->toIso8601String(), 'type' => 'task',
                 'bucket' => $t->due_at < $now ? 'overdue' : ($t->due_at < $day->addDay() ? 'today' : ($t->due_at < $day->addDays(2) ? 'tomorrow' : 'week'))]);
         $deadlines = $deadlines->concat(Project::where('user_id', $user->id)->where('status', 'active')->whereBetween('due_at', [$now->utc(), $day->addDays(7)->utc()])->get()
@@ -77,7 +77,7 @@ class TodayService
         $lines = [];
         if ($evening) {
             $lines[] = $this->line($ar, "You completed {$tasksDone} task(s) and focused ".$this->hm($base['stats']['focus_minutes_today'], false).' today.', "أنجزت {$tasksDone} مهمة وركّزت ".$this->hm($base['stats']['focus_minutes_today'], true).' اليوم.');
-            $carry = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->whereBetween('due_at', [$day->utc(), $day->addDay()->utc()])->count();
+            $carry = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->where('due_at', '>=', $day->utc())->where('due_at', '<', $day->addDay()->utc())->count();
             $lines[] = $carry ? $this->line($ar, "{$carry} task(s) due today are still open — carry them over or reschedule.", "{$carry} مهمة مستحقة اليوم ما زالت مفتوحة — انقلها أو أعد جدولتها.") : $this->line($ar, 'Nothing due today is left open.', 'لم يبقَ شيء مستحق اليوم مفتوحاً.');
             $lines[] = $this->line($ar, "Habits: {$progress['habits']['done']} of {$progress['habits']['target']} done.", "العادات: {$progress['habits']['done']} من {$progress['habits']['target']}.");
             $tomorrow = $this->calendar->occurrences($user, $day->addDay()->utc(), $day->addDays(2)->utc())->first();

@@ -15,7 +15,7 @@ async function call(page: Page, method: string, path: string, body?: unknown) {
   }, [method, path, body] as const)
 }
 
-const clock = (iso: string | Date, zone: string) => new Date(iso).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', timeZone: zone })
+const clock = (iso: string | Date, zone: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone })
 const dayIn = (at: Date, zone: string) => at.toLocaleDateString('en-CA', { timeZone: zone })
 
 test('the calendar shows times in the account’s zone, can switch to the device’s, and saves what you type in that zone', async ({ page, setLanguage }) => {
@@ -33,7 +33,7 @@ test('the calendar shows times in the account’s zone, can switch to the device
     const wanted = Date.UTC(y, m - 1, d, 10, 0)
     const wallAtGuess = Date.parse(new Date(wanted).toLocaleString('sv-SE', { timeZone: zone }).replace(' ', 'T') + 'Z')
     const starts = new Date(wanted - (wallAtGuess - wanted)), ends = new Date(starts.getTime() + 3_600_000)
-    expect(clock(starts, zone)).toBe('10:00 AM')
+    expect(clock(starts, zone)).toBe('10:00')
     const made = await call(page, 'POST', '/api/events', { title, kind: 'flexible', starts_at: starts.toISOString(), ends_at: ends.toISOString(), timezone: zone })
     expect(made.status).toBe(201)
     id = made.body.data.id
@@ -45,10 +45,10 @@ test('the calendar shows times in the account’s zone, can switch to the device
     await expect(zoneNote).toBeVisible()
     await expect(zoneNote.getByRole('radio', { name: 'My account' })).toHaveAttribute('aria-checked', 'true')
 
-    // Account zone: the agenda (the next seven days) lists the block at 10:00 AM.
+    // Account zone: the agenda (the next seven days) lists the block at 10:00.
     const item = page.locator('.agenda-item', { hasText: title })
     await expect(item).toBeVisible()
-    await expect(item.locator('time strong')).toHaveText('10:00 AM')
+    await expect(item.locator('time strong')).toHaveText('10:00')
 
     // Device zone (UTC): the same block reads the browser's time (and the free-time note appears).
     await zoneNote.getByRole('radio', { name: 'This device' }).click()
@@ -69,7 +69,7 @@ test('the calendar shows times in the account’s zone, can switch to the device
     const list = await call(page, 'GET', `/api/calendar?from=${encodeURIComponent(new Date(wanted - 86_400_000).toISOString())}&to=${encodeURIComponent(new Date(wanted + 2 * 86_400_000).toISOString())}`)
     const typedEvent = (list.body.data as { id: string; title: string; starts_at: string; event_id: number }[]).find(e => e.title === newTitle)
     expect(typedEvent, 'the typed event is stored').toBeTruthy()
-    expect(clock(typedEvent!.starts_at, zone)).toBe('03:30 PM')
+    expect(clock(typedEvent!.starts_at, zone)).toBe('15:30')
     await call(page, 'DELETE', `/api/events/${typedEvent!.event_id}`)
   } finally {
     if (id !== null) await call(page, 'DELETE', `/api/events/${id}`)

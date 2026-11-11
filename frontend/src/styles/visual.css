@@ -112,8 +112,7 @@ dialog[data-closing] { pointer-events: none; }
 .cta { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 22px; border-radius: 16px; font-size: 16px; font-weight: 750; color: #fff; background: var(--brand-gradient); box-shadow: var(--brand-glow); border: 0; transition: transform var(--duration) var(--ease), filter var(--duration) var(--ease); }
 .cta:hover { filter: brightness(1.05); }
 .cta:active { transform: scale(0.98); }
-.chip-row { display: flex; gap: var(--space-2); overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.chip-row::-webkit-scrollbar { display: none; }
+.chip-row { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: 2px; }
 .filter-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border-radius: var(--radius-pill); border: 1px solid var(--hairline-strong, var(--color-border)); background: var(--surface-raised); color: var(--color-text); font-size: 13px; font-weight: 650; white-space: nowrap; }
 .filter-chip[aria-pressed="true"], .filter-chip[aria-checked="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .filter-chip .count { font-variant-numeric: tabular-nums; opacity: 0.75; }
@@ -344,7 +343,7 @@ dialog[data-closing] { pointer-events: none; }
 .session-notes-x { margin-top: var(--space-2); }
 @media (max-width: 560px) { .focus-start { width: 100%; } }
 @media (max-width: 560px) {
-  .focus-modes { display: flex; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .focus-modes { display: flex; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
   .focus-modes button { white-space: nowrap; flex-shrink: 0; }
   .focus-page .focus-dial { width: min(64vw, 250px) !important; }
 }
@@ -459,7 +458,7 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 :root[data-theme="dark"] .priority-urgent { color: var(--color-danger); }
 :root[data-theme="dark"] .priority-high { color: var(--color-warning); }
 /* Scrollable lists take keyboard focus so they can be scrolled without a mouse; show it like any other control. */
-.goal-journey:focus-visible, .ai-activity:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; border-radius: 8px; }
+.goal-journey:focus-visible, .ai-activity:focus-visible, .table-scroll:focus-visible, .session-history:focus-visible, .chat-log:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; border-radius: 8px; }
 /* The settings tabs sit on the page's tinted glow, so their resting text is a step darker than muted. */
 :root:not([data-theme="dark"]) .settings-tabs a:not(.active) { color: #475063; }
 :root:not([data-theme="dark"]) .settings-tabs a.active { color: var(--color-primary-hover); }
@@ -635,6 +634,13 @@ a.filter-chip { text-decoration: none; color: var(--color-text); }
 .focus-wrapup .primary { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
 .focus-wrapup .quiet { min-height: 44px; }
 
-/* The sidebar scrolls by wheel, touch and keyboard but shows no scrollbar (Firefox, Chrome 121+ and current Edge: scrollbar-width; older Chrome, Edge and Safari: the pseudo-element). overflow-y stays `auto`, so every item is still reachable. */
-.sidebar { scrollbar-width: none; -ms-overflow-style: none; overscroll-behavior: contain; }
-.sidebar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* The sidebar scrolls by wheel, touch and keyboard; its scrollbar is hidden by the global rule in scrollbars.css. overflow-y stays `auto`, so every item is still reachable. */
+.sidebar { overscroll-behavior: contain; }
+
+/* === task edit dialog: deadline vs scheduled session === */
+.rf-session { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-border); border-radius: 16px; min-width: 0; }
+.rf-session-time { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; }
+.rf-session-edit { display: grid; gap: 8px; }
+.rf-custom:empty { display: none; }
+.rf-custom { font-weight: 700; color: var(--color-text); }
+@media (forced-colors: active) { .choice[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; } }

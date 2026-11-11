@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,5 +27,22 @@ class ResourceRequest extends FormRequest
             'categories' => ['color' => ['sometimes', 'regex:/^#[0-9a-fA-F]{6}$/'], 'area' => ['nullable', Rule::in(['work', 'study', 'personal'])]],
             default => [],
         };
+    }
+
+    /**
+     * Datetime fields are handed to the model as UTC instants. Eloquent formats a string like "2026-02-12T10:30:00+01:00" for the database without
+     * converting its offset, which would silently store 10:30 UTC (an hour off); Z and +00:00 happened to work. A date-only value stays the start
+     * of that day in the app timezone (UTC), exactly as before.
+     */
+    public function validated($key = null, $default = null): mixed
+    {
+        $data = parent::validated();
+        foreach (['due_at', 'remind_at'] as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $data[$field] = CarbonImmutable::parse($data[$field])->utc();
+            }
+        }
+
+        return $key === null ? $data : data_get($data, $key, $default);
     }
 }

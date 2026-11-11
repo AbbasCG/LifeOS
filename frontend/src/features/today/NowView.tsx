@@ -17,6 +17,7 @@ import { completeTaskOrQueue } from '../../lib/offline'
 import { Skeleton } from '../../components/ui/Shared'
 import { RecommendationCard } from '../intelligence/RecommendationCard'
 import type { Recommendation } from '../../lib/intelligence'
+import { formatClock } from '../../lib/clock'
 
 type Task = Briefing['focus'][number]
 type Event = TodayData['timeline'][number]
@@ -36,7 +37,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
   const [completing, setCompleting] = useState(false)
   if (!briefing || !today) return <section className="now-card"><Skeleton height={150} /></section>
   const zone = today.timezone && isValidZone(today.timezone) ? today.timezone : undefined
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone: zone })
+  const time = (iso: string) => formatClock(iso, { language, timeZone: zone })
   const events = today.timeline.filter(e => !e.all_day)
   const current = events.find(e => Date.parse(e.starts_at) <= now && Date.parse(e.ends_at) > now)
   const next = events.find(e => Date.parse(e.starts_at) > now)
@@ -101,7 +102,7 @@ export function TodayStrip({ today }: { today: TodayData | null }) {
   const t = useText(), { language } = useLanguage(), now = useNow(60_000)
   if (!today) return <section className="panel today-strip"><Skeleton height={64} /></section>
   const zone = today.timezone && isValidZone(today.timezone) ? today.timezone : undefined
-  const time = (iso: string | number) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone: zone })
+  const time = (iso: string | number) => formatClock(iso, { language, timeZone: zone })
   const events = today.timeline.filter(e => !e.all_day)
   const dayStart = today.day_start ? Date.parse(today.day_start) : new Date().setHours(0, 0, 0, 0)
   // Show from the earliest of 08:00 / first item to the latest of 20:00 / last item, in whole hours.
@@ -129,7 +130,7 @@ export function TodayStrip({ today }: { today: TodayData | null }) {
         aria-label={`${e.title}, ${time(e.starts_at)}–${time(e.ends_at)}`} title={`${time(e.starts_at)} ${e.title}`}><KindIcon kind={e.kind} source={e.source} size={12} /></Link>)}
       {now >= start && now <= end && <span className="strip-now" style={{ insetInlineStart: pos(now) }} aria-hidden="true"><i /></span>}
     </div>
-    <div className="strip-hours" aria-hidden="true">{hours.map(h => <span key={h} style={{ insetInlineStart: pos(h) }}>{new Date(h).toLocaleTimeString(language, { hour: 'numeric', timeZone: zone })}</span>)}</div>
+    <div className="strip-hours" aria-hidden="true">{hours.map(h => <span key={h} style={{ insetInlineStart: pos(h) }}>{formatClock(h, { language, timeZone: zone })}</span>)}</div>
     {remaining.length === 0 && events.length > 0 && <p className="muted small strip-note"><CheckCircle2 size={14} aria-hidden="true" />{t('Nothing left on the calendar today.', 'لا شيء متبقٍ في تقويم اليوم.')}</p>}
   </section>
 }

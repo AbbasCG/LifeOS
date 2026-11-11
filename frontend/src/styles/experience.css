@@ -101,7 +101,7 @@ p { text-wrap: pretty; }
 
 /* Review */
 .week-switcher strong { font-size: 14px; min-width: 130px; text-align: center; }
-.stepper { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.stepper { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; overflow-x: auto; }
 .stepper button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px 8px 8px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted); font-size: 13px; font-weight: 600; white-space: nowrap; min-height: 40px; }
 [dir="rtl"] .stepper button { padding: 8px 8px 8px 14px; }
 .stepper button span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface-muted); font-size: 12px; }
@@ -249,7 +249,7 @@ p { text-wrap: pretty; }
 /* Settings hub & security */
 .settings-hub { display: grid; grid-template-columns: minmax(0, 1fr); min-inline-size: 0; gap: 20px; max-width: 1100px; margin-inline: auto; width: 100%; }
 .settings-hub > .page, .settings-hub .page { margin: 0; max-width: none; }
-.settings-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; border-bottom: 1px solid var(--color-border); }
+.settings-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; border-bottom: 1px solid var(--color-border); }
 .settings-tabs { scroll-padding-inline: 32px; --e: right; --fs: 0px; --fe: 0px; mask-image: linear-gradient(to var(--e), transparent, #000 var(--fs), #000 calc(100% - var(--fe)), transparent); }
 [dir="rtl"] .settings-tabs { --e: left; }
 .settings-tabs[data-fs] { --fs: 28px; }

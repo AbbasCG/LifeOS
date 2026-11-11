@@ -8,6 +8,7 @@ import { minutesLabel } from '../../lib/dates'
 import { Skeleton } from '../../components/ui/Shared'
 import { arcPath, dayAngle, isValidZone, polar } from '../../lib/dial'
 import { sourceName } from '../../lib/sources'
+import { formatClock } from '../../lib/clock'
 
 const SIZE = 220, C = SIZE / 2
 
@@ -26,7 +27,7 @@ export function DayDial({ data }: { data: TodayData | null }) {
   const start = data.day_start ? Date.parse(data.day_start) : new Date(now).setHours(0, 0, 0, 0)
   // Labels use the account's timezone — the same one the dial is drawn in — so a browser in another zone stays consistent.
   const timeZone = data.timezone && isValidZone(data.timezone) ? data.timezone : undefined
-  const time = (iso: string | number) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone })
+  const time = (iso: string | number) => formatClock(iso, { language, timeZone })
   const events: Item[] = data.timeline.filter(e => !e.all_day).map(e => ({ ...e, kind: e.kind === 'fixed' ? 'fixed' : 'flexible' }))
   const slots: Item[] = data.focus_time.slots.map(s => ({ id: `slot-${s.starts_at}`, title: t('Free for focus', 'وقت متاح للتركيز'), starts_at: s.starts_at, ends_at: s.ends_at, kind: 'slot', source: 'lifeos' }))
   const items = [...events, ...slots].sort((a, b) => a.starts_at.localeCompare(b.starts_at))

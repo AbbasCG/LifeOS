@@ -6,6 +6,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { minutesLabel } from '../../lib/dates'
 import { Skeleton } from '../../components/ui/Shared'
 import { CheckinCard } from '../wellbeing/CheckinCard'
+import { formatClock, formatDayTime } from '../../lib/clock'
 
 type Props = { data: TodayData | null; onChange?: () => void }
 
@@ -66,14 +67,14 @@ export function DeadlinesWidget({ data }: Props) {
       <ul className="deadline-list">{data.deadlines.slice(0, 6).map(d => <li key={`${d.type}-${d.id}`} className={`bucket-${d.bucket}`}>
         <span className="bucket">{bucket[d.bucket]}</span>
         <Link to={d.type === 'task' || d.type === 'external' ? '/tasks' : d.type === 'project' ? `/projects/${d.id}` : '/goals'}><strong>{d.title}</strong></Link>
-        <small className="muted">{d.type === 'external' ? <span className="source-badge">{d.source}</span> : type[d.type]} · {new Date(d.due_at).toLocaleString(language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</small>
+        <small className="muted">{d.type === 'external' ? <span className="source-badge">{d.source}</span> : type[d.type]} · {formatDayTime(d.due_at, { language }, { weekday: 'short' })}</small>
       </li>)}</ul>}
   </section>
 }
 
 export function FocusTimeWidget({ data }: Props) {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar'
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = (iso: string) => formatClock(iso, { language })
   return <section className="panel reveal focus-time-widget">
     <header className="row"><h2><Hourglass size={18} />{t('Available focus time', 'وقت التركيز المتاح')}</h2>{data && <strong>{minutesLabel(data.focus_time.free_minutes, ar)}</strong>}</header>
     {!data ? <Skeleton lines={2} /> : data.focus_time.slots.length === 0 ? <p className="muted">{t('No free slot of 30+ minutes left today.', 'لا توجد فترة متاحة ٣٠ دقيقة أو أكثر اليوم.')}</p> :

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 import './index.css'
 import './styles/theme.css'
+import './styles/scrollbars.css'
 
 import App from './App'
 import { ThemeProvider } from './contexts/ThemeContext'

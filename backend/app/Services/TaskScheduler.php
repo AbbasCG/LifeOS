@@ -9,6 +9,7 @@ use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The single place that decides whether a task may get another calendar session.
@@ -178,6 +179,25 @@ class TaskScheduler
         // Straight to the table: a flag flip is not an edit of the task, so updated_at (the stale-proposal check) stays as it was.
         Task::whereKey($task->id)->toBase()->update(['split_sessions' => $split]);
         $task->setAttribute('split_sessions', $split)->syncOriginalAttribute('split_sessions');
+    }
+
+    /**
+     * Keep tasks.scheduled_start/scheduled_end (the planned window, written when a plan is accepted) in step with the task's active sessions:
+     * it becomes the span of the active sessions, or empty when there are none. A task that never had a planned window is left alone (an ordinary
+     * POST /api/tasks/{id}/schedule does not create one). Straight to the table so updated_at (stale-proposal check) and the postponement hook are untouched.
+     */
+    public function syncPlannedWindow(int $userId, int $taskId): void
+    {
+        // Called after the event change has committed and while no event row is locked (task row first, calendar rows after, like every other path).
+        // The task row lock serialises two syncs, and the sessions are read after taking it, so the window always reflects committed state.
+        DB::transaction(function () use ($userId, $taskId) {
+            $task = Task::where('user_id', $userId)->whereKey($taskId)->lockForUpdate()->first(['id', 'scheduled_start']);
+            if (! $task || $task->scheduled_start === null) {
+                return;
+            }
+            $sessions = $this->activeSessionsQuery($userId, $taskId)->get(['starts_at', 'ends_at']);
+            Task::whereKey($taskId)->toBase()->update(['scheduled_start' => $sessions->min('starts_at'), 'scheduled_end' => $sessions->max('ends_at')]);
+        });
     }
 
     /**

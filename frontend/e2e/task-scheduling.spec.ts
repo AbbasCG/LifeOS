@@ -16,7 +16,7 @@ async function call(page: Page, method: string, path: string, body?: unknown, he
     return { status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null) }
   }, [method, path, body, headers] as const)
 }
-const clock = (at: string, zone: string) => new Date(at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', timeZone: zone })
+const clock = (at: string, zone: string) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone })
 
 /** The sessions of one task in the next two months, straight from the calendar API (what the calendar page draws). */
 async function sessionsOf(page: Page, taskId: number) {

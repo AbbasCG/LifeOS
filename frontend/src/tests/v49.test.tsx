@@ -8,6 +8,7 @@ import { ToastProvider } from '../components/ui/Toaster'
 import { AuthProvider } from '../contexts/AuthContext'
 import FocusPage from '../features/FocusPage'
 import { TASKS_CHANGED } from '../lib/quickAdd'
+import scrollbars from '../styles/scrollbars.css?raw'
 import visual from '../styles/visual.css?raw'
 import workspace from '../styles/workspace.css?raw'
 
@@ -145,11 +146,10 @@ describe('V49 finishing a focus session on a task', () => {
 describe('V49 the sidebar scrollbar', () => {
   const rule = (css: string, selector: string) => [...css.matchAll(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`, 'g'))].map(m => m[1]).join(' ')
 
-  it('is hidden for Firefox/Chrome/Edge and older WebKit, while the sidebar still scrolls', () => {
+  it('is hidden by the global rule (scrollbars.css), while the sidebar still scrolls', () => {
+    expect(scrollbars).toMatch(/\*\s*\{[^}]*scrollbar-width:\s*none/)
     const base = rule(visual, '.sidebar')
-    expect(base).toMatch(/scrollbar-width:\s*none/)
-    expect(base).toMatch(/-ms-overflow-style:\s*none/)
-    expect(rule(visual, '.sidebar::-webkit-scrollbar')).toMatch(/display:\s*none/)
+    expect(base).not.toMatch(/scrollbar-width:\s*(auto|thin)/)
     const all = `${rule(workspace, '.sidebar')} ${base}`
     expect(all).toMatch(/overflow-y:\s*auto/)
     expect(all).not.toMatch(/overflow(-y)?:\s*hidden/)

@@ -6,6 +6,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import type { WriteOp, WritePreview as Preview } from '../../lib/calendarWrite'
+import { formatClock, formatDayTime } from '../../lib/clock'
 
 /**
  * Shows exactly what one change to a connected calendar will do, and makes it only when the user confirms. The server
@@ -14,8 +15,8 @@ import type { WriteOp, WritePreview as Preview } from '../../lib/calendarWrite'
 export function WritePreview({ op, accountId, eventId, linkId, onDone, onCancel }: { op: WriteOp; accountId: number; eventId?: number | null; linkId?: number | null; onDone: () => void; onCancel: () => void }) {
   const t = useText(), { language } = useLanguage(), toast = useToast()
   const [preview, setPreview] = useState<Preview | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
-  const when = (iso: string) => new Date(iso).toLocaleString(language, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-  const span = (s: { starts_at: string; ends_at: string }) => `${when(s.starts_at)} – ${new Date(s.ends_at).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })}`
+  const when = (iso: string) => formatDayTime(iso, { language })
+  const span = (s: { starts_at: string; ends_at: string }) => `${when(s.starts_at)} – ${formatClock(s.ends_at, { language })}`
 
   useEffect(() => {
     let live = true

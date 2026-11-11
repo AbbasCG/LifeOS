@@ -11,6 +11,7 @@ import { useToast } from '../lib/toast'
 import { useStatusLabel } from './ResourcePage'
 import { Dialog, EmptyState, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { DateTimeField } from '../components/ui/DateTimePicker'
+import { formatClock, formatMediumDateTime } from '../lib/clock'
 
 type Horizon = 'today' | 'week' | 'next_week'
 type Draft = PlanItem & { error?: string }
@@ -96,7 +97,7 @@ export default function PlanningPage() {
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
   }, [draft])
   const dayFormat = (day: string) => new Date(`${day}T12:00`).toLocaleDateString(language, { weekday: 'long', month: 'short', day: 'numeric' })
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = (iso: string) => formatClock(iso, { language })
 
   return <section className="page planning-page">
     <header className="page-heading reveal"><div><p className="eyebrow">{t('Smart planning', 'التخطيط الذكي')}</p><h1>{t('A realistic week, made with you', 'أسبوع واقعي بمشاركتك')}</h1><p className="muted">{t('LifeOS proposes focus blocks around your commitments. Review, adjust, then accept — your calendar changes only when you say so.', 'يقترح LifeOS فترات تركيز حول التزاماتك. راجعها وعدّلها ثم وافق — لا يتغير تقويمك إلا بموافقتك.')}</p></div><Link className="quiet" to="/review"><Target size={17} />{t('Weekly review', 'المراجعة الأسبوعية')}</Link></header>
@@ -179,7 +180,7 @@ export default function PlanningPage() {
 
     {recent.data && recent.data.length > 1 && <details className="panel">
       <summary>{t('Recent proposals', 'المقترحات الأخيرة')}</summary>
-      <ul className="history-list">{recent.data.map(p => <li key={p.id}><button className="text-button" onClick={() => load(p)}>{new Date(p.created_at).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })}</button><span className={`badge status-${p.status}`}>{p.status === 'pending' ? t('Pending', 'معلق') : p.status === 'accepted' ? t('Accepted', 'مقبول') : t('Rejected', 'مرفوض')}</span><span className="muted">{t(`${p.items.length} blocks`, `${p.items.length} فترات`)}</span></li>)}</ul>
+      <ul className="history-list">{recent.data.map(p => <li key={p.id}><button className="text-button" onClick={() => load(p)}>{formatMediumDateTime(p.created_at, { language })}</button><span className={`badge status-${p.status}`}>{p.status === 'pending' ? t('Pending', 'معلق') : p.status === 'accepted' ? t('Accepted', 'مقبول') : t('Rejected', 'مرفوض')}</span><span className="muted">{t(`${p.items.length} blocks`, `${p.items.length} فترات`)}</span></li>)}</ul>
     </details>}
 
     {editing && <BlockEditor initial={editing.item} tasks={openTasks.data?.data ?? []} isNew={editing.index === null} onClose={() => setEditing(null)} onSave={item => applyEdit(item, editing.index)} />}

@@ -37,6 +37,7 @@ const BriefingWidget = widget('BriefingWidget'), CheckinWidget = widget('Checkin
 const FocusTimeWidget = widget('FocusTimeWidget'), ProgressWidget = widget('ProgressWidget')
 const QuickActionsWidget = lazyPart(() => import('./today/TodayWidgets').then(m => m.QuickActionsWidget))
 import type { TodayData } from '../lib/api'
+import { formatDayTime } from '../lib/clock'
 
 export type Overview={total_tasks:number;completed_tasks:number;completion_rate:number;overdue_tasks:number;focus_minutes:number;estimated_minutes:number;actual_minutes:number;days:{date:string;minutes:number}[]}
 export function useOverview(){const [data,setData]=useState<Overview|null>(null),[error,setError]=useState('');async function reload(){try{setData(await api<Overview>('/api/overview'))}catch(e){setError((e as Error).message)}}useEffect(()=>{let active=true;api<Overview>('/api/overview').then(v=>{if(active)setData(v)}).catch(e=>{if(active)setError(e.message)});return()=>{active=false}},[]);return{data,error,reload}}
@@ -121,7 +122,7 @@ export default function Dashboard() {
         {!data ? <Skeleton lines={3} /> : !data.focus.length ? <Empty>{t('Nothing open.', 'لا شيء مفتوح.')}</Empty> : data.focus.map((item, i) => <div className="record-row focus-row" key={item.id}>
           <span className="rank">{i + 1}</span>
           <button className="check" disabled={busy === item.id} aria-label={t('Complete task', 'إكمال المهمة')} onClick={() => void act(item.id, () => api(`/api/tasks/${item.id}`, 'PATCH', { status: 'completed' }))}><Check size={16} /></button>
-          <div className="record-main"><strong>{item.title}</strong><div className="metadata"><span>{item.estimated_minutes} {t('min', 'د')}</span>{item.due_at && <time>{new Date(item.due_at).toLocaleString(language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>}{item.reasons.filter(r => r !== 'quick_win' || item.reasons.length === 1).map(r => <span key={r} className={`chip reason-${r}`}>{reason(r)}</span>)}</div></div>
+          <div className="record-main"><strong>{item.title}</strong><div className="metadata"><span>{item.estimated_minutes} {t('min', 'د')}</span>{item.due_at && <time>{formatDayTime(item.due_at, { language }, { month: 'short', day: 'numeric' })}</time>}{item.reasons.filter(r => r !== 'quick_win' || item.reasons.length === 1).map(r => <span key={r} className={`chip reason-${r}`}>{reason(r)}</span>)}</div></div>
           <Link to={`/focus?task=${item.id}`} className="icon-button" aria-label={t('Focus on this task', 'ركّز على هذه المهمة')}><Play size={16} /></Link>
         </div>)}
       </section>,

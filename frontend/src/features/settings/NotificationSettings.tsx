@@ -9,6 +9,7 @@ import { useToast } from '../../lib/toast'
 import { pushState, enablePush, disablePush, type PushState } from '../../lib/push'
 import { notificationSupport } from '../../lib/quickActions'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { formatMediumDateTime } from '../../lib/clock'
 
 type Channel = { enabled: boolean; push: boolean }
 type PushConfig = { configured: boolean; public_key: string | null; channels: Record<string, Channel> }
@@ -39,7 +40,7 @@ export default function NotificationSettings() {
     system: [t('Account & security', 'الحساب والأمان'), t('Connection problems and important account notices. Always shown in the app.', 'مشكلات الربط وتنبيهات الحساب المهمة. تظهر دائماً داخل التطبيق.')],
   }
   const pushLabel = (s: string | null | undefined) => s ? ({ sent: t('Pushed', 'أُرسل'), queued: t('Sending…', 'جارٍ الإرسال…'), retrying: t('Retrying', 'إعادة المحاولة'), failed: t('Push failed', 'فشل الإرسال'), suppressed: t('Held during focus', 'مؤجل أثناء التركيز'), no_device: t('No device', 'لا يوجد جهاز') } as Record<string, string>)[s] ?? s : t('In-app', 'داخل التطبيق')
-  const when = (iso: string) => new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })
+  const when = (iso: string) => formatMediumDateTime(iso, { language })
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key); setError('')

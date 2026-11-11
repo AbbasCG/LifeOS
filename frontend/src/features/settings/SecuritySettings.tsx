@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useAuditLabel } from '../../lib/labels'
 import QrCode from '../../components/ui/QrCode'
 import { Dialog, EmptyState, ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { formatMediumDateTime } from '../../lib/clock'
 
 type Overview = { two_factor_enabled: boolean; two_factor_pending: boolean; two_factor_confirmed_at: string | null; recovery_codes_remaining: number | null }
 type Session = { id: string; ip_address: string | null; device: string; last_activity: string; current: boolean }
@@ -47,7 +48,7 @@ export default function SecuritySettings() {
     if (r) { setSetup(null); setCodes(r.recovery_codes); refreshAll() }
   }
   const o = overview.data
-  const fmt = (iso: string) => new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })
+  const fmt = (iso: string) => formatMediumDateTime(iso, { language })
   const grouped = setup?.secret.match(/.{1,4}/g)?.join(' ')
 
   return <div className="settings-stack">

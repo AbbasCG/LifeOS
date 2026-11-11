@@ -32,13 +32,12 @@ type Props = {
 }
 
 function useHourCycle(): [HourCycle, (next: HourCycle) => void] {
-  const { language } = useLanguage()
-  const [cycle, setCycle] = useState<HourCycle>(() => preferredHourCycle(language))
+  const [cycle, setCycle] = useState<HourCycle>(() => preferredHourCycle())
   useEffect(() => {
-    const sync = () => setCycle(preferredHourCycle(language))
+    const sync = () => setCycle(preferredHourCycle())
     window.addEventListener(HOUR_CYCLE_CHANGED, sync)
     return () => window.removeEventListener(HOUR_CYCLE_CHANGED, sync)
-  }, [language])
+  }, [])
   return [cycle, saveHourCycle]
 }
 

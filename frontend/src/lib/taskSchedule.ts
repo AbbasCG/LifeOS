@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ApiError, type RecordItem, type TaskSchedule } from './api'
 import { accountZone, shiftDay, zonedParts } from './accountDay'
 import { TASKS_CHANGED } from './quickAdd'
+import { formatClock, formatClockRange } from './clock'
 
 /**
  * When a task is booked in the calendar (the "session"), as opposed to when it is due. The server describes the earliest
@@ -49,6 +50,7 @@ const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions()
 export const displayZone = () => accountZone() ?? browserZone()
 /** Latin digits in Arabic too, so «09:00» reads the same everywhere and in the calendar's own times. */
 const localeOf = (language: string) => language === 'ar' ? 'ar-u-nu-latn' : language === 'nl' ? 'nl-NL' : 'en'
+// Clock times always come from the central 24-hour formatter (lib/clock.ts).
 
 /** YYYY-MM-DD of an instant on the wall calendar of `zone`. */
 export function dayIn(at: Date, zone = displayZone()): string {
@@ -64,7 +66,7 @@ export type SessionWhen = { day: 'today' | 'tomorrow' | 'date'; date: string; da
  */
 export function sessionWhen(iso: string, language: string, t: Words, now = new Date(), zone = displayZone()): SessionWhen {
   const at = new Date(iso), locale = localeOf(language), date = dayIn(at, zone), today = dayIn(now, zone)
-  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(language === 'en' ? {} : { hourCycle: 'h23' as const }), timeZone: zone }).format(at)
+  const time = formatClock(at, { language, timeZone: zone })
   const kind = date === today ? 'today' : date === shiftDay(today, 1) ? 'tomorrow' : 'date'
   const dayText = kind === 'today' ? t('Today', 'اليوم', 'Vandaag') : kind === 'tomorrow' ? t('Tomorrow', 'غدًا', 'Morgen')
     : new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone }).format(at)
@@ -73,8 +75,7 @@ export function sessionWhen(iso: string, language: string, t: Words, now = new D
 
 /** "09:00 – 09:30" for the whole session, in the user's timezone. */
 export function sessionRange(startsAt: string, endsAt: string, language: string, zone = displayZone()): string {
-  const f = new Intl.DateTimeFormat(localeOf(language), { hour: '2-digit', minute: '2-digit', ...(language === 'en' ? {} : { hourCycle: 'h23' as const }), timeZone: zone })
-  return `${f.format(new Date(startsAt))} – ${f.format(new Date(endsAt))}`
+  return formatClockRange(startsAt, endsAt, { language, timeZone: zone })
 }
 /** The long form for a tooltip or a screen reader: "Thursday 12 November 2026, 09:00 – 09:30". */
 export function sessionFull(startsAt: string, endsAt: string, language: string, zone = displayZone()): string {

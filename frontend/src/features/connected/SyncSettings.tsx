@@ -10,6 +10,7 @@ import { DIRECTIONS, POLICIES, loadConflicts, previewPush, pushNow, resolveConfl
 import { Count } from './Count'
 import { prefersReducedMotion } from '../../lib/useCountUp'
 import '../../styles/permissions.css'
+import { formatMediumDateTime } from '../../lib/clock'
 
 /**
  * How one connection is synchronised: the direction, what to do when both sides changed the same event, pausing, a dry run of what would be sent, and the conflicts that
@@ -26,7 +27,7 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
   const [chips, setChips] = useState<Record<number, Resolution>>({}), [gone, setGone] = useState<number[]>([])
   const finishers = useRef(new Map<number, () => void>()), timers = useRef(new Set<ReturnType<typeof setTimeout>>())
   const sends = state.effective_direction === 'outbound' || state.effective_direction === 'two_way'
-  const when = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : t('Never', 'أبداً', 'Nooit')
+  const when = (iso: string | null | undefined) => iso ? formatMediumDateTime(iso, { language }) : t('Never', 'أبداً', 'Nooit')
 
   const names: Record<SyncDirection, [string, string]> = {
     inbound: [t('From the service into LifeOS', 'من الخدمة إلى LifeOS', 'Van de dienst naar LifeOS'), t('LifeOS reads the service on a schedule. It never sends anything by itself.', 'يقرأ LifeOS الخدمة دوريًا. ولا يرسل شيئًا من تلقاء نفسه.', 'LifeOS leest de dienst volgens schema. Het stuurt nooit uit zichzelf iets.')],

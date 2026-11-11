@@ -6,6 +6,7 @@ import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../../components/ui/Shared'
+import { formatMediumDateTime } from '../../lib/clock'
 
 type Conditions = { min_priority?: string; overdue_hours?: number; min_minutes?: number; grace_hours?: number; threshold?: number; days_ahead?: number }
 type Rule = { id: number; name: string; trigger: string; action: string; conditions: Conditions; action_config: { message?: string }; enabled: boolean; run_count: number; last_run_at: string | null; failed_runs?: number }
@@ -27,7 +28,7 @@ export default function AutomationSettings() {
   const t = useText(), { language } = useLanguage(), toast = useToast(), { triggers, actions } = useAutomationLabels()
   const { data, error, reload } = useApi<Payload>('/api/automations')
   const [draft, setDraft] = useState<Draft | null>(null), [logFor, setLogFor] = useState<Rule | null>(null), [busy, setBusy] = useState(''), [failure, setFailure] = useState('')
-  const when = (iso: string) => new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })
+  const when = (iso: string) => formatMediumDateTime(iso, { language })
 
   async function run(key: string, fn: () => Promise<unknown>, success?: string) {
     setBusy(key); setFailure('')
@@ -136,7 +137,7 @@ function RunLog({ rule, onClose }: { rule: Rule; onClose: () => void }) {
     {!data ? <Skeleton lines={3} /> : data.data.length === 0 ? <p className="muted">{t('No activity yet.', 'لا يوجد نشاط بعد.')}</p> :
       <ul className="run-log">{data.data.map(run => <li key={run.id} className={`run-${run.status}`}>
         <span className={`badge run-badge-${run.status}`}>{label[run.status]}</span>
-        <div><strong>{run.subject}</strong><small className="muted">{new Date(run.created_at).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })}{run.attempts > 1 ? ` · ${t(`${run.attempts} attempts`, `${run.attempts} محاولات`)}` : ''}</small>{run.message && <p>{run.message}</p>}{run.error && <p className="error">{run.error}</p>}</div>
+        <div><strong>{run.subject}</strong><small className="muted">{formatMediumDateTime(run.created_at, { language })}{run.attempts > 1 ? ` · ${t(`${run.attempts} attempts`, `${run.attempts} محاولات`)}` : ''}</small>{run.message && <p>{run.message}</p>}{run.error && <p className="error">{run.error}</p>}</div>
       </li>)}</ul>}
   </Dialog>
 }

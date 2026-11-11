@@ -12,6 +12,7 @@ import { sourceName } from '../lib/sources'
 import { makeShift, type ZoneShift } from '../lib/zoneShift'
 import { isAlreadyScheduled } from '../lib/taskSchedule'
 import { TaskSessionPanel } from './tasks/ScheduleParts'
+import { formatClock, formatFullDayTime } from '../lib/clock'
 
 type Draft = Partial<CalendarOccurrence> & { starts_at?: string; ends_at?: string }
 type Scope = 'occurrence' | 'series'
@@ -40,7 +41,7 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMo
 
   if (external) return <Dialog title={item.title || t('External event', 'موعد خارجي')} onClose={onClose}>
     <p className="muted"><ExternalLink size={14} /> {t(`Synced read-only from ${sourceName(item.source ?? '', t, true)}${item.account_label ? ` (${item.account_label})` : ''}. Edit it in that calendar.`, `متزامن للقراءة فقط من ${sourceName(item.source ?? '', t, true)}. عدّله في ذلك التقويم.`)}</p>
-    <p><strong>{new Date(item.starts_at!).toLocaleString(language, { dateStyle: 'full', timeStyle: 'short' })}</strong> – {new Date(item.ends_at!).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })}</p>
+    <p><strong><bdi>{formatFullDayTime(item.starts_at!, { language })}</bdi></strong> – <bdi dir="ltr">{formatClock(item.ends_at!, { language })}</bdi></p>
     {item.description && <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{item.description}</p>}
   </Dialog>
 

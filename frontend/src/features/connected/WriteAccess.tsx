@@ -7,6 +7,7 @@ import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 import { WritePreview } from './WritePreview'
 import type { WriteLink, WriteState } from '../../lib/calendarWrite'
+import { formatMediumDateTime } from '../../lib/clock'
 
 /**
  * Opt-in "add events" for one connected calendar account: separate permission, an explicit calendar, and copies LifeOS
@@ -59,7 +60,7 @@ export function WriteAccess({ accountId, label, write, orphans, onChanged }: { a
     {orphans.length > 0 && <div className="write-orphans">
       <p className="small"><strong>{t(`${orphans.length} copy(ies) whose LifeOS event was deleted`, `${orphans.length} نسخة حُذف موعدها في LifeOS`, `${orphans.length} kopie(ën) waarvan de LifeOS-afspraak is verwijderd`)}</strong></p>
       <ul>{orphans.map(o => <li key={o.id}>
-        <span>{o.title} <small className="muted" dir="ltr">{new Date(o.starts_at).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })}</small></span>
+        <span>{o.title} <small className="muted" dir="ltr">{formatMediumDateTime(o.starts_at, { language })}</small></span>
         {removing === o.id ? <WritePreview op="delete" accountId={accountId} linkId={o.id} onCancel={() => setRemoving(null)} onDone={() => { setRemoving(null); onChanged() }} />
           : <button className="quiet" disabled={!write.enabled} onClick={() => setRemoving(o.id)}><Trash2 size={14} />{t('Remove copy', 'إزالة النسخة', 'Kopie verwijderen')}</button>}
       </li>)}</ul>

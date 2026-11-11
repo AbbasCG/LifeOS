@@ -22,6 +22,7 @@ import { atMinutes, findConflict, layoutLanes, minutesInto, movePreview, overlap
 import { sourceName } from '../lib/sources'
 import { useCalendarZone } from '../lib/useCalendarZone'
 import type { ZoneShift } from '../lib/zoneShift'
+import { formatClock } from '../lib/clock'
 
 const HOUR = 52
 /** "Amsterdam (GMT+1)" for a timezone id; the browser's own zone when none is given. */
@@ -134,7 +135,7 @@ export default function CalendarPage() {
     setBusy(true)
     try { await fn(); data.setError(''); if (success) toast(success); refresh(); return true } catch (e) { toast((e as Error).message, 'error'); refresh(); return false } finally { setBusy(false) }
   }
-  const time = (value: string | Date) => new Date(value).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = (value: string | Date) => formatClock(value, { language })
 
   /** Persist a moved/resized block optimistically, with undo. */
   async function commit(item: CalendarOccurrence, nextStart: Date, nextEnd: Date) {
@@ -282,7 +283,7 @@ export default function CalendarPage() {
               onDragLeave={() => setDropHint(null)}
               onDrop={e => dropOnDay(e, day, pointerMinutes(e))}>
               {showFree && free?.slots.map(slot => { const top = minutesInto(day, zs.viewDate(new Date(slot.starts_at))) / 60 * HOUR, height = slot.minutes / 60 * HOUR; return <div key={slot.starts_at} className="free-band" style={{ top, height }} aria-hidden="true">{height >= 26 && <span>{t(`Free ${minutesLabel(slot.minutes, false)}`, `متاح ${minutesLabel(slot.minutes, true)}`)}</span>}</div> })}
-              {Array.from({ length: 24 }, (_, h) => <button key={h} className="slot" style={{ top: h * HOUR, height: HOUR }} aria-label={placing ? t(`Schedule at ${h}:00`, `جدولة الساعة ${h}:00`) : t(`Add event at ${h}:00`, `إضافة موعد الساعة ${h}:00`)} onClick={() => slotClick(day, h)} />)}
+              {Array.from({ length: 24 }, (_, h) => { const hh = `${String(h).padStart(2, '0')}:00`; return <button key={h} className="slot" style={{ top: h * HOUR, height: HOUR }} aria-label={placing ? t(`Schedule at ${hh}`, `جدولة الساعة ${isolate(hh)}`) : t(`Add event at ${hh}`, `إضافة موعد الساعة ${isolate(hh)}`)} onClick={() => slotClick(day, h)} /> })}
               {dropHint?.dayIndex === dayIndex && <div className="drop-hint" style={{ top: dropHint.minutes / 60 * HOUR }}><span>{time(atMinutes(day, dropHint.minutes))}</span></div>}
               {layoutLanes(eventsOn(day)).map(({ item, lane, lanes }) => {
                 const s = new Date(item.starts_at!), en = new Date(item.ends_at!)
@@ -296,12 +297,12 @@ export default function CalendarPage() {
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
                   onClick={() => { if (!suppressClick.current) setEditing(item) }} onKeyDown={e => onEventKey(e, item, day)}>
                   {item.recurring && <Repeat size={10} className="recurring-mark" aria-label={t('Repeats', 'متكرر')} />}{external && <Globe size={10} className="recurring-mark" aria-label={t('External calendar', 'تقويم خارجي')} />}{flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : !external && <Lock size={11} className="lock" aria-hidden="true" />}
-                  <strong><KindIcon kind={item.kind} source={item.source} size={11} />{item.title}</strong><span className="sr-only">, </span><small>{time(s)} – {time(en)}</small>{!flexible && <span className="sr-only">, {t('fixed', 'ثابت')}</span>}
+                  <strong><KindIcon kind={item.kind} source={item.source} size={11} />{item.title}</strong><span className="sr-only">, </span><small><bdi dir="ltr">{time(s)} – {time(en)}</bdi></small>{!flexible && <span className="sr-only">, {t('fixed', 'ثابت')}</span>}
                   {flexible && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
                 </div>
               })}
               {preview && preview.dayIndex === dayIndex && <div className={`drag-ghost ${preview.conflict ? 'bad' : ''}`} style={{ top: minutesInto(day, preview.start) / 60 * HOUR, height: Math.max(22, (preview.end.getTime() - preview.start.getTime()) / 3600000 * HOUR - 2) }} aria-live="polite">
-                <strong>{time(preview.start)} – {time(preview.end)}</strong><small>{preview.conflict ? t(`Overlaps “${preview.conflict.title}”`, `يتداخل مع «${preview.conflict.title}»`) : minutesLabel(Math.round((preview.end.getTime() - preview.start.getTime()) / 60000), ar)}</small>
+                <strong><bdi dir="ltr">{time(preview.start)} – {time(preview.end)}</bdi></strong><small>{preview.conflict ? t(`Overlaps “${preview.conflict.title}”`, `يتداخل مع «${preview.conflict.title}»`) : minutesLabel(Math.round((preview.end.getTime() - preview.start.getTime()) / 60000), ar)}</small>
               </div>}
               {isToday && <div className="now-line" style={{ top: (nowView.getHours() * 60 + nowView.getMinutes()) / 60 * HOUR }} aria-hidden="true" />}
             </div>
@@ -311,7 +312,7 @@ export default function CalendarPage() {
       </div> : data.loading ? <Empty>{t('Loading…', 'جارٍ التحميل…')}</Empty> : view === 'agenda' ? <div className="agenda">{days.map(day => {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day), key = localDate(day)
         const diff = Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${todayKey}T12:00`).getTime()) / 86400000)
-        const dayName = diff === 0 ? t('Today', 'اليوم') : diff === 1 ? t('Tomorrow', 'غداً') : day.toLocaleDateString(language, { weekday: 'long' })
+        const dayName = diff === 0 ? t('Today', 'اليوم') : diff === 1 ? t('Tomorrow', 'غدًا') : day.toLocaleDateString(language, { weekday: 'long' })
         return <section key={key} className={`agenda-day ${diff === 0 ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)} aria-label={`${dayName} ${day.toLocaleDateString(language, { day: 'numeric', month: 'long' })}`}>
           <header><span className="agenda-date"><strong>{day.getDate()}</strong><span>{dayName}</span></span>
             {showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}
@@ -319,7 +320,7 @@ export default function CalendarPage() {
           {events.length === 0 ? <p className="agenda-empty">{t('Open day', 'يوم متاح')}</p> : <ul>{events.map(item => {
             const external = item.source !== 'lifeos', current = new Date(item.starts_at!) <= nowView && new Date(item.ends_at!) > nowView
             return <li key={item.id}><button type="button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} className={`agenda-item kind-${item.kind} ${external ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${current ? 'current' : ''} ${new Date(item.ends_at!) <= nowView ? 'past' : ''}`} onClick={() => setEditing(item)}>
-              <time><strong>{time(item.starts_at!)}</strong><small>{time(item.ends_at!)}</small></time>
+              <time dateTime={(item as ViewOccurrence).real_times?.starts_at ?? item.starts_at!}><strong>{time(item.starts_at!)}</strong><span className="sr-only"> {t('to', 'إلى', 'tot')} </span><small>{time(item.ends_at!)}</small></time>
               <span className="agenda-bar" aria-hidden="true" />
               <span className="agenda-title"><KindIcon kind={item.kind} source={item.source} /><strong>{item.title}</strong></span>
               <span className="agenda-marks">{overlaps.has(item.id) && <AlertTriangle size={14} aria-label={t('Overlaps another event', 'يتداخل مع موعد آخر')} />}{item.recurring && <Repeat size={13} aria-label={t('Repeats', 'متكرر')} />}{external ? <Globe size={13} aria-label={sourceName(item.source ?? '', t)} /> : item.kind === 'fixed' && <Lock size={13} aria-label={t('Fixed', 'ثابت')} />}</span>
@@ -330,7 +331,7 @@ export default function CalendarPage() {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day)
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === todayKey ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
           <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
-          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} onClick={() => setEditing(item)}><small>{time(item.starts_at!)}</small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
+          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} onClick={() => setEditing(item)}><small><bdi dir="ltr">{time(item.starts_at!)}</bdi></small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
         </section>
       })}</div>}
       {timed && <aside className="panel task-tray" aria-label={t('Unscheduled tasks', 'مهام غير مجدولة')}>
