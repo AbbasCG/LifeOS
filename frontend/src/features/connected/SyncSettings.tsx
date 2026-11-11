@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { RefreshCw, Pause, Play } from 'lucide-react'
 import { Dialog, ErrorMessage } from '../../components/ui/Shared'
 import { useText } from '../../lib/i18n'
@@ -6,6 +7,8 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { useSensitiveAction } from '../../lib/sensitive'
 import { DIRECTIONS, POLICIES, loadConflicts, previewPush, pushNow, resolveConflict, saveSync, type Conflict, type ConflictPolicy, type PushResult, type Resolution, type SyncDirection, type SyncState } from '../../lib/syncSettings'
+import { Count } from './Count'
+import { prefersReducedMotion } from '../../lib/useCountUp'
 import '../../styles/permissions.css'
 
 /**
@@ -18,7 +21,10 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState('')
   const [direction, setDirection] = useState<SyncDirection>(state.direction), [policy, setPolicy] = useState<ConflictPolicy>(state.conflict_policy)
   const [plan, setPlan] = useState<PushResult | null>(null), [conflicts, setConflicts] = useState<Conflict[]>([]), [overwrite, setOverwrite] = useState<number | null>(null), [confirmed, setConfirmed] = useState(false)
-  const overwriteBox = useRef<HTMLInputElement>(null), headingRef = useRef<HTMLHeadingElement>(null), focusAfter = useRef<number | 'none' | null>(null)
+  const overwriteBox = useRef<HTMLInputElement>(null), headingRef = useRef<HTMLHeadingElement>(null)
+  // A resolved conflict shows what was kept, washes, slides out and only then leaves the list: `chips` is what to show, `gone` what is already removed, `finishers` ends one row's exit.
+  const [chips, setChips] = useState<Record<number, Resolution>>({}), [gone, setGone] = useState<number[]>([])
+  const finishers = useRef(new Map<number, () => void>()), timers = useRef(new Set<ReturnType<typeof setTimeout>>())
   const sends = state.effective_direction === 'outbound' || state.effective_direction === 'two_way'
   const when = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' }) : t('Never', 'أبداً', 'Nooit')
 
@@ -41,16 +47,11 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
   const loadList = useCallback(() => { loadConflicts(accountId).then(list => setConflicts(list.filter(c => c.status === 'open'))).catch(() => setConflicts([])) }, [accountId])
   useEffect(() => { if (state.open_conflicts > 0) loadList() }, [state.open_conflicts, loadList])
   // Nothing is shown for conflicts the server no longer counts as open, even before the list is reloaded.
-  const waiting = state.open_conflicts > 0 ? conflicts : []
+  const waiting = state.open_conflicts > 0 ? conflicts.filter(c => !gone.includes(c.id)) : []
   // The reveal of the overwrite confirmation moves focus to its checkbox, so a keyboard or screen-reader user lands on what must be decided.
   useEffect(() => { if (overwrite !== null) overwriteBox.current?.focus() }, [overwrite])
-  // After a conflict is resolved its buttons disappear: focus goes to the next conflict, or to the section heading when none is left, never to the page body.
-  useEffect(() => {
-    const target = focusAfter.current
-    if (target === null) return
-    if (target !== 'none' && conflicts.some(c => c.id === target) && state.open_conflicts > 0) { document.querySelector<HTMLElement>(`[data-conflict="${target}"] button`)?.focus(); focusAfter.current = null }
-    else if (target === 'none' || state.open_conflicts === 0) { headingRef.current?.focus(); focusAfter.current = null }
-  }, [conflicts, state.open_conflicts])
+  // Leaving while a row is still on its way out must not lose the news that it was resolved.
+  useEffect(() => { const pending = timers.current, exits = finishers.current; return () => { pending.forEach(clearTimeout); pending.clear(); [...exits.values()].forEach(f => f()) } }, [])
   async function run<T>(fn: () => Promise<T>, done?: string): Promise<T | undefined> {
     setBusy(true); setProblem('')
     try { const r = await fn(); if (done) toast(done, 'success'); return r } catch (e) { setProblem((e as Error).message) } finally { setBusy(false) }
@@ -69,8 +70,22 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
     const ok = await run(() => sensitive(() => resolveConflict(c.id, how, how === 'keep_lifeos')), t('Conflict resolved.', 'حُلّ التعارض.', 'Conflict opgelost.'))
     if (ok !== undefined) {
       const index = waiting.findIndex(x => x.id === c.id), next = waiting[index + 1] ?? waiting[index - 1]
-      focusAfter.current = next ? next.id : 'none'
-      setOverwrite(null); setConfirmed(false); onChanged(); loadList() }
+      setOverwrite(null); setConfirmed(false); setChips(m => ({ ...m, [c.id]: how }))
+      // Park focus on the row (its buttons are replaced by the chip) until the exit is over, then follow the Batch A rule: next conflict, or the heading.
+      document.querySelector<HTMLElement>(`[data-conflict="${c.id}"]`)?.focus()
+      const finish = () => {
+        if (!finishers.current.delete(c.id)) return
+        // The row leaves now and focus moves in the same step (next conflict, else the heading), so it is never left on <body> while the list reloads.
+        flushSync(() => setGone(g => [...g, c.id]))
+        const open = (id?: number) => document.querySelector<HTMLElement>(`[data-conflict${id ? `="${id}"` : ''}]:not(.is-resolved) button`)
+        ;(open(next?.id) ?? open() ?? headingRef.current)?.focus()
+        onChanged(); loadList()
+      }
+      finishers.current.set(c.id, finish)
+      // Reduced motion: no movement, the chip alone for a moment. Otherwise the row ends with its exit animation; the timer is only a safety net.
+      const wait = setTimeout(() => { timers.current.delete(wait); finish() }, prefersReducedMotion() ? 600 : 1000)
+      timers.current.add(wait)
+    }
   }
   const run0 = state.last_outbound
   const status = (s: string) => ({ success: t('Sent', 'أُرسل', 'Verstuurd'), partial: t('Partly sent', 'أُرسل جزئيًا', 'Deels verstuurd'), failed: t('Failed', 'فشل', 'Mislukt'), rate_limited: t('Waiting (rate limit)', 'انتظار (حد المعدل)', 'Wachten (limiet)'), revoked: t('Access ended', 'انتهى الوصول', 'Toegang beëindigd'), running: t('Running', 'قيد التشغيل', 'Bezig') }[s] ?? s)
@@ -80,7 +95,7 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
     <dl className="account-facts">
       <div><dt>{t('Direction', 'الاتجاه', 'Richting')}</dt><dd>{names[state.effective_direction][0]}{state.paused && ` · ${t('paused', 'متوقفة مؤقتًا', 'gepauzeerd')}`}</dd></div>
       <div><dt>{t('Events LifeOS added', 'مواعيد أضافها LifeOS', 'Door LifeOS toegevoegd')}</dt><dd>{state.copies} · {t(`${state.copies_pending} waiting to be updated`, `${state.copies_pending} بانتظار التحديث`, `${state.copies_pending} wachten op bijwerken`)}</dd></div>
-      <div><dt>{t('Conflicts waiting for you', 'تعارضات تنتظر قرارك', 'Conflicten die op jou wachten')}</dt><dd>{state.open_conflicts}</dd></div>
+      <div><dt>{t('Conflicts waiting for you', 'تعارضات تنتظر قرارك', 'Conflicten die op jou wachten')}</dt><dd><Count value={state.open_conflicts} /></dd></div>
       <div><dt>{t('Last time LifeOS sent changes', 'آخر إرسال للتغييرات', 'Laatst verstuurd')}</dt><dd>{run0 ? `${when(run0.started_at)} · ${status(run0.status)} · ${run0.upserted}` : t('Never', 'أبداً', 'Nooit')}</dd></div>
     </dl>
     {run0?.error && <p className="error small" role="alert">{run0.error}</p>}
@@ -89,14 +104,14 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
     {waiting.length > 0 && <div className="perms-warn" role="group" aria-label={t('Conflicts', 'التعارضات', 'Conflicten')}>
       <strong>{t(`${label}: an event was changed there and in LifeOS`, `${label}: تغيّر موعد هناك وفي LifeOS`, `${label}: een afspraak is daar en in LifeOS gewijzigd`)}</strong>
       <ul className="perms-form" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {waiting.map(c => <li key={c.id} className="perms-form" data-conflict={c.id}>
+        {waiting.map(c => <li key={c.id} className={`perms-form${chips[c.id] ? ' is-resolved' : ''}`} data-conflict={c.id} tabIndex={-1} onAnimationEnd={e => { if (e.animationName === 'conflict-out') finishers.current.get(c.id)?.() }}>
           <span>{c.title}<span className="muted small"> · {when(c.starts_at)}</span></span>
-          <div className="rel-actions">
+          {chips[c.id] ? <div><span className="pill pill-ok">{{ keep_external: t('Kept theirs', 'أُبقيت نسخة الخدمة', 'Hun versie behouden'), keep_lifeos: t('Kept yours', 'أُبقيت نسختك', 'Jouw versie behouden'), keep_both: t('Kept both', 'أُبقيت النسختان', 'Beide behouden') }[chips[c.id]]}</span></div> : <div className="rel-actions">
             <button type="button" className="quiet" disabled={busy} onClick={() => void resolve(c, 'keep_external')}>{t('Keep the one at the service', 'أبقِ ما في الخدمة', 'Behoud die bij de dienst')}</button>
             <button type="button" className="quiet" disabled={busy} onClick={() => void resolve(c, 'keep_both')}>{t('Keep both', 'أبقِ النسختين', 'Behoud beide')}</button>
             <button type="button" className="quiet" disabled={busy} onClick={() => { setOverwrite(c.id); setConfirmed(false) }}>{t('Use the LifeOS version…', 'استخدم نسخة LifeOS…', 'Gebruik de LifeOS-versie…')}</button>
-          </div>
-          {overwrite === c.id && <div className="perms-warn" role="group" aria-labelledby={`overwrite-note-${c.id}`}>
+          </div>}
+          {overwrite === c.id && !chips[c.id] && <div className="perms-warn" role="group" aria-labelledby={`overwrite-note-${c.id}`}>
             <span id={`overwrite-note-${c.id}`}>{t('This replaces what is at the service with the LifeOS version. It cannot be undone from LifeOS.', 'هذا يستبدل ما في الخدمة بنسخة LifeOS ولا يمكن التراجع عنه من LifeOS.', 'Dit vervangt wat bij de dienst staat door de LifeOS-versie. Het kan niet vanuit LifeOS ongedaan worden.')}</span>
             <label><input ref={overwriteBox} type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />{t('I understand and want to overwrite it.', 'أفهم وأريد الاستبدال.', 'Ik begrijp het en wil overschrijven.')}</label>
             <button type="button" className="danger" disabled={busy || !confirmed} onClick={() => void resolve(c, 'keep_lifeos')}>{t('Overwrite', 'استبدال', 'Overschrijven')}</button>

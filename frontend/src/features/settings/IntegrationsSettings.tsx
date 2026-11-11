@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router'
 import { AlertTriangle, CalendarDays, ChevronRight, Info, X, Link2, ListChecks, Lock, Mail, NotebookPen, Plus, RefreshCw, Rss, Server, ShieldCheck, Sparkles, Bot } from 'lucide-react'
 import { api } from '../../lib/api'
@@ -17,6 +17,7 @@ import { WriteAccess } from '../connected/WriteAccess'
 import { ManagePermissions } from '../connected/ManagePermissions'
 import { SyncSettings } from '../connected/SyncSettings'
 import type { WriteData } from '../../lib/calendarWrite'
+import { prefersReducedMotion } from '../../lib/useCountUp'
 
 export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned' | 'disabled'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; capabilities?: string[]; presets?: string[]; accounts: ConnectedAccount[] }
 type Hub = { providers: HubProvider[]; categories: { key: string; providers: HubProvider[] }[]; ai_connected_data: boolean }
@@ -34,6 +35,9 @@ export default function IntegrationsSettings() {
   const refresh = () => { reload(); writes.reload() }
   const headingRef = useRef<HTMLHeadingElement>(null), hubRef = useRef<HTMLDivElement>(null), [moreServices, setMoreServices] = useState(false)
   const [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [disconnecting, setDisconnecting] = useState<ConnectedAccount | null>(null), [replacingFeed, setReplacingFeed] = useState(false), [notices, setNotices] = useState<{ text: string; error: boolean }[]>([]), handled = useRef('')
+  // Motion state: all of it is short-lived and only ever marks a real event (a sync that ended, an account just connected, a row on its way out, the first reveal).
+  const [settled, setSettled] = useState<{ id: number; ok: boolean } | null>(null), [justProvider, setJustProvider] = useState<string | null>(null), [justId, setJustId] = useState<number | null>(null)
+  const [leaving, setLeaving] = useState<number | null>(null), [armedFor, setArmedFor] = useState<number | null>(null), [rise, setRise] = useState<boolean | null>(null)
   const labelOf = (provider: string) => data?.providers.find(p => p.provider === provider)?.label ?? provider
   useEffect(() => {
     const connected = params.get('connected'), problem = params.get('error'), granted = params.get('write_granted')
@@ -48,9 +52,31 @@ export default function IntegrationsSettings() {
     if (problem) say({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.', 'De inloglink is verlopen of al gebruikt. Probeer het opnieuw.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.', 'Toegang is niet verleend, dus er is niets verbonden.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.', 'Verbonden, maar het leesrecht is niet verleend, dus er kan niets worden geïmporteerd. Koppel opnieuw en laat leestoegang aangevinkt.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.', 'De provider kon de koppeling niet voltooien. Probeer het opnieuw.'), write_scope: t('The permission to add events was not granted, so nothing changed.', 'لم يُمنح إذن إضافة المواعيد، فلم يتغير شيء.', 'Het recht om afspraken toe te voegen is niet verleend, dus er is niets veranderd.'), write_account: t('A different account signed in. Allow adding events with the same account that is connected here.', 'سجّل حساب مختلف الدخول. اسمح بإضافة المواعيد بالحساب نفسه المرتبط هنا.', 'Er is met een ander account ingelogd. Sta het toevoegen van afspraken toe met hetzelfde account dat hier gekoppeld is.'),
       not_configured: t('This connection is not set up on this server. Ask an administrator.', 'هذا الربط غير مُعدّ على هذا الخادم. اطلب من المسؤول إعداده.', 'Deze koppeling is op deze server niet ingesteld. Vraag het een beheerder.'),
       provider_disabled: t('New connections to this service are switched off by an administrator.', 'أوقف المسؤول الربط الجديد مع هذه الخدمة.', 'Nieuwe koppelingen met deze dienst zijn door een beheerder uitgezet.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.', 'De koppeling is niet voltooid.'), 'error')
-    queueMicrotask(() => setNotices(said))
+    queueMicrotask(() => { setNotices(said); if (connected) setJustProvider(connected) })
     setParams({}, { replace: true })
   }, [params, setParams, t])
+  // The account that was just connected is the newest one of that provider: mark its row once, bring it into view if it is off-screen, and clear the mark.
+  useEffect(() => {
+    if (!justProvider || !data) return
+    const ids = [...data.providers, ...data.categories.flatMap(c => c.providers)].filter(p => p.provider === justProvider).flatMap(p => p.accounts.map(a => a.id))
+    if (!ids.length) return
+    queueMicrotask(() => { setJustId(Math.max(...ids)); setJustProvider(null) })
+  }, [justProvider, data])
+  useEffect(() => {
+    if (justId === null) return
+    const row = hubRef.current?.querySelector<HTMLElement>(`[data-account="${justId}"]`), box = row?.getBoundingClientRect()
+    if (row && box && (box.top < 0 || box.bottom > window.innerHeight)) row.scrollIntoView?.({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+    const id = setTimeout(() => setJustId(null), prefersReducedMotion() ? 2500 : 2200)
+    return () => clearTimeout(id)
+  }, [justId])
+  useEffect(() => { if (!settled) return; const id = setTimeout(() => setSettled(null), 700); return () => clearTimeout(id) }, [settled])
+  // The destructive button is clickable from the first frame; it only starts outlined and fills once the person has had a moment to read.
+  useEffect(() => { if (!disconnecting) return; const id = setTimeout(() => setArmedFor(disconnecting.id), 400); return () => clearTimeout(id) }, [disconnecting])
+  const rows = data && !data.providers.every(p => p.accounts.length === 0) ? data.categories.reduce((n, c) => n + c.providers.length, 0) : 0
+  if (data && rise === null) setRise(rows >= 3)   // decided once, from the first data: later reloads never replay the entrance
+  useEffect(() => { if (!rise) return; const id = setTimeout(() => setRise(false), 1200); return () => clearTimeout(id) }, [rise])
+  const order = new Map<string, number>((data?.categories.flatMap(c => c.providers) ?? []).map((p, i) => [p.provider, i]))
+  const closeDisconnect = () => { setDisconnecting(null); setArmedFor(null) }
   async function act<T>(key: string, fn: () => Promise<T>, success?: string, after?: () => void) {
     setBusy(key); setFailure('')
     try { const r = await fn(); if (success) toast(success); reload(); after?.(); return r } catch (e) { setFailure((e as Error).message); reload() } finally { setBusy(null) }
@@ -61,11 +87,13 @@ export default function IntegrationsSettings() {
   }
   async function syncNow(account: ConnectedAccount) {
     setBusy(`sync-${account.id}`); setFailure('')
+    let ok = false
     try {
       const r = await api<{ imported: number; run: SyncRunInfo | null }>(`/api/integrations/accounts/${account.id}/sync`, 'POST')
       const run = r.run
+      ok = !run || run.status === 'success' || run.status === 'partial'
       toast(run ? t(`Synced: ${run.upserted} updated, ${run.removed} removed${run.moved ? `, ${run.moved} moved` : ''}${run.status === 'partial' ? ' — some calendars could not be read' : ''}.`, `تمت المزامنة: ${run.upserted} محدّث، ${run.removed} محذوف${run.moved ? `، ${run.moved} منقول` : ''}${run.status === 'partial' ? ' — تعذّرت قراءة بعض التقويمات' : ''}.`, `Gesynchroniseerd: ${run.upserted} bijgewerkt, ${run.removed} verwijderd${run.moved ? `, ${run.moved} verplaatst` : ''}${run.status === 'partial' ? ' — sommige agenda’s konden niet worden gelezen' : ''}.`) : t('Synced.', 'تمت المزامنة.', 'Gesynchroniseerd.'), run?.status === 'partial' ? 'error' : undefined)
-    } catch (e) { setFailure((e as Error).message) } finally { setBusy(null); reload() }
+    } catch (e) { setFailure((e as Error).message) } finally { setBusy(null); setSettled({ id: account.id, ok }); reload() }
   }
   const categoryLabel: Record<string, [string, string]> = {
     calendars: [t('Calendars', 'التقويمات', 'Agenda’s'), t('Busy time from your other calendars, so plans never collide.', 'الوقت المشغول من تقويماتك الأخرى، حتى لا تتعارض الخطط.', 'Bezette tijd uit je andere agenda’s, zodat plannen nooit botsen.')],
@@ -88,7 +116,7 @@ export default function IntegrationsSettings() {
   const accountRow = (account: ConnectedAccount, provider: HubProvider) => {
     const syncing = busy === `sync-${account.id}`, line = stateLine(account, syncing), st = line.state, broken = isBroken(st), feed = provider.connect_mode === 'url'
     const who = account.email ?? account.display_name ?? provider.label
-    return <div key={account.id} className={`account-mini state-${st}${broken ? ' is-broken' : ''}`} role="group" aria-label={`${provider.label}, ${who}`} tabIndex={-1} data-attention={st !== 'ok' || undefined}>
+    return <div key={account.id} className={`am-wrap${leaving === account.id ? ' is-leaving' : ''}`}><div className="am-clip"><div className={`account-mini state-${st}${broken ? ' is-broken' : ''}${justId === account.id ? ' just-connected' : ''}`} role="group" aria-label={`${provider.label}, ${who}${st !== 'ok' ? `, ${line.chip}` : ''}`} tabIndex={-1} data-attention={st !== 'ok' || undefined} data-account={account.id} data-syncing={syncing || undefined} data-settle={settled?.id === account.id ? (settled.ok ? 'ok' : 'bad') : undefined}>
       {tileOf(provider, line.s)}
       <span className="am-id">
         {account.email ? <><small className="am-prov">{provider.label}</small><span className="account-email" title={account.email}><bdi dir="ltr">{account.email}</bdi></span></> : <span className="account-email" title={who}>{who}</span>}
@@ -97,18 +125,18 @@ export default function IntegrationsSettings() {
       </span>
       <span className="scope-chip">{presetLabel(account)}</span>
       {broken
-        ? <button type="button" className="primary compact am-act" disabled={busy !== null} onClick={() => feed ? (setReplacingFeed(true), setInfo({ kind: 'feed' })) : void connect(provider)}><Link2 size={15} aria-hidden="true" />{feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')}</button>
-        : <button type="button" className="icon-button am-act" disabled={busy !== null || st === 'waiting'} aria-busy={syncing} aria-label={t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} title={t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} onClick={() => void syncNow(account)}><RefreshCw size={17} className={syncing ? 'spin' : ''} aria-hidden="true" /></button>}
+        ? <button type="button" className="primary compact am-act" aria-disabled={busy !== null || undefined} aria-label={`${feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')} — ${provider.label}, ${who}`} onClick={() => { if (busy !== null) return; if (feed) { setReplacingFeed(true); setInfo({ kind: 'feed' }) } else void connect(provider) }}><Link2 size={15} aria-hidden="true" />{feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')}</button>
+        : <button type="button" className="icon-button am-act" aria-disabled={busy !== null || st === 'waiting' || undefined} aria-busy={syncing} aria-label={`${t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} — ${provider.label}, ${who}`} title={t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} onClick={() => { if (busy === null && st !== 'waiting') void syncNow(account) }}><RefreshCw size={17} className={syncing ? 'spin' : ''} aria-hidden="true" /></button>}
       <button type="button" className="icon-button am-chev" aria-label={t(`Details of ${who}`, `تفاصيل ${who}`, `Details van ${who}`)} onClick={() => setInfo({ kind: 'account', id: account.id })}><ChevronRight size={18} aria-hidden="true" className="flip-rtl" /></button>
-    </div>
+    </div></div></div>
   }
   const addButton = (provider: HubProvider) => provider.connect_mode === 'url'
     ? <button type="button" className="quiet compact" onClick={() => setInfo({ kind: 'feed' })}><Rss size={15} aria-hidden="true" />{t('Add link', 'إضافة رابط', 'Link toevoegen')}</button>
     : <button type="button" className="quiet compact" disabled={busy !== null} onClick={() => void connect(provider)}>{provider.accounts.length ? <Plus size={15} aria-hidden="true" /> : <Link2 size={15} aria-hidden="true" />}
       {provider.accounts.length ? <>{t('Add account', 'إضافة حساب', 'Account toevoegen')}{' '}<span className="sr-only">{t(`for ${provider.label}`, `لـ ${provider.label}`, `voor ${provider.label}`)}</span></> : <>{t('Connect', 'ربط', 'Koppelen')}{' '}<span className="sr-only">{provider.label}</span></>}</button>
-  const providerRow = (provider: HubProvider) => {
+  const providerRow = (provider: HubProvider, index = 0) => {
     const listed = provider.status !== 'available' || provider.accounts.length === 0
-    return <li key={provider.provider} className={`integration-card hub-item state-${provider.status}`}>
+    return <li key={provider.provider} className={`integration-card hub-item state-${provider.status}${rise ? ' hub-rise stagger' : ''}`} style={rise ? { '--i': Math.min(index, 8) } as CSSProperties : undefined}>
       {listed && <div className="hub-item-main">
         {tileOf(provider)}
         <span className="hub-item-name"><strong>{provider.label}</strong></span>
@@ -130,6 +158,7 @@ export default function IntegrationsSettings() {
     row.scrollIntoView?.({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
     row.focus({ preventScroll: true })
   }
+  const syncingAcc = accounts.find(a => busy === `sync-${a.id}`), syncingWho = syncingAcc ? `${labelOf(syncingAcc.provider)}, ${syncingAcc.email ?? syncingAcc.display_name ?? ''}` : ''
   const available = providerList.filter(p => p.status === 'available'), unavailable = providerList.filter(p => p.status !== 'available')
   const hero = available.find(p => p.provider === 'google') ?? available.find(p => p.provider === 'outlook') ?? available.find(p => p.connect_mode !== 'url') ?? available[0]
   const startWith = (provider: HubProvider) => provider.connect_mode === 'url' ? setInfo({ kind: 'feed' }) : void connect(provider)
@@ -147,10 +176,10 @@ export default function IntegrationsSettings() {
       <span className="chip"><Lock size={12} aria-hidden="true" />{t('Read-only by default', 'للقراءة فقط افتراضيًا', 'Standaard alleen lezen')}</span>
       <button type="button" className="icon-button" aria-label={t('About connections', 'عن الربط', 'Over koppelingen')} title={t('About connections', 'عن الربط', 'Over koppelingen')} onClick={() => setInfo({ kind: 'about' })}><Info size={19} aria-hidden="true" /></button>
     </header>
-    <p className="sr-only" role="status">{data || error ? '' : t('Loading your connections', 'جارٍ تحميل اتصالاتك', 'Je koppelingen worden geladen')}</p>
-    {attention > 0 && <div className="attention-strip" role="status" data-s={accounts.some(a => isBroken(accountState(a))) ? 'bad' : 'warn'}>
+    <p className="sr-only" role="status">{data || error ? (busy?.startsWith('sync-') ? `${t('Syncing…', 'جارٍ المزامنة…', 'Synchroniseren…')} ${syncingWho}` : attention > 0 ? attentionText : '') : t('Loading your connections', 'جارٍ تحميل اتصالاتك', 'Je koppelingen worden geladen')}</p>
+    {attention > 0 && <div className="attention-strip" data-s={accounts.some(a => isBroken(accountState(a))) ? 'bad' : 'warn'}>
       <span className="as-icon"><AlertTriangle size={18} aria-hidden="true" /></span>
-      <span className="as-text">{attentionText}</span>
+      <span className="as-text" aria-hidden="true">{attentionText}</span>
       <span className="as-action"><button type="button" className="quiet compact" onClick={reviewFirst}>{t('Review', 'مراجعة', 'Bekijken')}</button></span>
     </div>}
     {notices.map((n, i) => <div key={i} className={`banner compact hub-notice${n.error ? ' is-error' : ''}`} role={n.error ? 'alert' : 'status'}><span>{n.text}</span><button type="button" className="icon-button" aria-label={t('Dismiss message', 'إغلاق الرسالة', 'Bericht sluiten')} onClick={() => setNotices(list => list.filter((_, k) => k !== i))}><X size={16} aria-hidden="true" /></button></div>)}
@@ -179,7 +208,7 @@ export default function IntegrationsSettings() {
     </div>}
     {data && !none && data.categories.filter(c => c.providers.length > 0).map(category => { const Icon = ICONS[category.key] ?? Sparkles; return <section key={category.key} className="hub-category" aria-labelledby={`hub-${category.key}`}>
       <h3 id={`hub-${category.key}`} className="t-section hub-cat-title"><span className="hub-icon"><Icon size={16} aria-hidden="true" /></span>{categoryLabel[category.key]?.[0] ?? category.key}</h3>
-      <ul className="hub-list">{category.providers.map(provider => providerRow(provider))}</ul>
+      <ul className="hub-list">{category.providers.map(provider => providerRow(provider, order.get(provider.provider)))}</ul>
     </section> })}
     {consent}
     {info?.kind === 'about' && <BottomSheet title={t('About connections', 'عن الربط', 'Over koppelingen')} onClose={closeInfo}>
@@ -217,17 +246,17 @@ export default function IntegrationsSettings() {
     </BottomSheet>}
     {detail && <BottomSheet tall title={detail.p.label} onClose={closeInfo}>
       <ErrorMessage error={failure} />
-      <ul className="account-list"><AccountCard account={detail.a} label={detail.p.label} tasks={detail.p.category === 'tasks'} requiredScopes={detail.p.required_scopes ?? []} busy={busy}
+      <ul className="account-list"><AccountCard account={detail.a} label={detail.p.label} tasks={detail.p.category === 'tasks'} requiredScopes={detail.p.required_scopes ?? []} busy={busy} settled={settled?.id === detail.a.id ? (settled.ok ? 'ok' : 'bad') : undefined}
         onSync={() => void syncNow(detail.a)} onReconnect={() => detail.p.connect_mode === 'url' ? (setReplacingFeed(true), setInfo({ kind: 'feed' })) : void connect(detail.p)} onDisconnect={() => { setDisconnecting(detail.a); setInfo(null) }} onSaved={refresh}
         perms={detail.a.permissions && detail.a.permissions.capabilities.length > 0 ? <ManagePermissions accountId={detail.a.id} label={detail.p.label} state={detail.a.permissions} onChanged={refresh} /> : undefined}
         sync={detail.a.sync ? <SyncSettings accountId={detail.a.id} label={detail.p.label} state={detail.a.sync} onChanged={refresh} /> : undefined}
         write={detail.a.write ? <WriteAccess accountId={detail.a.id} label={detail.p.label} write={detail.a.write} orphans={(writes.data?.links ?? []).filter(l => l.orphan && l.account_id === detail.a.id)} onChanged={refresh} /> : undefined} /></ul>
     </BottomSheet>}
-    {disconnecting && <Dialog title={t(`Disconnect ${labelOf(disconnecting.provider)}?`, `فصل ${labelOf(disconnecting.provider)}؟`, `${labelOf(disconnecting.provider)} loskoppelen?`)} onClose={() => setDisconnecting(null)}>
+    {disconnecting && <Dialog title={t(`Disconnect ${labelOf(disconnecting.provider)}?`, `فصل ${labelOf(disconnecting.provider)}؟`, `${labelOf(disconnecting.provider)} loskoppelen?`)} onClose={closeDisconnect}>
       {(disconnecting.email ?? disconnecting.display_name) && <p id="disconnect-account" className="hub-account-line"><bdi dir="ltr">{disconnecting.email ?? disconnecting.display_name}</bdi></p>}
       <p id="disconnect-warning" className="muted">{t('Imported events and tasks will be removed from LifeOS; tasks you copied into LifeOS stay. Nothing changes in the connected app.', 'ستُحذف المواعيد والمهام المستوردة من LifeOS؛ وتبقى المهام التي نسختها إلى LifeOS. لن يتغير شيء في التطبيق المرتبط.', 'Geïmporteerde afspraken en taken worden uit LifeOS verwijderd; taken die je naar LifeOS kopieerde blijven. Er verandert niets in de gekoppelde app.')}</p>
       {(disconnecting.write?.copies ?? 0) > 0 && <p id="disconnect-copies" className="banner compact">{t(`${disconnecting.write?.copies} event(s) LifeOS added stay in ${labelOf(disconnecting.provider)}. Remove them first if you don’t want them.`, `تبقى ${disconnecting.write?.copies} مواعيد أضافها LifeOS في ${labelOf(disconnecting.provider)}. أزلها أولاً إن لم تكن تريدها.`, `${disconnecting.write?.copies} afspraak/afspraken die LifeOS toevoegde, blijven in ${labelOf(disconnecting.provider)}. Verwijder ze eerst als je ze niet wilt.`)}</p>}
-      <div className="toolbar"><button className="quiet" data-autofocus aria-describedby={`${disconnecting.email ?? disconnecting.display_name ? 'disconnect-account ' : ''}disconnect-warning${(disconnecting.write?.copies ?? 0) > 0 ? ' disconnect-copies' : ''}`} onClick={() => setDisconnecting(null)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button><button className="danger" disabled={busy !== null} onClick={() => { const a = disconnecting; setDisconnecting(null); void act(`del-${a.id}`, () => api(`/api/integrations/accounts/${a.id}`, 'DELETE'), t('Disconnected.', 'تم الفصل.', 'Losgekoppeld.'), () => headingRef.current?.focus()) }}>{t('Disconnect', 'فصل', 'Loskoppelen')}</button></div>
+      <div className="toolbar"><button className="quiet" data-autofocus aria-describedby={`${disconnecting.email ?? disconnecting.display_name ? 'disconnect-account ' : ''}disconnect-warning${(disconnecting.write?.copies ?? 0) > 0 ? ' disconnect-copies' : ''}`} onClick={closeDisconnect}>{t('Cancel', 'إلغاء', 'Annuleren')}</button><button className="danger danger-armed" data-armed={armedFor === disconnecting.id || undefined} disabled={busy !== null} onClick={() => { const a = disconnecting; closeDisconnect(); void act(`del-${a.id}`, async () => { await api(`/api/integrations/accounts/${a.id}`, 'DELETE'); if (!prefersReducedMotion()) { setLeaving(a.id); await new Promise(r => setTimeout(r, 260)) } }, t('Disconnected.', 'تم الفصل.', 'Losgekoppeld.'), () => headingRef.current?.focus()) }}>{t('Disconnect', 'فصل', 'Loskoppelen')}</button></div>
     </Dialog>}
   </div>
 }

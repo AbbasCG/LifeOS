@@ -251,7 +251,7 @@ describe('Connected accounts, compact', () => {
     const calls = server([{ match: /\/api\/integrations$/, body: hub() }, { match: /\/api\/integrations\/accounts\/3\/sync$/, method: 'POST', body: { imported: 1, run: null } }, { match: /\/api\/user$/, body: { id: 1 } }])
     render(wrap(<IntegrationsSettings />))
     expect(await screen.findByText('Not synced yet')).toBeInTheDocument()
-    const sync = screen.getByRole('button', { name: 'Sync now' })
+    const sync = screen.getByRole('button', { name: /^Sync now/ })
     expect(sync.textContent).toBe('')   // an icon, named for assistive technology
     fireEvent.click(sync)
     await waitFor(() => expect(calls.some(c => c.method === 'POST' && /accounts\/3\/sync$/.test(c.url))).toBe(true))
@@ -264,8 +264,8 @@ describe('Connected accounts, compact', () => {
     server([{ match: /\/api\/integrations$/, body: hub([{ ...account, status: 'revoked' }]) }, { match: /\/api\/user$/, body: { id: 1 } }])
     render(wrap(<IntegrationsSettings />))
     expect(await screen.findByText('Access revoked')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
+    expect(screen.getByRole('button', { name: /^Reconnect/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Sync now/ })).toBeNull()
   })
   it('shows a loading skeleton and an error message instead of a blank page', async () => {
     server([{ match: /\/api\/integrations$/, body: { message: 'Server error' }, status: 500 }, { match: /\/api\/user$/, body: { id: 1 } }])

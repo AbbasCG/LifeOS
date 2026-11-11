@@ -109,7 +109,7 @@ describe('connected accounts hub', () => {
     unmount()
     render(wrap(card({ ...account, retry_after: new Date(Date.now() + 600_000).toISOString() })))
     expect(screen.getByText('Waiting for provider')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Sync now/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Sync now/ })).toHaveAttribute('aria-disabled', 'true')
   })
   it('reports what a manual sync actually did and explains rate limits', async () => {
     const google = { provider: 'google', label: 'Google Calendar', category: 'calendars', implemented: true, configured: true, status: 'available', scopes: 'Read-only calendars', env_keys: [], redirect_uri: 'https://app/cb', required_scopes: ['calendar.readonly'], accounts: [{ ...account, recent_runs: [] }] }

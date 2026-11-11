@@ -39,7 +39,7 @@ describe('account details sheet: progressive disclosure', () => {
     expect(within(sheet).getByText('Connected')).toHaveClass('st')
     expect(within(sheet).getByText('Synced 3 minutes ago')).toBeInTheDocument()
     expect(within(sheet).getByRole('button', { name: /Sync now/, hidden: true })).toHaveClass('quiet')
-    expect(within(sheet).queryByRole('button', { name: 'Reconnect', hidden: true })).toBeNull()
+    expect(within(sheet).queryByRole('button', { name: /^Reconnect/, hidden: true })).toBeNull()
     expect(within(sheet).getByRole('group', { name: 'Calendars to include', hidden: true })).toBeInTheDocument()
     expect(within(sheet).queryByText('Last successful sync', { ignore: '[hidden] *' })).toBeNull()
   })
@@ -47,7 +47,7 @@ describe('account details sheet: progressive disclosure', () => {
     acc = account({ status: 'revoked' })
     server(); shell()
     const sheet = await openSheet()
-    expect(within(sheet).getByRole('button', { name: 'Reconnect', hidden: true })).toHaveClass('primary')
+    expect(within(sheet).getByRole('button', { name: /^Reconnect/, hidden: true })).toHaveClass('primary')
     expect(within(sheet).queryByRole('button', { name: /Sync now/, hidden: true })).toBeNull()
   })
   it('tier 2 rows carry one-line summaries and open the existing components', async () => {

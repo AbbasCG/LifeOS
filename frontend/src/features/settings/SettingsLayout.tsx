@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { flushSync } from 'react-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { SlidersHorizontal, ShieldCheck, CalendarSync, Bot, BellRing, Workflow, HeartPulse, BrainCircuit } from 'lucide-react'
 import { useText } from '../../lib/i18n'
+import { withTransition } from '../../lib/viewTransition'
 
 export default function SettingsLayout() {
-  const t = useText(), { pathname } = useLocation()
+  const t = useText(), { pathname } = useLocation(), navigate = useNavigate()
   const tabs = [
     { to: '/settings', end: true, label: t('General', 'عام', 'Algemeen'), icon: SlidersHorizontal },
     { to: '/settings/security', label: t('Security', 'الأمان', 'Beveiliging'), icon: ShieldCheck },
@@ -36,8 +38,13 @@ export default function SettingsLayout() {
   return <div className="settings-hub">
     {section && <h1 className="sr-only">{t(`Settings: ${section.label}`, `الإعدادات: ${section.label}`, `Instellingen: ${section.label}`)}</h1>}
     <nav ref={nav} className="settings-tabs" aria-label={t('Settings sections', 'أقسام الإعدادات', 'Instellingensecties')}>
-      {tabs.map(({ to, end, label, icon: Icon }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive ? 'active' : ''}><Icon size={17} />{label}</NavLink>)}
+      {tabs.map(({ to, end, label, icon: Icon }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive ? 'active' : ''}
+        onClick={e => {
+          // A plain click on another tab cross-fades the pane and slides the indicator (View Transitions); anything else is the browser's.
+          if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || pathname === to) return
+          e.preventDefault(); withTransition(() => flushSync(() => navigate(to)))
+        }}>{({ isActive }) => <><Icon size={17} />{label}{isActive && <span className="tab-ind" aria-hidden="true" />}</>}</NavLink>)}
     </nav>
-    <Outlet />
+    <div className="settings-pane"><Outlet /></div>
   </div>
 }

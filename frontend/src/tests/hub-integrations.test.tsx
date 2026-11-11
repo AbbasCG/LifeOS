@@ -40,7 +40,7 @@ describe('connected accounts hub: Dutch results', () => {
   it('the sync result toast and the sync history read in Dutch', async () => {
     localStorage.setItem('lifeos-language', 'nl')
     server(); shell()
-    fireEvent.click(await screen.findByRole('button', { name: 'Nu synchroniseren' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Nu synchroniseren/ }))
     expect((await screen.findAllByText('Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd, 1 verplaatst.')).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: 'Details van me@gmail.test' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Meer', hidden: true }))
@@ -52,7 +52,7 @@ describe('connected accounts hub: Dutch results', () => {
     localStorage.setItem('lifeos-language', 'nl')
     syncAnswer = { status: 200, body: { imported: 1, run: { ...run, moved: 0, status: 'partial' } } }
     server(); shell()
-    fireEvent.click(await screen.findByRole('button', { name: 'Nu synchroniseren' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Nu synchroniseren/ }))
     expect((await screen.findAllByText(/Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd — sommige agenda’s konden niet worden gelezen\./)).length).toBeGreaterThan(0)
   })
 })

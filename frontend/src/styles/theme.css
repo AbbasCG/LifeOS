@@ -9,6 +9,7 @@
      The muted colour is measured on the darkest tint the aurora field puts behind a heading (#d3d5f9): 4.7:1. */
   --color-text-muted: #515c70;
   --color-border: #e2e8f0;
+  --switch-off: #7b8799;
 
   --color-primary: #5355d8;
   --color-primary-hover: #4646c0;
@@ -48,6 +49,7 @@
   --color-text: #f1f5f9;
   --color-text-muted: #9caac1;
   --color-border: #243050;
+  --switch-off: #66749a;
 
   --color-primary: #818cf8;
   --color-primary-hover: #a5b4fc;
@@ -68,6 +70,30 @@
   --st-bad: #ff93a6; --st-bad-bg: rgba(251, 113, 133, 0.16); --st-bad-dot: #fb7185;
   --st-idle: #9caac1; --st-idle-bg: rgba(156, 170, 193, 0.13);
 }
+
+/* Motion: enter ease-out, exit ease-in and shorter, springs only on transform/translate/scale, stagger index <= 8 */
+:root {
+  --dur-instant: 90ms; --dur-fast: 140ms; --dur-base: 220ms; --dur-slow: 360ms; --dur-sweep: 1400ms; --stagger: 40ms;
+  --ease-out: cubic-bezier(.2, .7, .3, 1); --ease-in: cubic-bezier(.4, 0, 1, 1); --ease-inout: cubic-bezier(.65, 0, .35, 1);
+  --spring-snap: var(--ease-out);
+  --dist-xs: 4px; --dist-sm: 8px; --dist-md: 16px; --dist-lg: 40px;
+  --dir: 1;
+  --duration: var(--dur-fast); --ease: var(--ease-out);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --spring-snap: linear(0, 0.26 10%, 0.65 20%, 0.9 30%, 1.02 40%, 1.04 50%, 1.03 60%, 1.01 75%, 1); }
+}
+[dir="rtl"] { --dir: -1; }
+
+/* enter fills "backwards": no containing block left for the fixed toast region */
+@keyframes m-in { from { opacity: 0; } }
+@keyframes m-out { to { opacity: 0; } }
+@keyframes m-pop { from { opacity: 0; translate: 0 var(--dist-md); scale: .98; } }
+@keyframes m-pop-x { to { opacity: 0; translate: 0 var(--dist-sm); scale: .985; } }
+@keyframes m-sheet { from { translate: 0 100%; } }
+@keyframes m-sheet-x { to { translate: 0 100%; } }
+@keyframes m-slide { from { opacity: 0; translate: calc(var(--dir) * var(--dist-lg)) 0; } }
+@keyframes m-slide-x { to { opacity: 0; translate: calc(var(--dir) * var(--dist-md)) 0; } }
 
 /* Arabic needs larger small text and taller lines; Dutch compounds need a little less width per word. */
 :lang(ar) { --fs-xs: 12.5px; --fs-sm: 14px; --fs-md: 15.5px; --fs-lg: 18.5px; --lh-tight: 1.45; --lh-body: 1.8; }
@@ -97,7 +123,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
-  *::after {
+  *::after,
+  ::backdrop {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;

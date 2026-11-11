@@ -4,6 +4,7 @@ import { m } from 'motion/react'
 import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, CheckSquare, ChevronDown, Flame, Minus, Target, Users, X, Zap, type LucideIcon } from 'lucide-react'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
+import { useAnimatedClose } from '../../lib/useAnimatedClose'
 
 /**
  * LifeOS visual language (V20): small, reusable pieces that let a screen be read at a glance — rings and numbers
@@ -96,7 +97,7 @@ export function SheetCancel({ children }: { children: ReactNode }) {
  * half-filled form. Saving closes through `onClose` directly and never asks.
  */
 export function BottomSheet({ title, onClose, children, footer, tall, dirty }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; tall?: boolean; dirty?: () => boolean }) {
-  const ref = useRef<HTMLDialogElement>(null), t = useText(), id = useId(), [confirming, setConfirming] = useState(false)
+  const ref = useRef<HTMLDialogElement>(null), t = useText(), id = useId(), [confirming, setConfirming] = useState(false), exit = useAnimatedClose(ref, onClose)
   const keepRef = useRef<HTMLButtonElement>(null), returnTo = useRef<HTMLElement | null>(null)
   // showModal() focuses the first control (the close button); a field marked data-autofocus takes focus instead.
   useEffect(() => { const dialog = ref.current, previous = document.activeElement as HTMLElement | null; dialog?.showModal?.(); dialog?.querySelector<HTMLElement>('[data-autofocus]')?.focus(); return () => { dialog?.close?.(); previous?.focus?.() } }, [])
@@ -113,8 +114,8 @@ export function BottomSheet({ title, onClose, children, footer, tall, dirty }: {
     return () => { vv.removeEventListener('resize', apply); vv.removeEventListener('scroll', apply) }
   }, [])
   const request = useCallback(() => {
-    if (dirty?.()) { returnTo.current = document.activeElement as HTMLElement | null; setConfirming(true) } else onClose()
-  }, [dirty, onClose])
+    if (dirty?.()) { returnTo.current = document.activeElement as HTMLElement | null; setConfirming(true) } else exit()
+  }, [dirty, exit])
   useEffect(() => { if (confirming) keepRef.current?.focus() }, [confirming])
   const keepEditing = () => { setConfirming(false); returnTo.current?.focus?.() }
   // stopPropagation: a sheet opened from inside another sheet's form must not also close the one beneath it.
@@ -129,7 +130,7 @@ export function BottomSheet({ title, onClose, children, footer, tall, dirty }: {
           <p id={`${id}-discard-why`} className="muted small">{t('What you entered here has not been saved.', 'ما أدخلته هنا لم يُحفظ.', 'Wat je hier hebt ingevoerd is niet opgeslagen.')}</p>
           <div className="sheet-confirm-actions">
             <button type="button" ref={keepRef} className="primary" onClick={keepEditing}>{t('Keep editing', 'متابعة التعديل', 'Blijven bewerken')}</button>
-            <button type="button" className="quiet danger-text" onClick={onClose}>{t('Discard', 'تجاهل', 'Negeren')}</button>
+            <button type="button" className="quiet danger-text" onClick={exit}>{t('Discard', 'تجاهل', 'Negeren')}</button>
           </div>
         </div>}
         {footer && <footer className="sheet-foot">{footer}</footer>}

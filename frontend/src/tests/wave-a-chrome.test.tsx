@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -12,6 +12,9 @@ import { useToast } from '../lib/toast'
 import { BottomSheet } from '../components/visual'
 import SettingsLayout from '../features/settings/SettingsLayout'
 
+// A browser can play the exit animation; jsdom cannot, so give it the method that says so.
+beforeEach(() => { Object.defineProperty(Element.prototype, 'getAnimations', { value: () => [], configurable: true, writable: true }) })
+afterEach(() => { delete (Element.prototype as unknown as Record<string, unknown>).getAnimations })
 const shell = (ui: ReactNode, lang?: string, path = '/') => {
   if (lang) localStorage.setItem('lifeos-language', lang)
   return render(<MemoryRouter initialEntries={[path]}><ThemeProvider><LanguageProvider>{ui}</LanguageProvider></ThemeProvider></MemoryRouter>)
@@ -21,7 +24,7 @@ const css = (name: string) => readFileSync(resolve(__dirname, '../styles', name)
 describe('nested Dialog Escape', () => {
   beforeEach(() => { cleanup(); localStorage.clear() })
   afterEach(cleanup)
-  it('closes only the inner Dialog, never the BottomSheet beneath it', () => {
+  it('closes only the inner Dialog, never the BottomSheet beneath it', async () => {
     const outer = vi.fn(), inner = vi.fn()
     const { container } = shell(<BottomSheet title="Outer" onClose={outer}><Dialog title="Inner" onClose={inner}><span>x</span></Dialog></BottomSheet>)
     const dialogs = container.querySelectorAll('dialog')
@@ -29,8 +32,9 @@ describe('nested Dialog Escape', () => {
     expect(innerDialog.className).toContain('os-dialog')
     const ev = new Event('cancel', { cancelable: true, bubbles: true })
     act(() => { innerDialog.dispatchEvent(ev) })
-    expect(inner).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(inner).toHaveBeenCalledTimes(1))
     expect(outer).not.toHaveBeenCalled()
+    expect(dialogs[0].hasAttribute('data-closing')).toBe(false)
   })
 })
 
@@ -49,6 +53,8 @@ describe('toast pause and resume', () => {
     fireEvent.mouseLeave(region)
     act(() => { vi.advanceTimersByTime(1400) })
     expect(document.querySelector('.toast')).not.toBeNull()
+    act(() => { vi.advanceTimersByTime(100) })   // the time is up: the toast starts to leave
+    expect(document.querySelector('.toast')!.hasAttribute('data-leaving')).toBe(true)
     act(() => { vi.advanceTimersByTime(200) })
     expect(document.querySelector('.toast')).toBeNull()
   })
@@ -62,6 +68,7 @@ describe('toast pause and resume', () => {
     expect(document.querySelector('.toast')).not.toBeNull()
     fireEvent.blur(dismissBtn)
     act(() => { vi.advanceTimersByTime(1100) })
+    act(() => { vi.advanceTimersByTime(200) })
     expect(document.querySelector('.toast')).toBeNull()
   })
 })
@@ -104,8 +111,8 @@ describe('toast live regions and modal hosting', () => {
     expect(dialog.querySelector('.toast-region .toast')).not.toBeNull()
     // Closing the dialog hands the region back to the page.
     fireEvent.click(screen.getByLabelText('Close'))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
     await act(async () => { await new Promise(r => setTimeout(r, 0)) })
-    expect(document.querySelector('dialog')).toBeNull()
     expect(document.querySelector('.toast-region')).not.toBeNull()
   })
   it('moves focus to the previous element when the focused toast is dismissed', () => {

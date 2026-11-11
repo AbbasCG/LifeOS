@@ -75,7 +75,19 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 
 /* Bottom sheet */
 .sheet { padding: 0; border: 0; background: transparent; max-width: none; max-height: none; width: 100%; height: 100%; margin: 0; overflow: hidden; color: var(--color-text); }
-.sheet::backdrop { background: rgba(8, 13, 36, 0.42); backdrop-filter: blur(3px); }
+:is(.os-dialog, .os-drawer, .sheet)::backdrop { background: rgba(8, 13, 36, 0.42); }
+@media (hover: hover) { :is(.os-dialog, .os-drawer, .sheet)::backdrop { backdrop-filter: blur(3px); } }
+:is(.os-dialog, .os-drawer, .sheet)[open]::backdrop { animation: m-in var(--dur-base) var(--ease-out) backwards; }
+:is(.os-dialog, .os-drawer, .sheet)[data-closing]::backdrop { animation: m-out var(--dur-fast) var(--ease-in) forwards; }
+.os-dialog[open] { animation: m-pop var(--dur-base) var(--ease-out) backwards; }
+.os-drawer[open] { animation: m-slide var(--dur-slow) var(--ease-out) backwards; }
+.os-dialog[data-closing], .sheet[data-closing] .sheet-inner { animation: m-pop-x var(--dur-fast) var(--ease-in) forwards; }
+dialog[data-closing] { pointer-events: none; }
+.os-drawer[data-closing] { animation: m-slide-x var(--dur-fast) var(--ease-in) forwards; }
+@media (max-width: 700px) {
+  .os-dialog[open]:not([data-closing]), .os-drawer[open]:not([data-closing]) { animation-name: m-sheet; animation-duration: var(--dur-slow); }
+  .os-dialog[data-closing], .os-drawer[data-closing], .sheet[data-closing] .sheet-inner { animation-name: m-sheet-x; }
+}
 .sheet-inner { position: absolute; display: flex; flex-direction: column; background: var(--surface-2); border: 1px solid var(--hairline-strong, var(--color-border)); box-shadow: var(--edge-top), var(--elev-3); max-height: min(88dvh, 760px); overflow: hidden; }
 .sheet-handle { display: none; }
 .sheet-head { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
@@ -83,14 +95,13 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .sheet-head .icon-button { flex: none; }
 .sheet-body { min-inline-size: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-4) var(--space-4); overflow-y: auto; display: grid; gap: var(--space-3); }
 .sheet-foot { display: flex; gap: var(--space-2); justify-content: flex-end; padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom)); border-top: 1px solid var(--hairline, var(--color-border)); }
-@media (min-width: 701px) { .sheet-inner { inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); border-radius: 22px; animation: sheet-pop 220ms var(--ease) both; } [dir="rtl"] .sheet-inner { transform: translate(50%, -50%); inset: 50% 50% auto auto; } }
+/* centred without transform */
+@media (min-width: 701px) { .sheet-inner { inset: 0; margin: auto; height: fit-content; width: min(520px, calc(100vw - 32px)); border-radius: 22px; animation: m-pop var(--dur-base) var(--ease-out) backwards; } }
 @media (max-width: 700px) {
-  .sheet-inner { inset: auto 0 0 0; width: 100%; border-radius: 22px 22px 0 0; animation: sheet-up 260ms var(--ease) both; }
+  .sheet-inner { inset: auto 0 0 0; width: 100%; border-radius: 22px 22px 0 0; animation: m-sheet var(--dur-slow) var(--ease-out) backwards; }
   .sheet-handle { display: block; width: 40px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--color-text) 18%, transparent); margin: 8px auto 0; }
   .sheet-foot > * { flex: 1; }
 }
-@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
-@keyframes sheet-pop { from { opacity: 0; scale: 0.97; } to { opacity: 1; scale: 1; } }
 
 /* Small empty state */
 .empty-note { display: flex; align-items: center; gap: 10px; padding: var(--space-4); border-radius: 16px; background: color-mix(in srgb, var(--color-text) 3%, transparent); color: var(--color-text-muted); font-size: 14px; }
@@ -107,7 +118,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .filter-chip[aria-pressed="true"], .filter-chip[aria-checked="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .filter-chip .count { font-variant-numeric: tabular-nums; opacity: 0.75; }
 
-@media (prefers-reduced-motion: reduce) { .sheet-inner { animation: none; } .quick-action, .cta { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .quick-action, .cta { transition: none; } }
 
 /* Navigation: bottom bar with Quick Add in the middle; compact phone topbar */
 @media (max-width: 700px) {

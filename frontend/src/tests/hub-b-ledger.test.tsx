@@ -72,7 +72,7 @@ describe('hub ledger: one honest sentence per state', () => {
     server(); shell()
     await screen.findByText('ok@x.test')
     expect(document.querySelectorAll('.account-mini button.primary')).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Reconnect' })).toHaveClass('primary')
+    expect(screen.getByRole('button', { name: /^Reconnect/ })).toHaveClass('primary')
     expect(screen.getByText('Can add events')).toHaveClass('scope-chip')
     expect(screen.getByRole('button', { name: 'Add account for Google Calendar' })).not.toHaveClass('primary')
   })
@@ -87,7 +87,7 @@ describe('needs-attention strip', () => {
   it.each([[1, 'حساب واحد يحتاج إلى انتباه'], [2, 'حسابان يحتاجان إلى انتباه'], [3, '3 حسابات تحتاج إلى انتباه'], [10, '10 حسابات تحتاج إلى انتباه'], [11, '11 حسابًا يحتاج إلى انتباه'], [100, '100 حساب يحتاج إلى انتباه']])('Arabic plural for %s', async (n, text) => {
     lang('ar'); providers = [many(n)]; server(); shell()
     await waitFor(() => expect(strip()).toHaveTextContent(text))
-    expect(strip()).toHaveAttribute('role', 'status')
+    expect(screen.getAllByRole('status').some(e => e.textContent === text)).toBe(true)   // announced by the one persistent live region
   })
   it('English and Dutch use one / other', async () => {
     providers = [many(1)]; server(); shell()
@@ -99,7 +99,7 @@ describe('needs-attention strip', () => {
     providers = [provider('google', 'Google Calendar', [account({ id: 1, email: 'fine@x.test' }), account({ id: 2, email: 'first@x.test', status: 'revoked' }), account({ id: 3, email: 'second@x.test', status: 'revoked' })])]
     server(); shell()
     fireEvent.click(await screen.findByRole('button', { name: 'Review' }))
-    expect(document.activeElement).toHaveAttribute('aria-label', 'Google Calendar, first@x.test')
+    expect(document.activeElement).toHaveAttribute('aria-label', expect.stringMatching(/^Google Calendar, first@x.test/))
   })
   it('the AI-sharing consent row is the last thing on the page', async () => {
     server(); shell(); await screen.findByText('me@gmail.test')

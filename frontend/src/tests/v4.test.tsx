@@ -172,7 +172,7 @@ describe('calendar integrations', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('button', { name: 'Connect Google Calendar' })).not.toBeInTheDocument()
     expect(screen.getByText('Access revoked')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Reconnect/ })).toBeInTheDocument()
     // Planned integrations explain themselves and cannot be connected.
     fireEvent.click(screen.getByRole('button', { name: 'About Notion' }))
     expect(await screen.findByText('Planned: import pages from one database you pick.')).toBeInTheDocument()

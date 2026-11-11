@@ -12,6 +12,7 @@ import type { SyncState } from '../../lib/syncSettings'
 import { useAccountStateLabel } from '../../lib/accountState'
 import { relativeTime } from '../../lib/relativeTime'
 import { isBroken, usePresetLabel, useStateLine } from './accountLine'
+import { Count } from './Count'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
 export type SyncRunInfo = { details?: { skipped?: number }; id: number; mode: 'full' | 'incremental'; status: 'running' | 'success' | 'partial' | 'failed' | 'rate_limited' | 'revoked'; trigger: string; started_at: string; finished_at: string | null; duration_ms: number | null; upserted: number; removed: number; moved: number; error: string | null }
@@ -59,9 +60,11 @@ function Tier({ title, summary, children }: { title: string; summary: ReactNode;
  * One connected account in the hub, as a sheet in three tiers. Always visible: who and how it is, the one action for its state, which calendars are included.
  * One tap away: what LifeOS may do, how it syncs, adding events. Behind "More": facts, data access and history. Last, apart: disconnect.
  */
-export function AccountCard({ account, label, tasks, requiredScopes, busy, onSync, onReconnect, onDisconnect, onSaved, perms, sync, write }: {
+export function AccountCard({ account, label, tasks, requiredScopes, busy, onSync, onReconnect, onDisconnect, onSaved, perms, sync, write, settled }: {
   account: ConnectedAccount; label: string; tasks: boolean; requiredScopes: string[]; busy: string | null
   onSync: () => void; onReconnect: () => void; onDisconnect: () => void; onSaved: () => void; perms?: ReactNode; sync?: ReactNode; write?: ReactNode
+  /** How the sync that just ended went, for one short settle of the status dot. */
+  settled?: 'ok' | 'bad'
 }) {
   const t = useText(), { language } = useLanguage(), uid = useId()
   const [history, setHistory] = useState(false), [more, setMore] = useState(false)
@@ -70,8 +73,8 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
   const when = (iso: string | null | undefined) => { if (!iso) return t('Never', 'أبداً', 'Nooit'); const r = relativeTime(iso, language); return <time dateTime={iso} title={full(iso)}>{r && r.kind !== 'date' ? r.text : full(iso)}</time> }
   const clock = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
   const waiting = account.retry_after ? new Date(account.retry_after) : null
-  const syncing = busy === `sync-${account.id}`
-  const line = useStateLine()(account, false), state = line.state
+  const syncing = busy === `sync-${account.id}`, who = account.email ?? account.display_name ?? label
+  const line = useStateLine()(account, syncing), state = line.state
   const stateLabel = useAccountStateLabel()(state), presetLabel = usePresetLabel()(account)
   const hint = {
     ok: null,
@@ -89,10 +92,10 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
   const subline = state === 'error' ? line.since : isBroken(state) ? null : line.chip
   const direction = account.sync && { inbound: t('From the service', 'من الخدمة', 'Van de dienst'), outbound: t('To the service', 'إلى الخدمة', 'Naar de dienst'), two_way: t('Both ways', 'في الاتجاهين', 'Beide kanten op'), manual: t('Only when I ask', 'عند طلبي فقط', 'Alleen als ik erom vraag') }[account.sync.effective_direction]
   const conflicts = account.sync?.open_conflicts ?? 0
-  return <li className={`account-card state-${state}`}>
+  return <li className={`account-card state-${state}`} data-syncing={syncing || undefined} data-settle={settled}>
     <div className="account-head">
       <div className="account-id">{account.email ? <strong><bdi dir="ltr">{account.email}</bdi></strong> : <strong>{account.display_name ?? label}</strong>}{account.display_name && account.email && <small className="muted">{account.display_name}</small>}</div>
-      <span className="st" data-s={line.s}><i className="st-dot" aria-hidden="true" />{stateLabel}</span>
+      <span className={`st${syncing ? ' is-syncing' : ''}`} data-s={line.s}><i className="st-dot" aria-hidden="true" />{syncing ? line.chip : stateLabel}</span>
     </div>
     {subline && <p className="muted small account-since">{subline}</p>}
     {(hint || account.last_error) && state !== 'ok' && <div className={`account-alert alert-${state}`} role="alert">
@@ -101,8 +104,8 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
     </div>}
     <div className="toolbar">
       {isBroken(state)
-        ? <button className="primary" disabled={busy !== null} onClick={onReconnect}><Link2 size={15} />{feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')}</button>
-        : <button className="quiet" disabled={busy !== null || state === 'waiting'} onClick={onSync} aria-busy={syncing}><RefreshCw size={15} className={syncing ? 'spin' : ''} />{syncing ? t('Syncing…', 'جارٍ المزامنة…', 'Synchroniseren…') : t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')}</button>}
+        ? <button className="primary" aria-disabled={busy !== null || undefined} aria-label={`${feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')} — ${label}, ${who}`} onClick={() => { if (busy === null) onReconnect() }}><Link2 size={15} />{feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')}</button>
+        : <button className="quiet" aria-disabled={busy !== null || state === 'waiting' || undefined} aria-label={`${t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} — ${label}, ${who}`} onClick={() => { if (busy === null && state !== 'waiting') onSync() }} aria-busy={syncing}><RefreshCw size={15} className={syncing ? 'spin' : ''} />{syncing ? t('Syncing…', 'جارٍ المزامنة…', 'Synchroniseren…') : t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')}</button>}
     </div>
     {skipped > 0 && <p className="muted small account-note">{t(`${skipped} repeating event(s) use a pattern LifeOS can’t expand yet, so they were left out rather than guessed.`, `${skipped} موعد متكرر يستخدم نمطاً لا يستطيع LifeOS توسيعه بعد، لذا تُرك بدلاً من التخمين.`, `${skipped} terugkerende afspraak/afspraken gebruiken een patroon dat LifeOS nog niet kan uitklappen, dus ze zijn weggelaten in plaats van geraden.`)}</p>}
     {account.status !== 'revoked' && !feed && <CollectionPicker key={account.collections.map(c => `${c.id}:${c.included}`).join(',')} account={account} tasks={tasks} onSaved={onSaved} />}
@@ -117,7 +120,8 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
         <div><dt>{t('Last successful sync', 'آخر مزامنة ناجحة', 'Laatste geslaagde synchronisatie')}</dt><dd>{when(account.last_synced_at)}</dd></div>
         <div><dt>{t('Last attempt', 'آخر محاولة', 'Laatste poging')}</dt><dd>{when(account.last_attempt_at)}</dd></div>
         <div><dt>{t('Mode', 'النمط', 'Modus')}</dt><dd>{account.sync_mode === 'incremental' ? t('Incremental (changes only)', 'تدريجي (التغييرات فقط)', 'Stapsgewijs (alleen wijzigingen)') : t('Full read', 'قراءة كاملة', 'Volledig lezen')}</dd></div>
-        <div><dt>{tasks ? t('Imported tasks', 'المهام المستوردة', 'Geïmporteerde taken') : t('Upcoming commitments', 'الالتزامات القادمة', 'Komende afspraken')}</dt><dd>{account.events_count}</dd></div>
+        <div><dt>{tasks ? t('Imported tasks', 'المهام المستوردة', 'Geïmporteerde taken') : t('Upcoming commitments', 'الالتزامات القادمة', 'Komende afspraken')}</dt><dd><Count value={account.events_count} chip /></dd></div>
+        {runs[0] && <div><dt>{t('Latest result', 'آخر نتيجة', 'Laatste resultaat')}</dt><dd><Count value={runs[0].upserted} /> {t('updated', 'محدّث', 'bijgewerkt')} · <Count value={runs[0].removed} /> {t('removed', 'محذوف', 'verwijderd')}{runs[0].moved > 0 && <> · <Count value={runs[0].moved} /> {t('moved', 'منقول', 'verplaatst')}</>}</dd></div>}
       </dl>
       <div className="permissions">
         <span className="perm-title"><ShieldCheck size={14} />{t('Data access', 'الوصول إلى البيانات', 'Gegevenstoegang')}</span>
