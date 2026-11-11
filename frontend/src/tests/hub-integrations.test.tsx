@@ -43,7 +43,8 @@ describe('connected accounts hub: Dutch results', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Nu synchroniseren' }))
     expect((await screen.findAllByText('Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd, 1 verplaatst.')).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: 'Details van me@gmail.test' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Synchronisatiegeschiedenis' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Meer', hidden: true }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Synchronisatiegeschiedenis', hidden: true }))
     expect(await screen.findByText('4 bijgewerkt · 2 verwijderd · 1 verplaatst')).toBeInTheDocument()
   })
 

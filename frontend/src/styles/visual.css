@@ -5,22 +5,17 @@
  * primary action per screen, details on request, big touch targets. Light and dark, RTL and LTR, reduced motion.
  */
 :root {
-  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
-  --radius-sm: 10px; --radius-card: 20px; --radius-pill: 999px;
+  --radius-card: 20px;
   --touch: 44px;
   /* Semantic status colors (each always paired with an icon or a word). */
   --tone-urgent: #e11d48; --tone-high: #d97706; --tone-medium: #6366f1; --tone-low: #059669;
-  --tone-meeting: #6366f1; --tone-focus: #0891b2; --tone-task: #8b5cf6; --tone-personal: #059669;
+  --tone-meeting: #6366f1; --tone-focus: #0891b2; --tone-task: #8b5cf6;
   --surface-raised: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  --elev-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -12px rgba(15, 23, 42, 0.16);
-  --elev-2: 0 2px 6px rgba(15, 23, 42, 0.06), 0 22px 44px -18px rgba(15, 23, 42, 0.28);
   --bottom-nav: 64px;
 }
 :root[data-theme="dark"] {
   --tone-urgent: #fb7185; --tone-high: #fbbf24; --tone-medium: #a5b4fc; --tone-low: #34d399;
-  --tone-meeting: #a5b4fc; --tone-focus: #22d3ee; --tone-task: #c4b5fd; --tone-personal: #6ee7b7;
-  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -12px rgba(0, 0, 0, 0.6);
-  --elev-2: 0 2px 8px rgba(0, 0, 0, 0.4), 0 26px 52px -18px rgba(0, 0, 0, 0.75);
+  --tone-meeting: #a5b4fc; --tone-focus: #22d3ee; --tone-task: #c4b5fd;
 }
 
 /* Compact page header (replaces eyebrow + headline + paragraph) */
@@ -41,7 +36,7 @@
 .vring.tone-accent .ring-value { stroke: var(--color-accent); }
 .ring-center { position: relative; display: grid; place-items: center; text-align: center; line-height: 1; }
 .ring-center strong { font-size: 14px; font-weight: 750; font-variant-numeric: tabular-nums; }
-.ring-stat { display: grid; justify-items: center; gap: 6px; padding: var(--space-2); border-radius: var(--radius-sm); min-width: 76px; text-align: center; }
+.ring-stat { display: grid; justify-items: center; gap: 6px; padding: var(--space-2); border-radius: 10px; min-width: 76px; text-align: center; }
 .ring-stat small { font-size: 12px; color: var(--color-text-muted); font-weight: 600; }
 a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
 
@@ -81,7 +76,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 /* Bottom sheet */
 .sheet { padding: 0; border: 0; background: transparent; max-width: none; max-height: none; width: 100%; height: 100%; margin: 0; overflow: hidden; color: var(--color-text); }
 .sheet::backdrop { background: rgba(8, 13, 36, 0.42); backdrop-filter: blur(3px); }
-.sheet-inner { position: absolute; display: flex; flex-direction: column; background: var(--panel-bg-strong, var(--color-surface)); border: 1px solid var(--hairline-strong, var(--color-border)); box-shadow: var(--elev-2); max-height: min(88dvh, 760px); overflow: hidden; }
+.sheet-inner { position: absolute; display: flex; flex-direction: column; background: var(--surface-2); border: 1px solid var(--hairline-strong, var(--color-border)); box-shadow: var(--edge-top), var(--elev-3); max-height: min(88dvh, 760px); overflow: hidden; }
 .sheet-handle { display: none; }
 .sheet-head { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
 .sheet-head h2 { font-size: 18px; flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
@@ -435,7 +430,7 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .focus-today > header { margin: 0; min-height: 0; }
 .focus-today > header h2 { margin: 0; }
 .focus-today-body { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
-.focus-goal { display: grid; justify-items: center; gap: 4px; padding: 4px; border: 0; background: transparent; border-radius: var(--radius-sm); }
+.focus-goal { display: grid; justify-items: center; gap: 4px; padding: 4px; border: 0; background: transparent; border-radius: 10px; }
 .focus-goal small { font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
 .focus-goal .ring-center strong { font-size: 15px; }
 .focus-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14px; flex: 1; min-width: 180px; }

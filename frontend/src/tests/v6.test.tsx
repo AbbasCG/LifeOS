@@ -91,6 +91,7 @@ describe('connected accounts hub', () => {
     expect(screen.getByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('Incremental (changes only)')).toBeInTheDocument()
     expect(screen.getByText('calendar.readonly').closest('.perm')).toHaveClass('ok')
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
     fireEvent.click(screen.getByRole('button', { name: /Sync history/ }))
     expect(screen.getByText('Partly synced')).toBeInTheDocument()
     expect(screen.getByText('3 updated · 1 removed · 1 moved')).toBeInTheDocument()
@@ -120,7 +121,7 @@ describe('connected accounts hub', () => {
   it('walks new users through connecting their first account', async () => {
     mockApi([user, { match: /\/api\/integrations$/, body: { providers: [], ai_connected_data: false, categories: [] } }])
     render(wrap(<IntegrationsSettings />))
-    expect(await screen.findByText('Choose what to include')).toBeInTheDocument()
+    expect(await screen.findByText('Your calendars and tasks, on one timeline')).toBeInTheDocument()
   })
 })
 

@@ -250,7 +250,7 @@ describe('Connected accounts, compact', () => {
   it('puts the status and the action on the row: sync is one icon button, details open on request', async () => {
     const calls = server([{ match: /\/api\/integrations$/, body: hub() }, { match: /\/api\/integrations\/accounts\/3\/sync$/, method: 'POST', body: { imported: 1, run: null } }, { match: /\/api\/user$/, body: { id: 1 } }])
     render(wrap(<IntegrationsSettings />))
-    expect(await screen.findByText('Connected')).toBeInTheDocument()
+    expect(await screen.findByText('Not synced yet')).toBeInTheDocument()
     const sync = screen.getByRole('button', { name: 'Sync now' })
     expect(sync.textContent).toBe('')   // an icon, named for assistive technology
     fireEvent.click(sync)

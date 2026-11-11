@@ -196,7 +196,7 @@ describe('calendar integrations', () => {
     vi.stubGlobal('location', { ...window.location, assign })
     mockApi([user, { match: /\/api\/integrations$/, body: providers }, { match: /\/api\/integrations\/outlook\/connect$/, method: 'POST', body: { authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?state=abc' } }])
     render(wrap(<IntegrationsSettings />))
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect another Outlook Calendar account' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Add account for Outlook Calendar' }))
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://login.microsoftonline.com/common/oauth2/v2.0/authorize?state=abc'))
   })
 })

@@ -50,12 +50,11 @@ describe('connected accounts hub: wave A defects', () => {
   })
 
   it('a provider id without a brand style gets a neutral letter tile', async () => {
-    providers = [provider('microsoft', 'Microsoft Outlook'), provider('google', 'Google Calendar')]
+    providers = [provider('microsoft', 'Microsoft Outlook'), provider('google', 'Google Calendar', [account()])]
     server(); shell()
-    const tile = (await screen.findByText('M', { selector: '.provider-mark' }))
-    expect(tile).toHaveAttribute('aria-hidden', 'true')
-    expect(tile).toHaveClass('mark-fallback')
-    expect(document.querySelectorAll('.provider-mark.google svg').length).toBe(1)
+    const letters = await screen.findByText('M', { selector: '.pt-letters' })
+    expect(letters.closest('.provider-tile')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByText('Gc', { selector: '.pt-letters' }).closest('.provider-tile')?.querySelector('.pt-cat svg')).not.toBeNull()
   })
 
   it('an OAuth return error is one persistent role=alert banner, with no extra toast, and can be dismissed', async () => {

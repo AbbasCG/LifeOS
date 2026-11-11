@@ -4,6 +4,8 @@ test('connected accounts never pretend to be connected and feed links cannot rea
   guard.allowConsole(/status of 422/)
   await setLanguage('en')
   await page.goto('/settings/integrations')
+  // Providers that still need setup sit under a collapsed 'More services' disclosure.
+  await page.getByRole('button', { name: 'More services' }).click()
   const google = page.locator('.integration-card', { hasText: 'Google Calendar' })
   await expect(google.getByText('Setup needed')).toBeVisible()
   await expect(google.getByRole('button', { name: /Connect/ })).toHaveCount(0)

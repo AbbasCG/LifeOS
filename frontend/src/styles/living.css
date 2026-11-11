@@ -6,7 +6,6 @@
  * every translucent surface has a solid fallback where backdrop-filter is unsupported.
  */
 :root {
-  --color-bg: #f2f4fb;
   --ink: #0f172a;
   --panel-bg: rgba(255, 255, 255, 0.72);
   --panel-bg-strong: rgba(255, 255, 255, 0.9);
@@ -19,19 +18,11 @@
   --aurora-1: rgba(99, 102, 241, 0.22);
   --aurora-2: rgba(20, 184, 196, 0.18);
   --aurora-3: rgba(168, 85, 247, 0.16);
-  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -12px rgba(15, 23, 42, 0.12);
-  --shadow-lift: 0 2px 6px rgba(15, 23, 42, 0.06), 0 24px 48px -16px rgba(15, 23, 42, 0.2);
-  --radius-panel: 22px;
-  --radius-md: 14px;
   /* Spring easing (critically damped-ish) approximated with linear(); falls back to --ease where unsupported. */
   --spring: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.067, 1.089 24.6%, 1.084 26.5%, 1.061 29.2%, 0.996 37.5%, 0.983 41.4%, 0.993 50.2%, 1.001 57.7%, 1);
   --duration-spring: 520ms;
 }
 :root[data-theme="dark"] {
-  --color-bg: #060a16;
-  --color-surface: #10172b;
-  --color-surface-muted: #19223a;
-  --color-border: #243050;
   --ink: #eef2ff;
   --panel-bg: rgba(16, 23, 43, 0.66);
   --panel-bg-strong: rgba(18, 26, 48, 0.92);
@@ -43,8 +34,6 @@
   --aurora-1: rgba(99, 102, 241, 0.28);
   --aurora-2: rgba(20, 184, 196, 0.16);
   --aurora-3: rgba(168, 85, 247, 0.2);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
-  --shadow-lift: 0 2px 8px rgba(0, 0, 0, 0.35), 0 28px 56px -18px rgba(0, 0, 0, 0.7);
 }
 
 /* Ambient light field (see AmbientBackground). Parallax comes from --mx/--my/--sy set on the root. */
@@ -76,7 +65,7 @@ body { background: var(--color-bg); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .sidebar, .topbar, .panel, .stat, .period-card, .suggestion, .integration-card { background: var(--color-surface); }
 }
-.os-dialog { background: var(--panel-bg-strong); border-color: var(--hairline-strong); }
+.os-dialog { background: var(--surface-2); border-color: var(--hairline-strong); box-shadow: var(--edge-top), var(--elev-3); }
 input:not([type=checkbox]):not([type=color]):not([type=radio]), select, textarea { background: color-mix(in srgb, var(--color-surface) 82%, transparent); border-color: var(--hairline-strong); transition: border-color var(--duration), box-shadow var(--duration); }
 input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:focus, textarea:focus { border-color: color-mix(in srgb, var(--color-primary) 60%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent); outline: none; }
 
@@ -113,15 +102,7 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .mobile-nav a, .mobile-nav button { position: relative; isolation: isolate; transition: color var(--duration) var(--ease), transform var(--duration-spring) var(--spring); }
 .mobile-nav a:active, .mobile-nav button:active { transform: scale(0.92); }
 .mobile-nav .tab-active { position: absolute; inset: 4px 10%; z-index: -1; border-radius: 14px; background: color-mix(in srgb, var(--color-primary) 14%, transparent); }
-
 /* Command center hero */
-.command-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 28px 32px; border-radius: 28px; position: relative; overflow: hidden; background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 10%, var(--panel-bg)), var(--panel-bg)); }
-.command-hero h1 { margin: 6px 0 8px; }
-.command-hero .hero-guidance { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 60%, transparent); border: 1px solid var(--hairline); max-width: 640px; }
-.command-hero .hero-guidance svg { color: var(--color-primary); flex-shrink: 0; margin-top: 3px; }
-.command-hero .hero-visual { display: grid; justify-items: center; gap: 6px; }
-.command-hero .hero-visual small { color: var(--color-text-muted); }
-@media (max-width: 760px) { .command-hero { grid-template-columns: 1fr; padding: 22px; } .command-hero .hero-visual { order: -1; } }
 
 /* Day dial — 24h interactive time visualisation */
 .day-dial { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: center; }
@@ -151,8 +132,6 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .focus-immersive .immersive-task { font-size: 18px; color: var(--color-text-muted); max-width: 32rem; }
 
 /* Copilot companion */
-.copilot-companion { display: flex; gap: 18px; align-items: center; margin-bottom: 8px; }
-.copilot-companion .living-orb { flex-shrink: 0; }
 .context-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .context-chips button { display: inline-flex; align-items: center; gap: 6px; }
 
@@ -203,8 +182,6 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .focus-dial:has(.dial-orb) .dial-center > span { background: color-mix(in srgb, var(--color-surface) 58%, transparent); padding: 0 10px; border-radius: 999px; backdrop-filter: blur(6px); }
 .habit-chip { position: relative; overflow: visible; }
 @media (max-width: 760px) {
-  .command-hero .hero-visual { grid-template-columns: auto 1fr; align-items: center; justify-items: start; gap: 12px; }
-  .command-hero .living-orb { width: 96px !important; height: 96px !important; }
 }
 
 /* V6 — source colours (shared by hub, timeline, badges) */
@@ -222,14 +199,7 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .account-card.state-error, .account-card.state-waiting { border-color: color-mix(in srgb, var(--color-warning) 40%, var(--hairline)); }
 .account-head { display: flex; align-items: center; gap: 10px; }
 .account-head > div { display: grid; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-muted); }
-.status-dot.dot-ok { background: var(--color-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 18%, transparent); }
-.status-dot.dot-error, .status-dot.dot-waiting { background: var(--color-warning); }
-.status-dot.dot-revoked, .status-dot.dot-scope { background: var(--color-danger); }
-.status-dot.dot-ok { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent); }
 .pill-ok { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
-.pill-error, .pill-waiting { background: color-mix(in srgb, var(--color-warning) 14%, transparent); color: var(--color-warning); }
-.pill-revoked, .pill-scope { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .account-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 8px; margin: 0; }
 .account-facts div { padding: 8px 10px; border-radius: 10px; background: var(--color-surface-muted); }
 .account-facts dt { font-size: 11px; color: var(--color-text-muted); }
@@ -251,7 +221,6 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .sync-history .run-failed, .sync-history .run-revoked { border-inline-start-color: var(--color-danger); }
 .run-status { font-weight: 650; font-size: 13px; }
 .run-error { color: var(--color-danger); }
-.hub-onboarding h2 { margin-bottom: 12px; }
 .onboarding-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; }
 .onboarding-steps li { display: flex; gap: 12px; align-items: flex-start; }
 .onboarding-steps li > span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--brand-gradient); color: #fff; font-weight: 700; flex-shrink: 0; }

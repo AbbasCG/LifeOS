@@ -1,5 +1,4 @@
 /* LifeOS Phase 3: shared overlays (toast, drawer), planning, review, calendar interactions, dashboard customization, mobile shell. */
-:root { --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --bottom-nav: 0px; }
 
 /* Typography refinements */
 body { font-feature-settings: "cv11", "ss01"; text-rendering: optimizeLegibility; }
@@ -287,12 +286,8 @@ p { text-wrap: pretty; }
 /* Integrations */
 .integration-intro { display: flex; gap: 14px; align-items: flex-start; }
 .integration-intro > svg { color: var(--color-success); flex-shrink: 0; margin-top: 2px; }
-.integration-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 .integration-card { display: grid; gap: 14px; align-content: start; }
 .integration-card header { justify-content: flex-start; gap: 12px; margin-bottom: 0; }
-.provider-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: #fff; }
-.provider-mark.google { background: linear-gradient(135deg, #4285f4, #34a853); }
-.provider-mark.outlook { background: linear-gradient(135deg, #0a64d6, #28a8ea); }
 .integration-card small svg { vertical-align: -1px; }
 .account-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .account-list li { display: grid; gap: 6px; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
@@ -631,14 +626,6 @@ progress::-moz-progress-bar { background: var(--bar, var(--color-primary)); bord
 .pill-needs_configuration { background: color-mix(in srgb, var(--color-warning) 14%, transparent); color: var(--color-warning); }
 .pill-planned, .pill-disabled { background: var(--color-surface-muted); color: var(--color-text-muted); }
 .integration-card.state-planned { opacity: .85; border-style: dashed; }
-.provider-mark.google_tasks { background: linear-gradient(135deg, #1a73e8, #fbbc04); }
-.provider-mark.microsoft_todo { background: linear-gradient(135deg, #2564cf, #6aa6ff); }
-.provider-mark.todoist { background: linear-gradient(135deg, #e44332, #f07b5f); }
-.provider-mark.ics { background: linear-gradient(135deg, #0d9488, #22c55e); }
-.provider-mark.notion { background: linear-gradient(135deg, #2f2f2f, #6b6b6b); }
-.provider-mark.gmail { background: linear-gradient(135deg, #ea4335, #fbbc04); }
-.provider-mark.outlook_mail { background: linear-gradient(135deg, #0a64d6, #28a8ea); }
-.provider-mark.apple_calendar, .provider-mark.ics_feed { background: linear-gradient(135deg, #8e8e93, #c7c7cc); }
 .collection-picker { display: grid; gap: 4px; margin: 6px 0; }
 .collection-picker label { margin: 0; gap: 8px; align-items: center; font-weight: 500; }
 .collection-picker .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
