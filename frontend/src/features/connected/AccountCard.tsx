@@ -72,7 +72,7 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
   return <li className={`account-card state-${state}`}>
     <div className="account-head">
       <span className={`status-dot dot-${state}`} aria-hidden="true" />
-      <div><strong dir="ltr">{account.email ?? account.display_name ?? label}</strong>{account.display_name && account.email && <small className="muted">{account.display_name}</small>}</div>
+      <div className="account-id">{account.email ? <strong><bdi dir="ltr">{account.email}</bdi></strong> : <strong>{account.display_name ?? label}</strong>}{account.display_name && account.email && <small className="muted">{account.display_name}</small>}</div>
       <span className={`pill pill-${state}`}>{state === 'ok' ? <CheckCircle2 size={12} /> : state === 'waiting' ? <Hourglass size={12} /> : <AlertTriangle size={12} />}{stateLabel}</span>
     </div>
     <dl className="account-facts">

@@ -116,8 +116,10 @@ img, svg, video, canvas { max-width: 100%; }
 
 /* ---------- Connected accounts: compact rows, details on request ---------- */
 .hub-compact { gap: var(--space-3); }
-.hub-head { display: flex; align-items: center; gap: 10px; }
-.hub-head h2 { flex: 1; min-width: 0; font-size: 18px; margin: 0; }
+.hub, .hub-head h2, .hub-item-name { min-inline-size: 0; }
+.hub-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.hub-head .icon-button { min-inline-size: 44px; min-block-size: 44px; }
+.hub-head h2 { flex: 1 1 auto; min-width: 0; font-size: 18px; margin: 0; }
 .hub-head .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--color-primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent); color: var(--color-text); font-weight: 650; white-space: nowrap; }
 .hub-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px; border-radius: 16px; border: 1px solid var(--hairline-strong, var(--color-border)); background: var(--surface-raised, var(--color-surface)); }
 .hub-row-text { display: grid; flex: 1; min-width: 0; }
@@ -141,7 +143,19 @@ img, svg, video, canvas { max-width: 100%; }
 .hub-item .icon-button { min-width: 44px; min-height: 44px; flex: none; }
 .account-mini { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 4px 10px 4px 12px; padding-inline: 12px 10px; border-top: 1px solid var(--hairline, var(--color-border)); }
 .account-mini-text { display: grid; flex: 1; min-width: 0; }
-.account-mini-text .account-email { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-mini-text .account-email { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
+.account-email bdi { display: block; overflow: hidden; text-overflow: ellipsis; text-align: start; }
+[dir="rtl"] .account-email bdi { text-align: right; }
+.account-id bdi { unicode-bidi: isolate; overflow-wrap: anywhere; text-align: start; }
+.provider-mark.mark-fallback { background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-text); font-weight: 750; font-size: 18px; }
+.hub-notice { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.hub-account-line { margin: 0 0 var(--space-2); font-weight: 650; overflow-wrap: anywhere; }
+.collection-picker label.inline { display: flex; align-items: center; min-block-size: 44px; }
+@media (max-width: 480px) {
+  .hub-head .chip { order: 3; }
+  .account-mini.state-revoked, .account-mini.state-scope { flex-wrap: wrap; }
+  .account-mini.state-revoked .primary.compact, .account-mini.state-scope .primary.compact { order: 3; flex: 1 1 100%; justify-content: center; min-block-size: 44px; white-space: normal; }
+}
 .account-mini-text small { font-size: 12px; }
 .flip-rtl { }
 [dir="rtl"] .flip-rtl { transform: scaleX(-1); }

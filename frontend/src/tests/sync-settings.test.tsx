@@ -163,7 +163,7 @@ describe('sync settings', () => {
   it('a failed run is announced as an alert', () => {
     server()
     shell(state({ last_outbound: { id: 1, status: 'failed', started_at: '2027-03-22T08:00:00Z', upserted: 0, error: 'The service said no.', details: {} } }))
-    expect(screen.getByRole('alert')).toHaveTextContent('The service said no.')
+    expect(screen.getByText('The service said no.')).toHaveAttribute('role', 'alert')   // the toaster has its own, empty alert region now
   })
 
   it('speaks Arabic and Dutch', () => {

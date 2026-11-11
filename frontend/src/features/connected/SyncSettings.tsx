@@ -123,19 +123,21 @@ export function SyncSettings({ accountId, label, state, onChanged }: { accountId
         <p className="muted small perms-note">{t('The direction can never go beyond what you allowed under Manage permissions. Sending only ever updates events LifeOS added; adding and removing stay explicit.', 'لا يتجاوز الاتجاه أبدًا ما سمحت به ضمن «إدارة الصلاحيات». والإرسال يحدّث فقط المواعيد التي أضافها LifeOS؛ أما الإضافة والحذف فيبقيان صريحين.', 'De richting gaat nooit verder dan wat je toestond onder Rechten beheren. Verzenden werkt alleen afspraken bij die LifeOS toevoegde; toevoegen en verwijderen blijven expliciet.')}</p>
         <fieldset className="perms-form" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend><strong>{t('Direction', 'الاتجاه', 'Richting')}</strong></legend>
-          {DIRECTIONS.filter(d => state.available_directions.includes(d)).map(d => <label key={d} className="perms-choice"><span><input type="radio" name={`dir-${accountId}`} checked={direction === d} onChange={() => setDirection(d)} data-autofocus={direction === d || undefined} />{names[d][0]}</span><span className="muted small">{names[d][1]}</span></label>)}
+          {DIRECTIONS.filter(d => state.available_directions.includes(d)).map(d => <label key={d} className="perms-choice"><input type="radio" name={`dir-${accountId}`} checked={direction === d} onChange={() => setDirection(d)} data-autofocus={direction === d || undefined} /><strong>{names[d][0]}</strong><span className="muted small">{names[d][1]}</span></label>)}
         </fieldset>
         {(direction === 'outbound' || direction === 'two_way') && <fieldset className="perms-form" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend><strong>{t('If an event changed in both places', 'إذا تغيّر الموعد في المكانين', 'Als een afspraak op beide plekken veranderde')}</strong></legend>
-          {POLICIES.map(p => <label key={p} className="perms-choice"><span><input type="radio" name={`pol-${accountId}`} checked={policy === p} onChange={() => setPolicy(p)} />{policyNames[p][0]}</span><span className="muted small">{policyNames[p][1]}</span></label>)}
+          {POLICIES.map(p => <label key={p} className="perms-choice"><input type="radio" name={`pol-${accountId}`} checked={policy === p} onChange={() => setPolicy(p)} /><strong>{policyNames[p][0]}</strong><span className="muted small">{policyNames[p][1]}</span></label>)}
           {policy === 'prefer_lifeos' && <p className="perms-warn" role="note">{t('LifeOS will overwrite changes you made at the service. Choose “Ask me” if you are not sure.', 'سيستبدل LifeOS التغييرات التي أجريتها في الخدمة. اختر «اسألني» إن لم تكن متأكدًا.', 'LifeOS overschrijft wijzigingen die je bij de dienst deed. Kies “Vraag het mij” als je het niet zeker weet.')}</p>}
         </fieldset>}
         <ErrorMessage error={problem} />
-        <div className="rel-actions">
-          <button type="submit" className="primary" disabled={busy}>{t('Save', 'حفظ', 'Opslaan')}</button>
-          <button type="button" className="quiet" disabled={busy} onClick={() => setOpen(false)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
-        </div>
         <p className="muted small perms-note">{t('You may be asked for your password.', 'قد يُطلب منك إدخال كلمة المرور.', 'Je wordt mogelijk om je wachtwoord gevraagd.')}</p>
+        <div className="perms-footer">
+          <div className="rel-actions">
+            <button type="submit" className="primary" disabled={busy}>{t('Save', 'حفظ', 'Opslaan')}</button>
+            <button type="button" className="quiet" disabled={busy} onClick={() => setOpen(false)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
+          </div>
+        </div>
       </form>
     </Dialog>}
   </section>

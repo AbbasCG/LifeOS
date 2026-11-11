@@ -43,7 +43,8 @@ describe('manage permissions', () => {
     shell(calendar({ granted: ['read', 'sync', 'export', 'create'], effective: ['read', 'sync', 'export', 'create'], preset: 'read_create' }))
     const list = screen.getByRole('list', { name: 'Allowed now' })
     const item = (name: string) => within(list).getAllByRole('listitem').find(li => li.textContent?.endsWith(name)) as HTMLElement
-    expect(item('Read')).toHaveTextContent('Allowed: Read')
+    expect(within(list).queryByText(/Read$/)).toBeNull()   // read and sync are always on, so they are one muted line, not chips
+    expect(screen.getByText('Reading and syncing are always on.')).toBeInTheDocument()
     expect(item('Create')).toHaveTextContent('Allowed: Create')
     expect(item('Delete')).toHaveTextContent('Not allowed: Delete')
     expect(item('Delete')).toHaveClass('off')
@@ -72,7 +73,7 @@ describe('manage permissions', () => {
     open()
     const dialog = await screen.findByRole('dialog', { hidden: true })
     expect(within(dialog).getAllByRole('radio', { hidden: true })).toHaveLength(5)   // four presets and Custom
-    fireEvent.click(within(dialog).getByRole('radio', { name: /^Read \+ Create LifeOS can add/, hidden: true }))
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^Read \+ Create\s*LifeOS can add/, hidden: true }))
     expect(within(dialog).queryByText('Delete cannot be undone')).toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save', hidden: true }))
     await waitFor(() => expect(puts()).toHaveLength(1))
@@ -141,7 +142,7 @@ describe('manage permissions', () => {
     shell(calendar())
     open()
     const dialog = await screen.findByRole('dialog', { hidden: true })
-    fireEvent.click(within(dialog).getByRole('radio', { name: /^Read \+ Create LifeOS can add/, hidden: true }))
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^Read \+ Create\s*LifeOS can add/, hidden: true }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save', hidden: true }))
     expect(await within(dialog).findByText('This service cannot do that through LifeOS.')).toBeInTheDocument()
     expect(changed).not.toHaveBeenCalled()

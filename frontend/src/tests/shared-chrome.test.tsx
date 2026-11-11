@@ -94,3 +94,15 @@ describe('shared chrome in Dutch', () => {
     expect(screen.getByText('Negeren')).toBeTruthy()
   })
 })
+
+describe('Drawer Escape isolation', () => {
+  afterEach(cleanup)
+  it('does not let the cancel event bubble to ancestors', () => {
+    const parent = vi.fn()
+    document.body.addEventListener('cancel', parent)
+    const { container } = shell(<div><Drawer title="T" onClose={() => {}}><span>x</span></Drawer></div>)
+    act(() => { container.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true, bubbles: true })) })
+    document.body.removeEventListener('cancel', parent)
+    expect(parent).not.toHaveBeenCalled()
+  })
+})

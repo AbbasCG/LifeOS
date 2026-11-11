@@ -83,9 +83,10 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .sheet::backdrop { background: rgba(8, 13, 36, 0.42); backdrop-filter: blur(3px); }
 .sheet-inner { position: absolute; display: flex; flex-direction: column; background: var(--panel-bg-strong, var(--color-surface)); border: 1px solid var(--hairline-strong, var(--color-border)); box-shadow: var(--elev-2); max-height: min(88dvh, 760px); overflow: hidden; }
 .sheet-handle { display: none; }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
-.sheet-head h2 { font-size: 18px; }
-.sheet-body { padding: var(--space-2) var(--space-4) var(--space-4); overflow-y: auto; display: grid; gap: var(--space-3); }
+.sheet-head { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
+.sheet-head h2 { font-size: 18px; flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.sheet-head .icon-button { flex: none; }
+.sheet-body { min-inline-size: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-4) var(--space-4); overflow-y: auto; display: grid; gap: var(--space-3); }
 .sheet-foot { display: flex; gap: var(--space-2); justify-content: flex-end; padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom)); border-top: 1px solid var(--hairline, var(--color-border)); }
 @media (min-width: 701px) { .sheet-inner { inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); border-radius: 22px; animation: sheet-pop 220ms var(--ease) both; } [dir="rtl"] .sheet-inner { transform: translate(50%, -50%); inset: 50% 50% auto auto; } }
 @media (max-width: 700px) {

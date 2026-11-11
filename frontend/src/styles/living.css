@@ -76,7 +76,7 @@ body { background: var(--color-bg); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .sidebar, .topbar, .panel, .stat, .period-card, .suggestion, .integration-card { background: var(--color-surface); }
 }
-.os-dialog { background: var(--panel-bg-strong); border-color: var(--hairline-strong); backdrop-filter: blur(24px) saturate(150%); }
+.os-dialog { background: var(--panel-bg-strong); border-color: var(--hairline-strong); }
 input:not([type=checkbox]):not([type=color]):not([type=radio]), select, textarea { background: color-mix(in srgb, var(--color-surface) 82%, transparent); border-color: var(--hairline-strong); transition: border-color var(--duration), box-shadow var(--duration); }
 input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:focus, textarea:focus { border-color: color-mix(in srgb, var(--color-primary) 60%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent); outline: none; }
 
@@ -226,12 +226,11 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .status-dot.dot-ok { background: var(--color-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 18%, transparent); }
 .status-dot.dot-error, .status-dot.dot-waiting { background: var(--color-warning); }
 .status-dot.dot-revoked, .status-dot.dot-scope { background: var(--color-danger); }
-@media (prefers-reduced-motion: no-preference) { .status-dot.dot-ok { animation: dot-breathe 3s ease-in-out infinite; } }
-@keyframes dot-breathe { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-success) 6%, transparent); } }
+.status-dot.dot-ok { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent); }
 .pill-ok { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
 .pill-error, .pill-waiting { background: color-mix(in srgb, var(--color-warning) 14%, transparent); color: var(--color-warning); }
 .pill-revoked, .pill-scope { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.account-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 8px; margin: 0; }
+.account-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 8px; margin: 0; }
 .account-facts div { padding: 8px 10px; border-radius: 10px; background: var(--color-surface-muted); }
 .account-facts dt { font-size: 11px; color: var(--color-text-muted); }
 .account-facts dd { margin: 2px 0 0; font-size: 13px; font-weight: 600; }

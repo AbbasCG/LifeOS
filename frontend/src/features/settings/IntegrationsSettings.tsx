@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { CalendarDays, ChevronRight, Info, Link2, ListChecks, Lock, Mail, NotebookPen, Plus, RefreshCw, Rss, Server, ShieldCheck, Sparkles, Bot } from 'lucide-react'
+import { CalendarDays, ChevronRight, Info, X, Link2, ListChecks, Lock, Mail, NotebookPen, Plus, RefreshCw, Rss, Server, ShieldCheck, Sparkles, Bot } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
@@ -19,6 +19,8 @@ import type { WriteData } from '../../lib/calendarWrite'
 export type HubProvider = { provider: string; label: string; category: string; implemented: boolean; configured: boolean; status: 'available' | 'needs_configuration' | 'planned' | 'disabled'; scopes: string; env_keys?: string[]; required_scopes?: string[]; redirect_uri?: string; connect_mode?: 'oauth' | 'url'; note?: { en: string; ar: string }; capabilities?: string[]; presets?: string[]; accounts: ConnectedAccount[] }
 type Hub = { providers: HubProvider[]; categories: { key: string; providers: HubProvider[] }[]; ai_connected_data: boolean }
 
+/** Providers that have a brand tile in the stylesheet; every other id gets a neutral letter tile instead of a blank square. */
+const MARKED = new Set(['google', 'outlook', 'google_tasks', 'microsoft_todo', 'todoist', 'ics', 'notion', 'gmail', 'outlook_mail', 'apple_calendar', 'ics_feed'])
 const ICONS: Record<string, typeof CalendarDays> = { calendars: CalendarDays, tasks: ListChecks, productivity: NotebookPen, email: Mail, future: Sparkles }
 
 export default function IntegrationsSettings() {
@@ -28,18 +30,24 @@ export default function IntegrationsSettings() {
   const writes = useApi<WriteData>('/api/calendar-write')
   const refresh = () => { reload(); writes.reload() }
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [disconnecting, setDisconnecting] = useState<ConnectedAccount | null>(null), [replacingFeed, setReplacingFeed] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [disconnecting, setDisconnecting] = useState<ConnectedAccount | null>(null), [replacingFeed, setReplacingFeed] = useState(false), [notices, setNotices] = useState<{ text: string; error: boolean }[]>([]), handled = useRef('')
   const labelOf = (provider: string) => data?.providers.find(p => p.provider === provider)?.label ?? provider
   useEffect(() => {
     const connected = params.get('connected'), problem = params.get('error'), granted = params.get('write_granted')
     if (!connected && !problem && !granted) return
-    if (granted) toast(t('Permission granted. Pick the calendar LifeOS may add events to — nothing is added until you confirm each one.', 'تم منح الإذن. اختر التقويم الذي يضيف إليه LifeOS المواعيد — لا يُضاف شيء قبل تأكيدك لكل موعد.', 'Toestemming gegeven. Kies de agenda waaraan LifeOS afspraken mag toevoegen — er wordt niets toegevoegd tot je elke afspraak bevestigt.'))
-    if (connected) toast(t(`${connected} connected. Only the primary calendar or list is included — choose more below.`, `تم الربط. يُضمَّن التقويم أو القائمة الرئيسية فقط — اختر المزيد أدناه.`, `${connected} verbonden. Alleen de hoofdagenda of -lijst is meegenomen — kies hieronder meer.`))
-    if (problem) toast({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.', 'De inloglink is verlopen of al gebruikt. Probeer het opnieuw.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.', 'Toegang is niet verleend, dus er is niets verbonden.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.', 'Verbonden, maar het leesrecht is niet verleend, dus er kan niets worden geïmporteerd. Koppel opnieuw en laat leestoegang aangevinkt.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.', 'De provider kon de koppeling niet voltooien. Probeer het opnieuw.'), write_scope: t('The permission to add events was not granted, so nothing changed.', 'لم يُمنح إذن إضافة المواعيد، فلم يتغير شيء.', 'Het recht om afspraken toe te voegen is niet verleend, dus er is niets veranderd.'), write_account: t('A different account signed in. Allow adding events with the same account that is connected here.', 'سجّل حساب مختلف الدخول. اسمح بإضافة المواعيد بالحساب نفسه المرتبط هنا.', 'Er is met een ander account ingelogd. Sta het toevoegen van afspraken toe met hetzelfde account dat hier gekoppeld is.'),
+    const key = params.toString()
+    if (handled.current === key) return   // `t` changes every render: handle each return once
+    handled.current = key
+    const said: { text: string; error: boolean }[] = []
+    const say = (text: string, kind?: 'error') => { said.push({ text, error: kind === 'error' }) }   // the persistent banner is the one announcement; no toast
+    if (granted) say(t('Permission granted. Pick the calendar LifeOS may add events to — nothing is added until you confirm each one.', 'تم منح الإذن. اختر التقويم الذي يضيف إليه LifeOS المواعيد — لا يُضاف شيء قبل تأكيدك لكل موعد.', 'Toestemming gegeven. Kies de agenda waaraan LifeOS afspraken mag toevoegen — er wordt niets toegevoegd tot je elke afspraak bevestigt.'))
+    if (connected) say(t(`${connected} connected. Only the primary calendar or list is included — choose more below.`, `تم الربط. يُضمَّن التقويم أو القائمة الرئيسية فقط — اختر المزيد أدناه.`, `${connected} verbonden. Alleen de hoofdagenda of -lijst is meegenomen — kies hieronder meer.`))
+    if (problem) say({ state: t('The sign-in link expired or was already used. Please try again.', 'انتهت صلاحية رابط تسجيل الدخول أو استُخدم. حاول مجدداً.', 'De inloglink is verlopen of al gebruikt. Probeer het opnieuw.'), denied: t('Access was not granted, so nothing was connected.', 'لم يُمنح الوصول، لذلك لم يتم الربط.', 'Toegang is niet verleend, dus er is niets verbonden.'), scope: t('Connected, but the read permission was not granted, so nothing can be imported. Reconnect and keep read access ticked.', 'تم الربط لكن لم يُمنح إذن القراءة، فلا يمكن استيراد شيء. أعد الربط وأبقِ إذن القراءة محدداً.', 'Verbonden, maar het leesrecht is niet verleend, dus er kan niets worden geïmporteerd. Koppel opnieuw en laat leestoegang aangevinkt.'), exchange: t('The provider could not complete the connection. Please try again.', 'تعذر على المزوّد إكمال الربط. حاول مجدداً.', 'De provider kon de koppeling niet voltooien. Probeer het opnieuw.'), write_scope: t('The permission to add events was not granted, so nothing changed.', 'لم يُمنح إذن إضافة المواعيد، فلم يتغير شيء.', 'Het recht om afspraken toe te voegen is niet verleend, dus er is niets veranderd.'), write_account: t('A different account signed in. Allow adding events with the same account that is connected here.', 'سجّل حساب مختلف الدخول. اسمح بإضافة المواعيد بالحساب نفسه المرتبط هنا.', 'Er is met een ander account ingelogd. Sta het toevoegen van afspraken toe met hetzelfde account dat hier gekoppeld is.'),
       not_configured: t('This connection is not set up on this server. Ask an administrator.', 'هذا الربط غير مُعدّ على هذا الخادم. اطلب من المسؤول إعداده.', 'Deze koppeling is op deze server niet ingesteld. Vraag het een beheerder.'),
       provider_disabled: t('New connections to this service are switched off by an administrator.', 'أوقف المسؤول الربط الجديد مع هذه الخدمة.', 'Nieuwe koppelingen met deze dienst zijn door een beheerder uitgezet.') }[problem] ?? t('The connection did not complete.', 'لم يكتمل الربط.', 'De koppeling is niet voltooid.'), 'error')
+    queueMicrotask(() => setNotices(said))
     setParams({}, { replace: true })
-  }, [params, setParams, toast, t])
+  }, [params, setParams, t])
   async function act<T>(key: string, fn: () => Promise<T>, success?: string, after?: () => void) {
     setBusy(key); setFailure('')
     try { const r = await fn(); if (success) toast(success); reload(); after?.(); return r } catch (e) { setFailure((e as Error).message); reload() } finally { setBusy(null) }
@@ -77,7 +85,7 @@ export default function IntegrationsSettings() {
     const st = accountState(account), feed = provider.connect_mode === 'url', syncing = busy === `sync-${account.id}`
     return <div key={account.id} className={`account-mini state-${st}`}>
       <span className={`status-dot dot-${st}`} aria-hidden="true" />
-      <span className="account-mini-text"><span dir="ltr" className="account-email">{account.email ?? account.display_name ?? provider.label}</span><small className="muted">{stateLabelOf(st)}</small></span>
+      <span className="account-mini-text"><span className="account-email" title={account.email ?? undefined}>{account.email ? <bdi dir="ltr">{account.email}</bdi> : account.display_name ?? provider.label}</span><small className="muted">{stateLabelOf(st)}</small></span>
       {st === 'revoked' || st === 'scope'
         ? <button type="button" className="primary compact" disabled={busy !== null} onClick={() => feed ? (setReplacingFeed(true), setInfo({ kind: 'feed' })) : void connect(provider)}><Link2 size={15} aria-hidden="true" />{feed ? t('Use a new link', 'استخدام رابط جديد', 'Een nieuwe link gebruiken') : t('Reconnect', 'إعادة الربط', 'Opnieuw koppelen')}</button>
         : <button type="button" className="icon-button" disabled={busy !== null || st === 'waiting'} aria-busy={syncing} aria-label={t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} title={t('Sync now', 'مزامنة الآن', 'Nu synchroniseren')} onClick={() => void syncNow(account)}><RefreshCw size={17} className={syncing ? 'spin' : ''} aria-hidden="true" /></button>}
@@ -86,7 +94,7 @@ export default function IntegrationsSettings() {
   }
   const providerRow = (provider: HubProvider, Icon: typeof CalendarDays) => <li key={provider.provider} className={`integration-card hub-item state-${provider.status}`}>
     <div className="hub-item-main">
-      <span className={`provider-mark ${provider.provider}`}><Icon size={20} aria-hidden="true" /></span>
+      {MARKED.has(provider.provider) ? <span className={`provider-mark ${provider.provider}`}><Icon size={20} aria-hidden="true" /></span> : <span className="provider-mark mark-fallback" aria-hidden="true">{Array.from(provider.label.trim())[0]?.toUpperCase() ?? '?'}</span>}
       <span className="hub-item-name"><strong>{provider.label}</strong></span>
       {provider.status !== 'available' && <span className={`pill pill-${provider.status}`}>{pillText(provider.status)}</span>}
       {provider.status !== 'available' && <button type="button" className="icon-button" aria-label={t(`About ${provider.label}`, `عن ${provider.label}`, `Over ${provider.label}`)} onClick={() => setInfo({ kind: 'provider', provider: provider.provider })}><Info size={18} aria-hidden="true" /></button>}
@@ -115,6 +123,7 @@ export default function IntegrationsSettings() {
       <li><span>2</span>{t('Approve read-only access', 'وافق على الوصول للقراءة فقط', 'Keur alleen-lezen toegang goed')}</li>
       <li><span>3</span>{t('Choose what to include', 'اختر ما تريد تضمينه', 'Kies wat je wilt opnemen')}</li>
     </ol>}
+    {notices.map((n, i) => <div key={i} className={`banner compact hub-notice${n.error ? ' is-error' : ''}`} role={n.error ? 'alert' : 'status'}><span>{n.text}</span><button type="button" className="icon-button" aria-label={t('Dismiss message', 'إغلاق الرسالة', 'Bericht sluiten')} onClick={() => setNotices(list => list.filter((_, k) => k !== i))}><X size={16} aria-hidden="true" /></button></div>)}
     <ErrorMessage error={error || (detail ? '' : failure)} />
     {!data ? <Skeleton height={220} /> : data.categories.filter(c => c.providers.length > 0).map(category => { const Icon = ICONS[category.key] ?? Sparkles; return <section key={category.key} className="hub-category" aria-labelledby={`hub-${category.key}`}>
       <h2 id={`hub-${category.key}`} className="hub-cat-title"><span className="hub-icon"><Icon size={16} aria-hidden="true" /></span>{categoryLabel[category.key]?.[0] ?? category.key}</h2>
@@ -153,7 +162,7 @@ export default function IntegrationsSettings() {
     {info?.kind === 'feed' && <BottomSheet title={t('Calendar subscription', 'اشتراك في تقويم', 'Agenda-abonnement')} onClose={closeInfo}>
       <FeedSubscribe replacing={replacingFeed} onDone={() => { closeInfo(); reload() }} />
     </BottomSheet>}
-    {detail && <BottomSheet tall title={detail.a.email ?? detail.p.label} onClose={closeInfo}>
+    {detail && <BottomSheet tall title={detail.p.label} onClose={closeInfo}>
       <ErrorMessage error={failure} />
       <ul className="account-list"><AccountCard account={detail.a} label={detail.p.label} tasks={detail.p.category === 'tasks'} requiredScopes={detail.p.required_scopes ?? []} busy={busy}
         onSync={() => void syncNow(detail.a)} onReconnect={() => detail.p.connect_mode === 'url' ? (setReplacingFeed(true), setInfo({ kind: 'feed' })) : void connect(detail.p)} onDisconnect={() => { setDisconnecting(detail.a); setInfo(null) }} onSaved={refresh}>
@@ -163,9 +172,10 @@ export default function IntegrationsSettings() {
       </AccountCard></ul>
     </BottomSheet>}
     {disconnecting && <Dialog title={t(`Disconnect ${labelOf(disconnecting.provider)}?`, `فصل ${labelOf(disconnecting.provider)}؟`, `${labelOf(disconnecting.provider)} loskoppelen?`)} onClose={() => setDisconnecting(null)}>
+      {(disconnecting.email ?? disconnecting.display_name) && <p id="disconnect-account" className="hub-account-line"><bdi dir="ltr">{disconnecting.email ?? disconnecting.display_name}</bdi></p>}
       <p id="disconnect-warning" className="muted">{t('Imported events and tasks will be removed from LifeOS; tasks you copied into LifeOS stay. Nothing changes in the connected app.', 'ستُحذف المواعيد والمهام المستوردة من LifeOS؛ وتبقى المهام التي نسختها إلى LifeOS. لن يتغير شيء في التطبيق المرتبط.', 'Geïmporteerde afspraken en taken worden uit LifeOS verwijderd; taken die je naar LifeOS kopieerde blijven. Er verandert niets in de gekoppelde app.')}</p>
       {(disconnecting.write?.copies ?? 0) > 0 && <p id="disconnect-copies" className="banner compact">{t(`${disconnecting.write?.copies} event(s) LifeOS added stay in ${labelOf(disconnecting.provider)}. Remove them first if you don’t want them.`, `تبقى ${disconnecting.write?.copies} مواعيد أضافها LifeOS في ${labelOf(disconnecting.provider)}. أزلها أولاً إن لم تكن تريدها.`, `${disconnecting.write?.copies} afspraak/afspraken die LifeOS toevoegde, blijven in ${labelOf(disconnecting.provider)}. Verwijder ze eerst als je ze niet wilt.`)}</p>}
-      <div className="toolbar"><button className="quiet" data-autofocus aria-describedby={(disconnecting.write?.copies ?? 0) > 0 ? 'disconnect-warning disconnect-copies' : 'disconnect-warning'} onClick={() => setDisconnecting(null)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button><button className="danger" disabled={busy !== null} onClick={() => { const a = disconnecting; setDisconnecting(null); void act(`del-${a.id}`, () => api(`/api/integrations/accounts/${a.id}`, 'DELETE'), t('Disconnected.', 'تم الفصل.', 'Losgekoppeld.'), () => headingRef.current?.focus()) }}>{t('Disconnect', 'فصل', 'Loskoppelen')}</button></div>
+      <div className="toolbar"><button className="quiet" data-autofocus aria-describedby={`${disconnecting.email ?? disconnecting.display_name ? 'disconnect-account ' : ''}disconnect-warning${(disconnecting.write?.copies ?? 0) > 0 ? ' disconnect-copies' : ''}`} onClick={() => setDisconnecting(null)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button><button className="danger" disabled={busy !== null} onClick={() => { const a = disconnecting; setDisconnecting(null); void act(`del-${a.id}`, () => api(`/api/integrations/accounts/${a.id}`, 'DELETE'), t('Disconnected.', 'تم الفصل.', 'Losgekoppeld.'), () => headingRef.current?.focus()) }}>{t('Disconnect', 'فصل', 'Loskoppelen')}</button></div>
     </Dialog>}
   </div>
 }

@@ -25,6 +25,8 @@ function server() {
     return json({})
   }))
 }
+/** Alerts of the page itself, not the toaster's screen-reader mirror. */
+const pageAlerts = () => screen.queryAllByRole('alert', { hidden: true }).filter(e => !e.closest('.toast-region') && !e.classList.contains('sr-only'))
 const shell = () => render(<ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider><AuthProvider><IntegrationsSettings /></AuthProvider></ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>)
 
 beforeEach(() => {
@@ -39,7 +41,7 @@ describe('connected accounts hub: Dutch results', () => {
     localStorage.setItem('lifeos-language', 'nl')
     server(); shell()
     fireEvent.click(await screen.findByRole('button', { name: 'Nu synchroniseren' }))
-    expect(await screen.findByText('Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd, 1 verplaatst.')).toBeInTheDocument()
+    expect((await screen.findAllByText('Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd, 1 verplaatst.')).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: 'Details van me@gmail.test' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Synchronisatiegeschiedenis' }))
     expect(await screen.findByText('4 bijgewerkt · 2 verwijderd · 1 verplaatst')).toBeInTheDocument()
@@ -50,7 +52,7 @@ describe('connected accounts hub: Dutch results', () => {
     syncAnswer = { status: 200, body: { imported: 1, run: { ...run, moved: 0, status: 'partial' } } }
     server(); shell()
     fireEvent.click(await screen.findByRole('button', { name: 'Nu synchroniseren' }))
-    expect(await screen.findByText(/Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd — sommige agenda’s konden niet worden gelezen\./)).toBeInTheDocument()
+    expect((await screen.findAllByText(/Gesynchroniseerd: 4 bijgewerkt, 2 verwijderd — sommige agenda’s konden niet worden gelezen\./)).length).toBeGreaterThan(0)
   })
 })
 
@@ -61,18 +63,19 @@ describe('connected accounts hub: failures and focus', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Details of me@gmail.test' }))
     const sheet = await screen.findByRole('dialog', { hidden: true })
     fireEvent.click(within(sheet).getByRole('button', { name: /Sync now/, hidden: true }))
-    const alert = await screen.findByRole('alert', { hidden: true })
+    await waitFor(() => expect(pageAlerts()).toHaveLength(1))
+    const alert = pageAlerts()[0]
     expect(alert).toHaveTextContent('The provider is down.')
     expect(sheet.contains(alert)).toBe(true)
-    expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1)   // not repeated behind the modal sheet
+    expect(pageAlerts()).toHaveLength(1)   // not repeated behind the modal sheet
   })
 
   it('an account that needs attention is announced as an alert, not a polite status', async () => {
     hub = google(account({ status: 'revoked', last_error: 'Access was revoked.' }))
     server(); shell()
     fireEvent.click(await screen.findByRole('button', { name: 'Details of me@gmail.test' }))
-    const alert = await screen.findByRole('alert', { hidden: true })
-    expect(alert).toHaveTextContent('Access was revoked.')
+    await waitFor(() => expect(pageAlerts().length).toBeGreaterThan(0))
+    expect(pageAlerts()[0]).toHaveTextContent('Access was revoked.')
   })
 
   it('the disconnect confirmation starts on Cancel, describes itself, and focus lands on the heading afterwards', async () => {
