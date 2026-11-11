@@ -54,7 +54,8 @@ describe('Dialog and Drawer Escape handling', () => {
     // The exit animation runs first (jsdom plays none, so the 200ms fallback ends it); then onClose unmounts the dialog.
     expect(d.hasAttribute('data-closing')).toBe(true)
     await waitFor(() => expect(container.querySelector('dialog')).toBeNull())
-    expect(document.activeElement).toBe(opener)
+    // Focus goes back in the unmount cleanup (a passive effect), which React may run just after the dialog node is gone: wait for it, still require it.
+    await waitFor(() => expect(document.activeElement).toBe(opener))
   })
 })
 
