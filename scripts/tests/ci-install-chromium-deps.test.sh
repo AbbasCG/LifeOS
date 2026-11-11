@@ -38,7 +38,7 @@ STUB
   chmod +x "$T/bin/"*
 }
 run() { # run <cache-hit>; uses GOOD_HOSTS / NPX_FAILS from the environment
-  PATH="$T/bin:$PATH" CI_SUDO= CI_APT_CONF="$T/80-ci" CI_APT_SOURCE_FILES="$T/ubuntu.sources" CI_APT_PAUSE=30 \
+  PATH="$T/bin:$PATH" CI_SUDO='' CI_APT_CONF="$T/80-ci" CI_APT_SOURCE_FILES="$T/ubuntu.sources" CI_APT_PAUSE=30 \
     bash "$SCRIPT" "$1" > "$T/out.log" 2>&1
   echo $? > "$T/rc"
 }
