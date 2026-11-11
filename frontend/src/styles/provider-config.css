@@ -1,25 +1,49 @@
-/* Provider configuration (administrators). Logical properties only, so Arabic mirrors by itself. */
-.pc-panel { display: grid; gap: var(--space-3, 12px); }
-.pc-panel h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
-.pc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3, 12px); }
-.pc-item { display: grid; gap: 6px; padding: var(--space-3, 12px); border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
-.pc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.pc-chip { padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-text); }
-.pc-chip.ok { border-color: var(--color-primary); }
-.pc-chip.warn { border-color: var(--color-warning, #b45309); }
-.pc-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
-.pc-actions button { min-block-size: 44px; }
-.danger-text { color: var(--color-danger, #b91c1c); }
-.pc-test { padding: 10px 14px; border-radius: 12px; background: var(--color-surface-muted); border: 1px solid var(--color-border); }
-.pc-test ul { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; }
+/* Provider configuration (administrators): the hub's instrument-panel language. Logical properties only, so Arabic mirrors by itself. */
+.pc-panel { display: grid; gap: var(--space-3); min-inline-size: 0; }
+.pc-title { display: flex; align-items: center; gap: var(--space-2); margin: 0; }
+.pc-intro { margin: 0; color: var(--color-text-muted); font-size: var(--fs-sm); line-height: var(--lh-body); max-inline-size: 60ch; }
+.pc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.pc-card { display: grid; gap: var(--space-3); min-inline-size: 0; padding: var(--space-4); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--hairline), var(--elev-1); }
+.pc-card.is-unset { box-shadow: none; border: 1px dashed var(--hairline-strong); }
+.pc-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pc-id { flex: 1 1 9rem; min-inline-size: 0; }
+.pc-name { margin: 0; font-size: var(--fs-md); font-weight: 700; line-height: var(--lh-tight); }
+.pc-sub, .pc-hint { margin: 0; color: var(--color-text-muted); font-size: var(--fs-sm); line-height: var(--lh-body); overflow-wrap: anywhere; }
+.pc-facts { margin: 0; display: grid; gap: var(--space-3); }
+.pc-facts > div { display: grid; grid-template-columns: minmax(6rem, 28%) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+.pc-facts dt { color: var(--color-text-muted); font-size: var(--fs-sm); padding-block-start: 2px; }
+.pc-facts dd { margin: 0; min-inline-size: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.pc-redirect { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.pc-redirect code { flex: 1 1 14rem; min-inline-size: 0; overflow-wrap: anywhere; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-inset); font-size: var(--fs-sm); }
+.pc-scopes { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.pc-scopes li { padding: 4px 10px; border-radius: var(--radius-pill); background: var(--surface-inset); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.pc-opt { color: var(--color-text-muted); }
+.pc-link { text-decoration: underline; text-underline-offset: 3px; justify-content: flex-start; padding-inline: 0; }
+.pc-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.pc-actions > button { min-block-size: 44px; }
+.pc-result:empty { display: none; }
+.pc-test { display: grid; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-inset); }
+.pc-test p { margin: 0; }
+.pc-test-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.pc-test ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .pc-test li { display: flex; align-items: center; gap: 6px; }
-.pc-form { display: grid; gap: var(--space-3, 12px); }
+.pc-more { display: grid; gap: var(--space-2); justify-items: start; }
+.pc-danger { justify-self: stretch; padding-block-start: var(--space-2); margin-block-start: var(--space-1); border-block-start: 1px solid color-mix(in srgb, var(--st-bad) 25%, transparent); }
+.pc-more[hidden] { display: none; }
+.pc-audit-toggle { border-radius: var(--radius-md); }
+.pc-audit ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+/* Edit dialog */
+.pc-form { display: grid; gap: var(--space-3); }
 .pc-form label { display: grid; gap: 4px; }
 .pc-form input { min-block-size: 44px; font-size: 16px; padding-inline: 10px; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); color: inherit; }
 .pc-steps { margin: 0; padding-inline-start: 1.2rem; display: grid; gap: 4px; }
-.pc-redirect { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pc-redirect code { overflow-wrap: anywhere; padding: 8px 10px; border-radius: 8px; background: var(--color-surface-muted); flex: 1 1 14rem; }
-.pc-audit-toggle { justify-self: start; min-block-size: 44px; }
-.pc-audit ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 /* A link inside a sentence must not rely on colour alone (WCAG 1.4.1 / axe link-in-text-block). */
 .pc-steps a { text-decoration: underline; text-underline-offset: 2px; }
+
+@media (max-width: 480px) {
+  .pc-card { padding: var(--space-3); }
+  .pc-facts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .pc-actions > button, .pc-redirect > button, .pc-more > button, .pc-form .rel-actions > button { flex: 1 1 100%; inline-size: 100%; }
+  .pc-danger > button { inline-size: 100%; }
+}

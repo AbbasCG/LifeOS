@@ -63,12 +63,14 @@ describe('provider configuration', () => {
     server()
     shell()
     expect(await screen.findByRole('heading', { name: 'Provider configuration' })).toBeInTheDocument()
-    const google = (await screen.findByText('Google Calendar', { selector: 'strong' })).closest('li') as HTMLElement
-    expect(within(google).getByText('Ready')).toBeInTheDocument()
+    const google = (await screen.findByRole('heading', { level: 3, name: 'Google Calendar' })).closest('li') as HTMLElement
+    expect(within(google).getByText('Ready').closest('.st')).toHaveAttribute('data-s', 'ok')
+    expect(within(google).getByText('Saved (hidden)')).toBeInTheDocument()
     expect(within(google).getByText(/Saved in LifeOS \(encrypted\)/)).toBeInTheDocument()
-    expect(within(google).getByText(/by Ada/)).toBeInTheDocument()
-    const todoist = screen.getByText('Todoist', { selector: 'strong' }).closest('li') as HTMLElement
-    expect(within(todoist).getByText('New connections off')).toBeInTheDocument()
+    expect(within(google).getByText(/Last changed.*by Ada/)).toBeInTheDocument()
+    const todoist = screen.getByRole('heading', { level: 3, name: 'Todoist' }).closest('li') as HTMLElement
+    expect(within(todoist).getByText('Off')).toHaveClass('st')
+    expect(within(todoist).getByText('Off')).toHaveAttribute('data-s', 'idle')
     expect(within(todoist).getByText(/From the server’s \.env \(compatibility\)/)).toBeInTheDocument()
   })
 
@@ -112,7 +114,7 @@ describe('provider configuration', () => {
     server()
     shell()
     expect(await screen.findByRole('alert')).toHaveTextContent(/can no longer be read/)
-    expect(screen.getByText('Secret must be entered again')).toBeInTheDocument()
+    expect(screen.getByText('Secret must be entered again').closest('.st')).toHaveAttribute('data-s', 'bad')
     fireEvent.click(screen.getByRole('button', { name: /Set up/ }))
     expect(((await screen.findByLabelText('Client secret')) as HTMLInputElement).required).toBe(true)
   })
@@ -148,6 +150,7 @@ describe('provider configuration', () => {
     list = [provider({ configured: true, source: 'database', client_id: 'cid', has_secret: true })]
     server()
     shell()
+    fireEvent.click(await screen.findByRole('button', { name: /^More/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Switch off new connections/ }))
     await waitFor(() => expect(writes().some(c => c.method === 'PATCH')).toBe(true))
     expect(writes().find(c => c.method === 'PATCH')?.body).toEqual({ enabled: false })
@@ -158,6 +161,7 @@ describe('provider configuration', () => {
     list = [provider({ configured: true, source: 'database', client_id: 'cid', has_secret: true })]
     server()
     shell()
+    fireEvent.click(await screen.findByRole('button', { name: /^More/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Remove saved client/ }))
     expect(writes()).toHaveLength(0)
     const dialog = await screen.findByRole('dialog', { hidden: true })
@@ -172,6 +176,7 @@ describe('provider configuration', () => {
     const base = globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>
     vi.stubGlobal('fetch', vi.fn(async (u: string, i?: RequestInit) => i?.method === 'DELETE' ? json({ message: 'The server refused.' }, 500) : base(u, i)))
     shell()
+    fireEvent.click(await screen.findByRole('button', { name: /^More/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Remove saved client/ }))
     const dialog = await screen.findByRole('dialog', { hidden: true })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove', hidden: true }))
@@ -204,12 +209,15 @@ describe('provider configuration', () => {
     server()
     shell()
     expect(await screen.findByRole('heading', { name: 'إعداد المزودين' })).toBeInTheDocument()
-    expect(await screen.findByText('تقويم Google', { selector: 'strong' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 3, name: 'تقويم Google' })).toBeInTheDocument()
+    expect(screen.getByText('يتطلب إعداداً')).toBeInTheDocument()
     cleanup()
     localStorage.setItem('lifeos-language', 'nl')
     server()
     shell()
     expect(await screen.findByRole('heading', { name: 'Providerconfiguratie' })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: /Configuratie testen/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 3, name: 'Google Calendar' })).toBeInTheDocument()
+    expect(screen.getByText('Instellen nodig')).toBeInTheDocument()
+    expect(screen.queryByText('Needs setup')).toBeNull()
   })
 })
