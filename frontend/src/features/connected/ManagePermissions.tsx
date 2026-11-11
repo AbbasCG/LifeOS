@@ -13,6 +13,8 @@ import '../../styles/permissions.css'
  * changes). The limits are enforced by the server before anything is sent to the provider; they do not change the access the provider gave, which this screen says.
  * Turning Delete on asks separately, in words, and the server insists on that confirmation too.
  */
+const ALWAYS_ON: PermissionOp[] = ['read', 'sync', 'import']
+
 export function ManagePermissions({ accountId, label, state, onChanged }: { accountId: number; label: string; state: PermissionState; onChanged: () => void }) {
   const t = useText(), toast = useToast(), sensitive = useSensitiveAction()
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState('')
@@ -35,6 +37,7 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
   const wasDelete = state.granted.includes('delete'), wantsDelete = chosen.includes('delete')
   const needsConfirm = wantsDelete && !wasDelete
   const customOps = state.capabilities
+  const optional = state.capabilities.filter(op => !ALWAYS_ON.includes(op))
   // When the Delete confirmation appears, focus moves to its checkbox so the extra step is noticed.
   useEffect(() => { if (open && needsConfirm) deleteBox.current?.focus() }, [open, needsConfirm])
   const writeOps: PermissionOp[] = ['create', 'update', 'delete']
@@ -63,9 +66,10 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
 
   return <section className="perms-summary" aria-labelledby={`perms-${accountId}`}>
     <h3 id={`perms-${accountId}`}><ShieldCheck size={15} aria-hidden="true" />{t('What LifeOS may do', 'ما يسمح به لـ LifeOS', 'Wat LifeOS mag doen')}</h3>
-    <ul className="perms-list" aria-label={t('Allowed now', 'المسموح الآن', 'Nu toegestaan')}>
-      {state.capabilities.map(op => <li key={op} className={show(op) ? '' : 'off'}><span className="sr-only">{show(op) ? t('Allowed: ', 'مسموح: ', 'Toegestaan: ') : t('Not allowed: ', 'غير مسموح: ', 'Niet toegestaan: ')}</span>{names[op]}</li>)}
-    </ul>
+    {optional.length > 0 && <ul className="perms-list" aria-label={t('Allowed now', 'المسموح الآن', 'Nu toegestaan')}>
+      {optional.map(op => <li key={op} className={show(op) ? '' : 'off'}><span className="sr-only">{show(op) ? t('Allowed: ', 'مسموح: ', 'Toegestaan: ') : t('Not allowed: ', 'غير مسموح: ', 'Niet toegestaan: ')}</span>{names[op]}</li>)}
+    </ul>}
+    <p className="muted small perms-always">{state.capabilities.includes('import') ? t('Reading, syncing and importing are always on.', 'القراءة والمزامنة والاستيراد مفعّلة دائمًا.', 'Lezen, synchroniseren en importeren staan altijd aan.') : t('Reading and syncing are always on.', 'القراءة والمزامنة مفعّلتان دائمًا.', 'Lezen en synchroniseren staan altijd aan.')}</p>
     {state.legacy && <p className="muted small perms-note">{t('This connection was made before these choices existed. It keeps what it could do, and Delete is off until you turn it on.', 'تم هذا الربط قبل وجود هذه الخيارات. يحتفظ بما كان يستطيعه، والحذف متوقف حتى تفعّله.', 'Deze koppeling is gemaakt voordat deze keuzes bestonden. Ze behoudt wat ze kon; verwijderen staat uit tot je het aanzet.')}</p>}
     {reconsent && <p className="perms-warn" role="status"><span>{t(`${label} has not given LifeOS the access needed to send changes. Allow it once, then LifeOS can use the permissions you chose.`, `لم تمنح ${label} لـ LifeOS الوصول اللازم لإرسال التغييرات. اسمح به مرة واحدة ثم يستخدم LifeOS الصلاحيات التي اخترتها.`, `${label} heeft LifeOS niet de toegang gegeven die nodig is om wijzigingen te sturen. Sta het eenmalig toe; daarna kan LifeOS de gekozen rechten gebruiken.`)}</span>
       <button type="button" className="primary" disabled={busy} onClick={() => void allowAgain()}>{t('Allow at the service', 'السماح لدى الخدمة', 'Toestaan bij de dienst')}</button></p>}
@@ -75,8 +79,8 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
         <p className="muted small perms-note">{t('LifeOS enforces these limits itself. They do not change the access the service already gave: even if the service would allow more, LifeOS will not ask for it.', 'يفرض LifeOS هذه الحدود بنفسه. هي لا تغيّر الوصول الذي منحته الخدمة: حتى لو سمحت الخدمة بأكثر فلن يطلبه LifeOS.', 'LifeOS dwingt deze grenzen zelf af. Ze veranderen de toegang die de dienst al gaf niet: ook als de dienst meer zou toestaan, vraagt LifeOS er niet om.')}</p>
         <fieldset className="perms-form" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="sr-only">{t('Choose what LifeOS may do', 'اختر ما يسمح به لـ LifeOS', 'Kies wat LifeOS mag doen')}</legend>
-          {offered.map(p => <label key={p} className="perms-choice"><span><input type="radio" name={`preset-${accountId}`} checked={mode === p} onChange={() => setMode(p)} data-autofocus={mode === p || undefined} />{presetText[p][0]}</span><span className="muted small">{presetText[p][1]}</span></label>)}
-          {offered.length > 1 && <label className="perms-choice"><span><input type="radio" name={`preset-${accountId}`} checked={mode === 'custom'} onChange={() => { setMode('custom'); setOps(chosen) }} />{t('Custom', 'مخصص', 'Aangepast')}</span><span className="muted small">{t('Pick each permission yourself.', 'اختر كل صلاحية بنفسك.', 'Kies zelf elk recht.')}</span></label>}
+          {offered.map(p => <label key={p} className="perms-choice"><input type="radio" name={`preset-${accountId}`} checked={mode === p} onChange={() => setMode(p)} data-autofocus={mode === p || undefined} /><strong>{presetText[p][0]}</strong><span className="muted small">{presetText[p][1]}</span></label>)}
+          {offered.length > 1 && <label className="perms-choice"><input type="radio" name={`preset-${accountId}`} checked={mode === 'custom'} onChange={() => { setMode('custom'); setOps(chosen) }} /><strong>{t('Custom', 'مخصص', 'Aangepast')}</strong><span className="muted small">{t('Pick each permission yourself.', 'اختر كل صلاحية بنفسك.', 'Kies zelf elk recht.')}</span></label>}
           {mode === 'custom' && <div className="perms-custom">
             {customOps.map(op => op === 'read' ? <label key={op}><input type="checkbox" checked disabled />{names.read} <span className="muted small">{t('(always on)', '(دائم)', '(altijd aan)')}</span></label>
               : op === 'export' ? null : <label key={op}><input type="checkbox" checked={ops.includes(op)} onChange={() => toggle(op)} />{names[op]}</label>)}
@@ -88,12 +92,14 @@ export function ManagePermissions({ accountId, label, state, onChanged }: { acco
           <label><input ref={deleteBox} type="checkbox" checked={confirmDelete} onChange={e => setConfirmDelete(e.target.checked)} />{t('I understand and want to turn Delete on.', 'أفهم وأريد تفعيل الحذف.', 'Ik begrijp het en wil verwijderen aanzetten.')}</label>
         </div>}
         <ErrorMessage error={problem} />
-        {needsConfirm && !confirmDelete && <p id={`save-hint-${accountId}`} className="muted small perms-note">{t('Save is off until you tick the box above.', 'الحفظ متوقف حتى تحدد المربع أعلاه.', 'Opslaan staat uit tot je het vakje hierboven aanvinkt.')}</p>}
-        <div className="rel-actions">
-          <button type="submit" className="primary" disabled={busy || (needsConfirm && !confirmDelete)} aria-describedby={needsConfirm && !confirmDelete ? `save-hint-${accountId}` : undefined}>{t('Save', 'حفظ', 'Opslaan')}</button>
-          <button type="button" className="quiet" disabled={busy} onClick={() => setOpen(false)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
-        </div>
         <p className="muted small perms-note">{t('You may be asked for your password.', 'قد يُطلب منك إدخال كلمة المرور.', 'Je wordt mogelijk om je wachtwoord gevraagd.')}</p>
+        <div className="perms-footer">
+          {needsConfirm && !confirmDelete && <p id={`save-hint-${accountId}`} className="muted small perms-note">{t('Save is off until you tick the box above.', 'الحفظ متوقف حتى تحدد المربع أعلاه.', 'Opslaan staat uit tot je het vakje hierboven aanvinkt.')}</p>}
+          <div className="rel-actions">
+            <button type="submit" className="primary" disabled={busy || (needsConfirm && !confirmDelete)} aria-describedby={needsConfirm && !confirmDelete ? `save-hint-${accountId}` : undefined}>{t('Save', 'حفظ', 'Opslaan')}</button>
+            <button type="button" className="quiet" disabled={busy} onClick={() => setOpen(false)}>{t('Cancel', 'إلغاء', 'Annuleren')}</button>
+          </div>
+        </div>
       </form>
     </Dialog>}
   </section>

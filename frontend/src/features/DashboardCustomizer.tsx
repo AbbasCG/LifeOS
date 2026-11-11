@@ -52,7 +52,7 @@ export default function DashboardCustomizer({ layout, onClose, onSaved }: { layo
           <span className="grip" aria-hidden="true" onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(id) }}><GripVertical size={16} /></span>
           <span className="widget-name"><strong>{names[id][0]}</strong><small className="muted">{names[id][1]}</small></span>
           <span className="widget-move"><button className="icon-button" disabled={index === 0} aria-label={t(`Move ${names[id][0]} up`, `تحريك ${names[id][0]} لأعلى`)} onClick={() => setOrder(moveItem(order, index, index - 1))}><ArrowUp size={15} /></button><button className="icon-button" disabled={index === order.length - 1} aria-label={t(`Move ${names[id][0]} down`, `تحريك ${names[id][0]} لأسفل`)} onClick={() => setOrder(moveItem(order, index, index + 1))}><ArrowDown size={15} /></button></span>
-          <label className="switch"><input type="checkbox" role="switch" checked={visible} onChange={e => setHidden(e.target.checked ? hidden.filter(h => h !== id) : [...hidden, id])} /><span className="sr-only">{t(`Show ${names[id][0]}`, `إظهار ${names[id][0]}`)}</span><i aria-hidden="true" /></label>
+          <label className="switch"><input type="checkbox" role="switch" aria-label={t(`Show ${names[id][0]}`, `إظهار ${names[id][0]}`)} checked={visible} onChange={e => setHidden(e.target.checked ? hidden.filter(h => h !== id) : [...hidden, id])} /><span aria-hidden="true" /></label>
         </li>
       })}
     </ol>

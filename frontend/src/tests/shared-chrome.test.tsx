@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { useState, type ReactNode } from 'react'
 import { LanguageProvider } from '../contexts/LanguageContext'
@@ -13,6 +13,9 @@ import { useToast } from '../lib/toast'
 import { useContext } from 'react'
 import { BottomSheet, PriorityMark } from '../components/visual'
 
+// A browser can play the exit animation; jsdom cannot, so give it the method that says so.
+beforeEach(() => { Object.defineProperty(Element.prototype, 'getAnimations', { value: () => [], configurable: true, writable: true }) })
+afterEach(() => { delete (Element.prototype as unknown as Record<string, unknown>).getAnimations })
 const shell = (ui: ReactNode, lang?: string) => {
   if (lang) localStorage.setItem('lifeos-language', lang)
   return render(<MemoryRouter><ThemeProvider><LanguageProvider>{ui}</LanguageProvider></ThemeProvider></MemoryRouter>)
@@ -41,14 +44,16 @@ describe('Dialog and Drawer Escape handling', () => {
     escape(d)
     expect(d.open).toBe(true)
   })
-  it.each(['dialog', 'drawer'] as const)('%s closes on Escape when onClose closes it, and focus returns to the opener', kind => {
+  it.each(['dialog', 'drawer'] as const)('%s closes on Escape when onClose closes it, and focus returns to the opener', async kind => {
     const { container } = shell(<Host kind={kind} />)
     const opener = screen.getByText('opener')
     opener.focus(); fireEvent.click(opener)
     const d = container.querySelector('dialog')!
     expect(document.activeElement).toBe(screen.getByLabelText('field'))
     escape(d)
-    expect(container.querySelector('dialog')).toBeNull()
+    // The exit animation runs first (jsdom plays none, so the 200ms fallback ends it); then onClose unmounts the dialog.
+    expect(d.hasAttribute('data-closing')).toBe(true)
+    await waitFor(() => expect(container.querySelector('dialog')).toBeNull())
     expect(document.activeElement).toBe(opener)
   })
 })
@@ -92,5 +97,17 @@ describe('shared chrome in Dutch', () => {
     expect(screen.getByText('Wat je hier hebt ingevoerd is niet opgeslagen.')).toBeTruthy()
     expect(screen.getByText('Blijven bewerken')).toBeTruthy()
     expect(screen.getByText('Negeren')).toBeTruthy()
+  })
+})
+
+describe('Drawer Escape isolation', () => {
+  afterEach(cleanup)
+  it('does not let the cancel event bubble to ancestors', () => {
+    const parent = vi.fn()
+    document.body.addEventListener('cancel', parent)
+    const { container } = shell(<div><Drawer title="T" onClose={() => {}}><span>x</span></Drawer></div>)
+    act(() => { container.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true, bubbles: true })) })
+    document.body.removeEventListener('cancel', parent)
+    expect(parent).not.toHaveBeenCalled()
   })
 })

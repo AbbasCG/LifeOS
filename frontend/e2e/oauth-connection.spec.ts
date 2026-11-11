@@ -15,6 +15,8 @@ for (const language of ['en', 'ar'] as const) {
     await setLanguage(language)
     await hub(page, [provider({ configured: false, status: 'needs_configuration' })])
     await page.goto('/settings/integrations')
+    // A provider that still needs setup sits under the collapsed 'More services' disclosure.
+    await page.getByRole('button', { name: /More services|خدمات أخر/ }).click()
     await page.getByRole('button', { name: language === 'ar' ? /عن Google Calendar/ : /About Google Calendar/ }).click()
     const sheet = page.getByRole('dialog')
     await expect(sheet).toContainText(language === 'ar' ? 'اطلب من مسؤول LifeOS' : 'Ask a LifeOS administrator')

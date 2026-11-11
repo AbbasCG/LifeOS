@@ -30,6 +30,11 @@ function server() {
   }))
 }
 const shell = (s: SyncState) => render(<ThemeProvider><LanguageProvider><ToastProvider><MemoryRouter><SyncSettings accountId={7} label="Google Calendar" state={s} onChanged={changed} /></MemoryRouter></ToastProvider></LanguageProvider></ThemeProvider>)
+/** Ends the exit animation of one conflict row, as the browser would. */
+const exitOf = async (title: string) => {
+  const row = screen.getByText(title).closest('li')!
+  for (const type of ['animationend', 'webkitAnimationEnd']) { const end = new Event(type, { bubbles: true }); Object.assign(end, { animationName: 'conflict-out' }); fireEvent(row, end) }   // jsdom has no AnimationEvent: React listens under either name
+}
 const writes = () => calls.filter(c => c.method !== 'GET')
 
 beforeEach(() => {
@@ -153,17 +158,83 @@ describe('sync settings', () => {
     await screen.findByText('Dentist')
     conflictsAnswer = [second]
     fireEvent.click(screen.getAllByRole('button', { name: 'Keep the one at the service' })[0])
+    await screen.findByText('Kept theirs')   // the row shows what was kept first, and leaves when its exit animation ends
+    await exitOf('Team lunch')
     await waitFor(() => expect(screen.queryByText('Team lunch')).toBeNull())
     await waitFor(() => expect(screen.getByRole('button', { name: 'Keep the one at the service' })).toHaveFocus())
     conflictsAnswer = []
     fireEvent.click(screen.getByRole('button', { name: 'Keep the one at the service' }))
+    await screen.findByText('Kept theirs')
+    await exitOf('Dentist')
     await waitFor(() => expect(screen.getByRole('heading', { name: 'How it syncs' })).toHaveFocus())
+  })
+
+  it('a resolved conflict shows what was kept, then leaves on its own timer when no animation ends (focus moves after, not before)', async () => {
+    const second: Conflict = { ...conflict, id: 6, title: 'Dentist' }
+    conflictsAnswer = [conflict, second]
+    server()
+    shell(state({ direction: 'outbound', effective_direction: 'outbound', open_conflicts: 2 }))
+    await screen.findByText('Dentist')
+    conflictsAnswer = [second]
+    fireEvent.click(screen.getAllByRole('button', { name: 'Keep both' })[0])
+    await screen.findByText('Kept both')
+    const row = screen.getByText('Team lunch').closest('li')!
+    expect(row).toHaveClass('is-resolved')
+    expect(row).toHaveFocus()                              // parked on the row, the next conflict is not focused yet
+    expect(screen.getByRole('button', { name: 'Keep both' })).not.toHaveFocus()
+    expect(changed).not.toHaveBeenCalled()                 // the list is only refreshed once the exit is over
+    await waitFor(() => expect(screen.queryByText('Team lunch')).toBeNull(), { timeout: 2500 })   // safety timer: 1000 ms without animationend
+    await waitFor(() => expect(document.activeElement?.closest('[data-conflict]')).toHaveAttribute('data-conflict', '6'))   // the next conflict
+    expect(changed).toHaveBeenCalled()
+  })
+
+  it('focus is never left on the page body between the row leaving and the slow list reload', async () => {
+    const second: Conflict = { ...conflict, id: 6, title: 'Dentist' }
+    conflictsAnswer = [conflict, second]
+    server()
+    shell(state({ direction: 'outbound', effective_direction: 'outbound', open_conflicts: 2 }))
+    await screen.findByText('Dentist')
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const inner = globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>
+    vi.stubGlobal('fetch', vi.fn(async (u: string, i?: RequestInit) => { if (/sync-conflicts$/.test(u)) await gate; return inner(u, i) }))   // the reload now takes as long as the test says
+    conflictsAnswer = [second]
+    fireEvent.click(screen.getAllByRole('button', { name: 'Keep both' })[0])
+    await screen.findByText('Kept both')
+    expect(document.activeElement).not.toBe(document.body)
+    await exitOf('Team lunch')
+    await waitFor(() => expect(screen.queryByText('Team lunch')).toBeNull())
+    expect(document.activeElement).not.toBe(document.body)   // reload still pending
+    expect(document.activeElement?.closest('[data-conflict]')).toHaveAttribute('data-conflict', '6')
+    release()
+    await waitFor(() => expect(changed).toHaveBeenCalled())
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('under reduced motion the chip stays about 600 ms and the row then goes without any animation', async () => {
+    const reduce = window.matchMedia
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({ matches: /reduce/.test(q), media: q, addEventListener() {}, removeEventListener() {} })) as never
+    try {
+      conflictsAnswer = [conflict]
+      server()
+      shell(state({ direction: 'outbound', effective_direction: 'outbound', open_conflicts: 1 }))
+      await screen.findByText('Team lunch')
+      conflictsAnswer = []
+      const t0 = Date.now()
+      fireEvent.click(screen.getByRole('button', { name: 'Use the LifeOS version…' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'Overwrite' }))
+      await screen.findByText('Kept yours')
+      await waitFor(() => expect(screen.queryByText('Team lunch')).toBeNull(), { timeout: 2000 })
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(550)
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'How it syncs' })).toHaveFocus())
+    } finally { window.matchMedia = reduce }
   })
 
   it('a failed run is announced as an alert', () => {
     server()
     shell(state({ last_outbound: { id: 1, status: 'failed', started_at: '2027-03-22T08:00:00Z', upserted: 0, error: 'The service said no.', details: {} } }))
-    expect(screen.getByRole('alert')).toHaveTextContent('The service said no.')
+    expect(screen.getByText('The service said no.')).toHaveAttribute('role', 'alert')   // the toaster has its own, empty alert region now
   })
 
   it('speaks Arabic and Dutch', () => {

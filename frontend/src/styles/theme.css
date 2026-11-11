@@ -1,7 +1,7 @@
 :root {
   font-family: var(--font-ui, "Inter", system-ui, sans-serif);
 
-  --color-bg: #f6f8fc;
+  --color-bg: #f2f4fb;
   --color-surface: #ffffff;
   --color-surface-muted: #eef2f8;
   --color-text: #18243a;
@@ -9,6 +9,7 @@
      The muted colour is measured on the darkest tint the aurora field puts behind a heading (#d3d5f9): 4.7:1. */
   --color-text-muted: #515c70;
   --color-border: #e2e8f0;
+  --switch-off: #7b8799;
 
   --color-primary: #5355d8;
   --color-primary-hover: #4646c0;
@@ -16,6 +17,24 @@
   --color-on-primary: #ffffff;
 
   --shadow-card: 0 12px 40px rgba(30, 41, 59, 0.07);
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -12px rgba(15, 23, 42, 0.12);
+  --shadow-lift: 0 2px 6px rgba(15, 23, 42, 0.06), 0 24px 48px -16px rgba(15, 23, 42, 0.2);
+
+  /* Design tokens: the single source of truth (spacing, radius, elevation, surfaces, status, focus, type). */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+  --radius-sm: 8px; --radius-md: 14px; --radius-lg: 18px; --radius-xl: 24px; --radius-pill: 999px; --radius-panel: 22px;
+  --elev-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -12px rgba(15, 23, 42, 0.16);
+  --elev-2: 0 2px 6px rgba(15, 23, 42, 0.06), 0 22px 44px -18px rgba(15, 23, 42, 0.28);
+  --elev-3: 0 4px 12px rgba(15, 23, 42, 0.08), 0 32px 64px -20px rgba(15, 23, 42, 0.36);
+  --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --surface-1: #ffffff; --surface-2: #f7f8fd; --surface-inset: #eceff7;
+  /* Status text colours are AA on their own -bg tint; -dot colours are for non-text marks only. */
+  --st-ok: #0b6a45; --st-ok-bg: rgba(16, 150, 100, 0.13); --st-ok-dot: #16a272;
+  --st-warn: #8a4a05; --st-warn-bg: rgba(217, 119, 6, 0.14); --st-warn-dot: #d9860b;
+  --st-bad: #b0213f; --st-bad-bg: rgba(225, 29, 72, 0.1); --st-bad-dot: #e0405f;
+  --st-idle: #515c70; --st-idle-bg: rgba(81, 92, 112, 0.1);
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-primary);
+  --fs-xs: 12px; --fs-sm: 13.5px; --fs-md: 15px; --fs-lg: 18px; --lh-tight: 1.25; --lh-body: 1.55;
 
   color: var(--color-text);
   background: var(--color-bg);
@@ -24,12 +43,13 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-bg: #0b1020;
-  --color-surface: #151c30;
-  --color-surface-muted: #202a42;
+  --color-bg: #060a16;
+  --color-surface: #10172b;
+  --color-surface-muted: #19223a;
   --color-text: #f1f5f9;
   --color-text-muted: #9caac1;
-  --color-border: #2d3852;
+  --color-border: #243050;
+  --switch-off: #66749a;
 
   --color-primary: #818cf8;
   --color-primary-hover: #a5b4fc;
@@ -38,7 +58,46 @@
   --color-on-primary: #0b1020;
 
   --shadow-card: 0 12px 40px rgba(0, 0, 0, 0.25);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+  --shadow-lift: 0 2px 8px rgba(0, 0, 0, 0.35), 0 28px 56px -18px rgba(0, 0, 0, 0.7);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --elev-2: 0 2px 8px rgba(0, 0, 0, 0.4), 0 26px 52px -18px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --elev-3: 0 4px 16px rgba(0, 0, 0, 0.45), 0 36px 72px -20px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --surface-1: #19223a; --surface-2: #121a30; --surface-inset: #0b1122;
+  --st-ok: #5ee0a8; --st-ok-bg: rgba(52, 211, 153, 0.16); --st-ok-dot: #34d399;
+  --st-warn: #f6c453; --st-warn-bg: rgba(251, 191, 36, 0.15); --st-warn-dot: #fbbf24;
+  --st-bad: #ff93a6; --st-bad-bg: rgba(251, 113, 133, 0.16); --st-bad-dot: #fb7185;
+  --st-idle: #9caac1; --st-idle-bg: rgba(156, 170, 193, 0.13);
 }
+
+/* Motion: enter ease-out, exit ease-in and shorter, springs only on transform/translate/scale, stagger index <= 8 */
+:root {
+  --dur-instant: 90ms; --dur-fast: 140ms; --dur-base: 220ms; --dur-slow: 360ms; --dur-sweep: 1400ms; --stagger: 40ms;
+  --ease-out: cubic-bezier(.2, .7, .3, 1); --ease-in: cubic-bezier(.4, 0, 1, 1); --ease-inout: cubic-bezier(.65, 0, .35, 1);
+  --spring-snap: var(--ease-out);
+  --dist-xs: 4px; --dist-sm: 8px; --dist-md: 16px; --dist-lg: 40px;
+  --dir: 1;
+  --duration: var(--dur-fast); --ease: var(--ease-out);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --spring-snap: linear(0, 0.26 10%, 0.65 20%, 0.9 30%, 1.02 40%, 1.04 50%, 1.03 60%, 1.01 75%, 1); }
+}
+[dir="rtl"] { --dir: -1; }
+
+/* enter fills "backwards": no containing block left for the fixed toast region */
+@keyframes m-in { from { opacity: 0; } }
+@keyframes m-out { to { opacity: 0; } }
+@keyframes m-pop { from { opacity: 0; translate: 0 var(--dist-md); scale: .98; } }
+@keyframes m-pop-x { to { opacity: 0; translate: 0 var(--dist-sm); scale: .985; } }
+@keyframes m-sheet { from { translate: 0 100%; } }
+@keyframes m-sheet-x { to { translate: 0 100%; } }
+@keyframes m-slide { from { opacity: 0; translate: calc(var(--dir) * var(--dist-lg)) 0; } }
+@keyframes m-slide-x { to { opacity: 0; translate: calc(var(--dir) * var(--dist-md)) 0; } }
+
+/* Arabic needs larger small text and taller lines; Dutch compounds need a little less width per word. */
+:lang(ar) { --fs-xs: 12.5px; --fs-sm: 14px; --fs-md: 15.5px; --fs-lg: 18.5px; --lh-tight: 1.45; --lh-body: 1.8; }
+:lang(nl) { --fs-sm: 13px; --lh-body: 1.5; }
 
 html {
   min-height: 100%;
@@ -64,9 +123,14 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
-  *::after {
+  *::after,
+  ::backdrop {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
   }
 }
 
