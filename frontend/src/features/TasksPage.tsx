@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import { AnimatePresence, m } from 'motion/react'
-import { Bell, CalendarClock, CalendarPlus, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Timer, Trash2, type LucideIcon } from 'lucide-react'
+import { Bell, CalendarClock, CalendarPlus, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Trash2, type LucideIcon } from 'lucide-react'
 import { api, type Availability, type RecordItem } from '../lib/api'
-import { useApi } from '../lib/useApi'
 import { accountDay } from '../lib/accountDay'
-import { slotWords, suggestSlots, type FreeSlot } from '../lib/scheduleSlots'
+import { suggestSlots } from '../lib/scheduleSlots'
+import { scheduleOf } from '../lib/taskSchedule'
+import { useTaskScheduling, type Change, type Conflict } from '../lib/useTaskScheduling'
+import { Duration, ScheduleBadge, ScheduleControls, ScheduledNotice } from './tasks/ScheduleParts'
 import { useRecords } from '../lib/hooks'
 import { announce } from '../lib/announce'
 import { useText } from '../lib/i18n'
-import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { DueChip, EmptyNote, PageHead, PriorityMark } from '../components/visual'
@@ -39,7 +40,7 @@ function groupOf(task: RecordItem, now = Date.now()): Group {
  * focus, a swipe does either on a phone. Details open in place; filters are chips; everything else is under "More".
  */
 export default function TasksPage() {
-  const t = useText(), { language } = useLanguage(), label = useStatusLabel(), toast = useToast(), focus = useStartFocus()
+  const t = useText(), label = useStatusLabel(), toast = useToast(), focus = useStartFocus()
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<Filter>(() => (['overdue', 'today', 'week'].includes(params.get('due') ?? '') ? params.get('due') as Filter : 'open'))
   const [search, setSearch] = useState(''), [searching, setSearching] = useState(false), [view, setView] = useState<'list' | 'board'>('list'), [moreOpen, setMoreOpen] = useState(false)
@@ -67,7 +68,7 @@ export default function TasksPage() {
   async function reschedule(task: RecordItem, when: When) {
     const before = task.due_at ?? null, next = dueFor(when)
     await run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: next }))
-    const where = { today: t('today', 'اليوم'), tomorrow: t('tomorrow', 'غداً'), week: t('this week', 'هذا الأسبوع'), nextweek: t('next week', 'الأسبوع القادم'), none: t('no date', 'بلا موعد') }[when]
+    const where = { today: t('today', 'اليوم'), tomorrow: t('tomorrow', 'غدًا'), week: t('this week', 'هذا الأسبوع'), nextweek: t('next week', 'الأسبوع القادم'), none: t('no date', 'بلا موعد') }[when]
     toast(t(`“${task.title}” moved to ${where}.`, `نُقلت «${task.title}» إلى ${where}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: before }), t('Restored.', 'أُعيد.')) })
   }
   async function setTaskPriority(task: RecordItem, next: string) {
@@ -103,22 +104,25 @@ export default function TasksPage() {
   const filters: [Filter, string][] = [['open', t('All open', 'كل المفتوحة')], ['overdue', t('Late', 'متأخرة')], ['today', t('Today', 'اليوم')], ['week', t('7 days', '٧ أيام')], ['done', t('Done', 'منجزة')]]
 
   const swipe = useSwipeActions()
-  /** Book a time block for a task in the calendar (the same event the calendar's "Place" makes), with Undo that removes it. */
-  async function scheduleTask(task: RecordItem, slot: FreeSlot) {
-    try {
-      const made = await api<{ data?: { id: number } }>('/api/events', 'POST', { title: task.title, task_id: task.id, kind: 'flexible', starts_at: slot.starts_at, ends_at: slot.ends_at })
-      const id = made.data?.id
-      toast(t(`“${task.title}” scheduled ${slotWords(slot, language, t).toLowerCase()}.`, `جُدولت «${task.title}» ${slotWords(slot, language, t)}.`), 'success', id ? { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/events/${id}`, 'DELETE'), t('Removed from the calendar.', 'أُزيلت من التقويم.')) } : undefined)
-    } catch (e) { toast((e as Error).message, 'error') }
-  }
+  /**
+   * Booking goes through the schedule endpoint (see useTaskScheduling): one request at a time per task, one idempotency key per tap,
+   * and a task that is already booked is told so instead of getting a second block. The list shows the new state at once and then
+   * reads the server again, together with the calendar.
+   */
+  const [conflict, setConflict] = useState<Conflict | null>(null)
+  const scheduling = useTaskScheduling({
+    onConflict: setConflict,
+    onChanged: (change: Change) => { if (change.schedule !== undefined) data.setItems(data.items.map(i => (i.id === change.taskId ? { ...i, schedule: change.schedule } : i))) },
+  })
   /** The first free time that fits, in the next week: used by the swipe, which has no list of times to pick from. */
   async function scheduleNext(task: RecordItem) {
+    if (scheduleOf(task)) { setConflict({ taskId: task.id, session: null }); return }   // already booked: say so, send nothing
     try {
       const minutes = Math.max(15, task.estimated_minutes || 30)
       const free = await api<Availability>(`/api/availability?date=${accountDay()}&days=7&min_minutes=${minutes}`)
       const slot = suggestSlots(free, minutes, new Date(), 1)[0]
       if (!slot) { toast(t('No free time found in the next week.', 'لا يوجد وقت متاح في الأسبوع القادم.'), 'error'); return }
-      await scheduleTask(task, slot)
+      await scheduling.schedule(task, slot)
     } catch (e) { toast((e as Error).message, 'error') }
   }
   /** What a swipe does: the same actions as the buttons, so a snooze offers Undo and a delete still asks first. */
@@ -130,7 +134,7 @@ export default function TasksPage() {
     else if (action === 'delete') setDeleting(task)
   }
   const row = (task: RecordItem) => <TaskRow key={task.id} task={task} done={done.includes(task.id) || task.status === 'completed'} expanded={open === task.id}
-    onToggle={() => setOpen(open === task.id ? null : task.id)} onComplete={() => void complete(task)} onFocus={() => void focus.go(task.id)} swipe={swipe} onSwipe={a => runSwipe(task, a)} onSchedule={slot => void scheduleTask(task, slot)}
+    onToggle={() => setOpen(open === task.id ? null : task.id)} onComplete={() => void complete(task)} onFocus={() => void focus.go(task.id)} swipe={swipe} onSwipe={a => runSwipe(task, a)} scheduling={scheduling} conflict={conflict?.taskId === task.id ? conflict : null} onClearConflict={() => setConflict(null)}
     onEdit={() => setEditing(task)} onDelete={() => setDeleting(task)} onReschedule={when => void reschedule(task, when)} onPriority={p => void setTaskPriority(task, p)} statusLabel={label} />
 
   return <section className="page tasks-page">
@@ -169,9 +173,10 @@ export default function TasksPage() {
  * One task: tick to complete, play to focus, tap the title for details. On touch screens, swipe toward the end to
  * complete and toward the start to focus; the buttons do the same for everyone else.
  */
-function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, onSwipe, onSchedule, onEdit, onDelete, onReschedule, onPriority, statusLabel }: { task: RecordItem; done: boolean; expanded: boolean; onToggle: () => void; onComplete: () => void; onFocus: () => void; swipe: SwipeSides; onSwipe: (action: SwipeAction) => void; onSchedule: (slot: FreeSlot) => void; onEdit: () => void; onDelete: () => void; onReschedule: (when: When) => void; onPriority: (priority: string) => void; statusLabel: (s: string) => string }) {
+function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, onSwipe, scheduling, conflict, onClearConflict, onEdit, onDelete, onReschedule, onPriority, statusLabel }: { task: RecordItem; done: boolean; expanded: boolean; onToggle: () => void; onComplete: () => void; onFocus: () => void; swipe: SwipeSides; onSwipe: (action: SwipeAction) => void; scheduling: ReturnType<typeof useTaskScheduling>; conflict: Conflict | null; onClearConflict: () => void; onEdit: () => void; onDelete: () => void; onReschedule: (when: When) => void; onPriority: (priority: string) => void; statusLabel: (s: string) => string }) {
   const t = useText()
-  const [dx, setDx] = useState(0)
+  const [dx, setDx] = useState(0), [choosing, setChoosing] = useState(false), bodyButton = useRef<HTMLButtonElement>(null)
+  const schedule = scheduleOf(task)
   const start = useRef<{ x: number; y: number; id: number } | null>(null)
   // The swipe follows the finger, not the reading direction: to the right does the "right" action, to the left the "left" one.
   const words = swipeWords(t), icons: Record<SwipeAction, LucideIcon | null> = { complete: Check, tomorrow: CalendarClock, nextweek: CalendarClock, schedule: CalendarPlus, focus: Play, delete: Trash2, none: null }
@@ -203,23 +208,24 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, o
     </span>
     <div className={`task-line${dx ? ' dragging' : ''}`} style={{ transform: dx ? `translateX(${dx}px)` : undefined }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { start.current = null; setDx(0) }}>
       <button type="button" className="tick" disabled={done} onClick={onComplete} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><CheckIcon /></button>
-      <button type="button" className="task-body text-button" aria-expanded={expanded} onClick={onToggle}>
+      <button ref={bodyButton} type="button" className="task-body text-button" aria-expanded={expanded} onClick={onToggle}>
         <strong>{task.title}</strong>
-        <span className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} done={done} />{task.estimated_minutes ? <span><Timer size={12} aria-hidden="true" />{task.estimated_minutes}′</span> : null}{subtasks.length > 0 && <span><ListChecks size={12} aria-hidden="true" />{subtasks.filter(s => s.completed).length}/{subtasks.length}</span>}{typeof task.remind_at === 'string' && <span title={t('Reminder', 'تذكير')}><Bell size={12} aria-hidden="true" /></span>}{task.status === 'in_progress' && <span className="chip">{statusLabel('in_progress')}</span>}</span>
+        <span className="meta-row"><PriorityMark priority={task.priority} />{schedule && <ScheduleBadge schedule={schedule} />}<DueChip due={task.due_at} done={done} label={schedule ? t('Due', 'الاستحقاق', 'Deadline') : undefined} />{task.estimated_minutes ? <Duration minutes={task.estimated_minutes} /> : null}{subtasks.length > 0 && <span><ListChecks size={12} aria-hidden="true" />{subtasks.filter(s => s.completed).length}/{subtasks.length}</span>}{typeof task.remind_at === 'string' && <span title={t('Reminder', 'تذكير')}><Bell size={12} aria-hidden="true" /></span>}{task.status === 'in_progress' && <span className="chip">{statusLabel('in_progress')}</span>}</span>
       </button>
       {!done && <button type="button" className="icon-button play" onClick={onFocus} aria-label={t(`Focus on “${task.title}”`, `ركّز على «${task.title}»`)}><Play size={17} /></button>}
       <ChevronDown size={16} className={`task-chev ${expanded ? 'open' : ''}`} aria-hidden="true" />
     </div>
+    {conflict && !done && <ScheduledNotice task={task} conflict={conflict} onDismiss={() => { bodyButton.current?.focus(); onClearConflict() }} onReschedule={() => { bodyButton.current?.focus(); if (!expanded) onToggle(); setChoosing(true); onClearConflict() }} />}
     {expanded && <div className="task-details">
       {task.notes ? <p>{String(task.notes)}</p> : null}
       {subtasks.length > 0 && <ul className="subtask-list">{subtasks.map((s, i) => <li key={i} className={s.completed ? 'done' : ''}>{s.completed ? '✓' : '○'} {s.title}</li>)}</ul>}
       {!done && <>
         <div className="task-quick" role="group" aria-label={t('Move to', 'نقل إلى')}>
           <span className="muted small">{t('Move to', 'نقل إلى')}</span>
-          {([['today', t('Today', 'اليوم')], ['tomorrow', t('Tomorrow', 'غداً')], ['nextweek', t('Next week', 'الأسبوع القادم')], ['none', t('No date', 'بلا موعد')]] as [When, string][])
+          {([['today', t('Today', 'اليوم')], ['tomorrow', t('Tomorrow', 'غدًا')], ['nextweek', t('Next week', 'الأسبوع القادم')], ['none', t('No date', 'بلا موعد')]] as [When, string][])
             .map(([when, name]) => <button key={when} type="button" className="filter-chip" onClick={() => onReschedule(when)}>{name}</button>)}
         </div>
-        <ScheduleSlots task={task} onSchedule={onSchedule} />
+        <ScheduleControls task={task} scheduling={scheduling} choosing={choosing} setChoosing={setChoosing} />
         <div className="task-quick" role="radiogroup" data-arrow-select="false" aria-label={t('Priority', 'الأولوية')}>
           <span className="muted small">{t('Priority', 'الأولوية')}</span>
           {['urgent', 'high', 'medium', 'low'].map(p => <button key={p} type="button" role="radio" aria-checked={(task.priority ?? 'medium') === p} className="filter-chip" onClick={() => onPriority(p)}>{statusLabel(p)}</button>)}
@@ -259,22 +265,4 @@ function SwipeTip() {
     <span>{t('Tip: swipe a task right or left for quick actions. You choose what each does in Settings.', 'نصيحة: اسحب المهمة لليمين أو لليسار لإجراءات سريعة. تختار ما يفعله كل اتجاه من الإعدادات.')}</span>
     <button type="button" className="quiet" onClick={() => { try { localStorage.setItem(SWIPE_TIP, '1') } catch { /* asked again next time */ } setShown(false) }}>{t('Got it', 'فهمت')}</button>
   </p>
-}
-
-/**
- * "Schedule": the next free times that fit this task, one tap each. Shown with the open task, loaded only then. A tap books a
- * time block in the calendar (nothing is booked before it); Undo removes it.
- */
-function ScheduleSlots({ task, onSchedule }: { task: RecordItem; onSchedule: (slot: FreeSlot) => void }) {
-  const t = useText(), { language } = useLanguage()
-  const minutes = Math.max(15, task.estimated_minutes || 30)
-  const free = useApi<Availability>(`/api/availability?date=${accountDay()}&days=7&min_minutes=${minutes}`)
-  const slots = suggestSlots(free.data, minutes)
-  if (!free.data) return null
-  return <div className="task-quick" role="group" aria-label={t('Schedule', 'جدولة')}>
-    <span className="muted small">{t('Schedule', 'جدولة')}</span>
-    {slots.length === 0
-      ? <span className="muted small">{t('No free time in the next week.', 'لا وقت متاح في الأسبوع القادم.')}</span>
-      : slots.map(slot => <button key={slot.starts_at} type="button" className="filter-chip" aria-label={t(`Schedule ${slotWords(slot, language, t)}`, `جدولة ${slotWords(slot, language, t)}`)} onClick={() => onSchedule(slot)}><CalendarPlus size={14} aria-hidden="true" />{slotWords(slot, language, t)}</button>)}
-  </div>
 }

@@ -30,7 +30,7 @@ export function suggestSlots(availability: Availability | null | undefined, minu
 export function slotWords(slot: FreeSlot, language: string, t: (en: string, ar: string) => string, now = new Date()): string {
   const today = accountDay(now)
   const time = new Date(slot.starts_at).toLocaleTimeString(language === 'ar' ? 'ar' : 'en', { hour: 'numeric', minute: '2-digit', timeZone: accountZone() })
-  const day = slot.day === today ? t('Today', 'اليوم') : slot.day === shiftDay(today, 1) ? t('Tomorrow', 'غداً')
+  const day = slot.day === today ? t('Today', 'اليوم') : slot.day === shiftDay(today, 1) ? t('Tomorrow', 'غدًا')
     : new Date(`${slot.day}T12:00:00Z`).toLocaleDateString(language === 'ar' ? 'ar' : 'en', { weekday: 'short', timeZone: 'UTC' })
   return `${day} ${time}`
 }

@@ -33,7 +33,7 @@ class AssistantActions
     /** Existing events one proposal may move. */
     public const MAX_MOVES = 10;
 
-    public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit, private GoalIntelligence $goals) {}
+    public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit, private GoalIntelligence $goals, private TaskScheduler $scheduler) {}
 
     /**
      * Place activities into the free time of one day.
@@ -54,6 +54,25 @@ class AssistantActions
             $explanation[] = $ar ? 'لم تذكر أنشطة محددة، فاخترت أهم مهامك المفتوحة.' : 'You didn’t name activities, so I picked your highest-priority open tasks.';
         }
         $items = $this->matchTasks(array_slice($items, 0, 8), $open);
+        // The same task listed twice is one activity, and a task already on the calendar is not booked again (it would be refused when applied).
+        $scheduled = $this->scheduler->activeSessions($user->id, collect($items)->pluck('task_id')->filter()->unique());
+        $seen = [];
+        $items = array_values(array_filter($items, function (array $item) use (&$seen, $scheduled, $open, $ar, &$explanation) {
+            if (! $item['task_id']) {
+                return true;
+            }
+            if (isset($seen[$item['task_id']])) {
+                return false;
+            }
+            $seen[$item['task_id']] = true;
+            if ($scheduled->has($item['task_id']) && ! $open->firstWhere('id', $item['task_id'])?->split_sessions) {
+                $explanation[] = $ar ? "«{$item['title']}» مجدولة بالفعل في التقويم، فلم أضف فترة أخرى." : "“{$item['title']}” is already on your calendar, so I didn’t add another block.";
+
+                return false;
+            }
+
+            return true;
+        }));
         $durations = $this->durations($items, $availableMinutes, $c['break']);
 
         $windowStart = $day->setTimeFromTimeString($startAfter ?? $c['work_start']);
@@ -345,7 +364,13 @@ class AssistantActions
         $actions = [];
         $explanation = [];
         $unplaced = [];
+        $scheduled = $this->scheduler->activeSessions($user->id, $tasks->pluck('id'));
         foreach ($tasks->take(6) as $task) {
+            if (! $task->split_sessions && $scheduled->has($task->id)) {
+                $explanation[] = $ar ? "«{$task->title}» مجدولة بالفعل في التقويم، فلم أضف فترة أخرى." : "“{$task->title}” is already on your calendar, so I didn’t add another block.";
+
+                continue;
+            }
             $area = $areas[$task->category_id] ?? 'work';
             $minutes = (int) max(30, min(120, $task->estimated_minutes - (int) $task->actual_minutes));
             $placed = false;
@@ -405,8 +430,11 @@ class AssistantActions
      */
     public function proposeBlocks(User $user, string $kind, string $provider, string $summary, array $explanation, array $blocks, array $moves = []): AssistantProposal
     {
+        // A task the planner deliberately splits over several blocks is marked 'split': approving those blocks is an explicit multi-block plan.
+        $perTask = collect($blocks)->pluck('task_id')->filter()->countBy();
         $creates = array_map(fn (array $b) => ['type' => 'create_event', 'title' => mb_substr($b['title'], 0, 200), 'task_id' => $b['task_id'],
-            'starts_at' => $b['starts_at']->utc()->toIso8601String(), 'ends_at' => $b['ends_at']->utc()->toIso8601String(), 'minutes' => (int) $b['starts_at']->diffInMinutes($b['ends_at'])], $blocks);
+            'starts_at' => $b['starts_at']->utc()->toIso8601String(), 'ends_at' => $b['ends_at']->utc()->toIso8601String(), 'minutes' => (int) $b['starts_at']->diffInMinutes($b['ends_at'])]
+            + ($b['task_id'] && $perTask[$b['task_id']] > 1 ? ['split' => true] : []), $blocks);
         $all = array_merge(array_slice($moves, 0, self::MAX_MOVES), $creates);
         $actions = array_values(array_map(fn (array $a, int $i) => ['id' => 'a'.($i + 1)] + $a, $all, array_keys($all)));
 
@@ -433,6 +461,7 @@ class AssistantActions
             if ($locked->status !== 'pending') {
                 throw ValidationException::withMessages(['proposal' => ['This suggestion was already handled.']]);
             }
+            $this->prepareTasks($user, $selected);
             $results = $selected->map(fn (array $action) => $this->execute($user, $action))->all();
             $locked->update(['status' => 'applied', 'applied_at' => now(), 'results' => $results]);
 
@@ -544,6 +573,34 @@ class AssistantActions
     }
 
     /**
+     * Prepare the tasks of the approved create_event actions, locked in id order. Only blocks the planner marked 'split' make a task split (and
+     * only if it has no session yet); a split task whose sessions are all over becomes ordinary again before a single new block is added.
+     *
+     * @param  Collection<int, array<string, mixed>>  $selected
+     */
+    private function prepareTasks(User $user, Collection $selected): void
+    {
+        $creates = $selected->where('type', 'create_event')->filter(fn (array $a) => ! empty($a['task_id']));
+        if ($creates->isEmpty()) {
+            return;
+        }
+        $tasks = $this->scheduler->lockTasks($user->id, $creates->pluck('task_id'));
+        $active = $this->scheduler->activeSessions($user->id, $tasks->keys());
+        foreach ($tasks as $task) {
+            $mine = $active->get($task->id, collect());
+            if ($creates->where('task_id', $task->id)->contains(fn (array $a) => ! empty($a['split']))) {
+                if (! $task->split_sessions && $mine->isNotEmpty()) {
+                    throw ValidationException::withMessages(['actions' => ["“{$task->title}”: this task is already scheduled. Ask for a fresh plan."]]);
+                }
+                $this->scheduler->markSplit($task);
+
+                continue;
+            }
+            $this->scheduler->resetIdleSplit($task, $mine);
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $action
      * @return array<string, mixed>
      */
@@ -563,8 +620,19 @@ class AssistantActions
         }
 
         if ($action['type'] === 'create_event') {
-            if ($action['task_id'] && ! Task::where('user_id', $user->id)->whereKey($action['task_id'])->exists()) {
-                $fail('The linked task no longer exists.');
+            if ($action['task_id']) {
+                // One active session per ordinary task: lock the task, then refuse (creating nothing) if it is already on the calendar.
+                $task = Task::where('user_id', $user->id)->whereKey($action['task_id'])->lockForUpdate()->first();
+                if (! $task) {
+                    $fail('The linked task no longer exists.');
+                }
+
+                try {
+                    $this->scheduler->assertCanAdd($task, $this->scheduler->activeSessionsQuery($user->id, $task->id)->get(), false);
+                } catch (TaskScheduleException $e) {
+                    $when = CarbonImmutable::parse($e->extra['session']['starts_at'])->setTimezone($user->timezone())->format('Y-m-d H:i');
+                    $fail("this task is already scheduled on {$when}. Move that session instead of adding another.");
+                }
             }
             $this->assertFree($user, $start, $end, null, $fail);
             $event = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $action['task_id'] ?: null, 'title' => mb_substr($action['title'], 0, 200), 'starts_at' => $start, 'ends_at' => $end, 'kind' => 'flexible']);

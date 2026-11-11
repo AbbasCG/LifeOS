@@ -20,7 +20,7 @@ class PlanningService
 {
     public const MAX_BLOCKS_PER_TASK_PER_DAY = 2;
 
-    public function __construct(private CalendarService $calendar) {}
+    public function __construct(private CalendarService $calendar, private TaskScheduler $scheduler) {}
 
     private const PRIORITY_BOOST = 60;
 
@@ -131,6 +131,8 @@ class PlanningService
             ->when($onlyTaskIds, fn ($q) => $q->whereIn('id', $onlyTaskIds))
             ->limit(500)->get();
         $futureMinutes = $this->futureScheduledMinutes($user, $open->pluck('id'));
+        // One active session per ordinary task: a task already on the calendar is not planned again (the proposal could not be accepted).
+        $scheduled = $this->scheduler->activeSessions($user->id, $open->pluck('id'));
         $missed = $this->missedBlocks($user)->pluck('task_id')->unique()->flip();
         $goalPressure = app(GoalIntelligence::class)->pressure($user);
         $areas = Category::where('user_id', $user->id)->pluck('area', 'id');
@@ -166,7 +168,7 @@ class PlanningService
             /** @var Task $task */
             $task = $row['task'];
             $remaining = max(0, $task->estimated_minutes - $task->actual_minutes - ($futureMinutes[$task->id] ?? 0));
-            if ($remaining < 5) {
+            if ($remaining < 5 || (! $task->split_sessions && $scheduled->has($task->id))) {
                 continue;
             }
             $blocks = $this->splitIntoBlocks($remaining, $c['block']);
@@ -558,7 +560,8 @@ class PlanningService
                 throw ValidationException::withMessages(['proposal' => ['This proposal has already been resolved.']]);
             }
             $c = $this->config($user);
-            $tasks = Task::where('user_id', $user->id)->whereIn('id', collect($proposal->items)->pluck('task_id'))->get()->keyBy('id');
+            $tasks = Task::where('user_id', $user->id)->whereIn('id', collect($proposal->items)->pluck('task_id')->unique()->values())->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $activeSessions = $this->scheduler->activeSessions($user->id, $tasks->keys());
             $starts = collect($proposal->items)->map(fn (array $i) => CarbonImmutable::parse($i['starts_at']));
             $ends = collect($proposal->items)->map(fn (array $i) => CarbonImmutable::parse($i['ends_at']));
             $occupied = $starts->isEmpty() ? collect() : $this->calendar->occurrences($user, $starts->min()->utc(), $ends->max()->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']]);
@@ -575,6 +578,14 @@ class PlanningService
                 $stale = $parts->contains(fn (array $part) => isset($part['task_version']) && $part['task_version'] !== $task->updated_at->toISOString());
                 if ($stale || $autoPlanned > $remaining + 0.01) {
                     throw ValidationException::withMessages(['proposal' => ['A task changed after this proposal. Generate a fresh plan.']]);
+                }
+                // One active session per ordinary task, whether the plan gives it one block or several: a plan never stacks on a session that is there.
+                if (! $task->split_sessions && $activeSessions->get($task->id, collect())->isNotEmpty()) {
+                    throw ValidationException::withMessages(['proposal' => ['Tasks or dates changed. Generate a fresh proposal.']]);
+                }
+                // A task the proposal gives several blocks is an explicit multi-block plan.
+                if ($parts->count() > 1) {
+                    $this->scheduler->markSplit($task);
                 }
             }
             foreach ($proposal->items as $item) {

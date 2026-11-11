@@ -305,7 +305,7 @@ test('a task is scheduled from its row in one tap on a suggested free time, and 
     const before = await call(page, 'GET', `/api/tasks/${id}`)
     expect(before.body.data.title).toBe(title)
 
-    const booked = page.waitForResponse(r => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    const booked = page.waitForResponse(r => /\/api\/tasks\/\d+\/schedule$/.test(r.url()) && r.request().method() === 'POST')
     await group.locator('button').first().click()
     const response = await booked
     expect(response.status()).toBe(201)
@@ -335,7 +335,7 @@ test('the swipe can be set to schedule a task in the next free time', async ({ p
   let eventId: number | null = null
   try {
     await page.goto('/tasks')
-    const booked = page.waitForResponse(r => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    const booked = page.waitForResponse(r => /\/api\/tasks\/\d+\/schedule$/.test(r.url()) && r.request().method() === 'POST')
     await swipeRow(page, title, -110, async () => { await expect(page.locator('.task-item', { hasText: title }).locator('.swipe-label')).toContainText('Release') })
     const response = await booked
     expect(response.status()).toBe(201)

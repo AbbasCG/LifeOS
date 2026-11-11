@@ -53,7 +53,7 @@ describe('which free times are suggested for a task', () => {
 
 function stub() {
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === 'POST' && /\/api\/events$/.test(url)) return new Response(JSON.stringify({ data: { id: 99 } }), { status: 201 })
+    if (init?.method === 'POST' && /\/api\/tasks\/7\/schedule$/.test(url)) return new Response(JSON.stringify({ data: { id: 99 } }), { status: 201 })
     if (init?.method === 'DELETE') return new Response(null, { status: 204 })
     const body = /\/api\/user$/.test(url) ? { id: 1, name: 'A', email: 'a@x.io', timezone: 'Europe/Amsterdam' }
       : /\/api\/availability/.test(url) ? free
@@ -81,7 +81,10 @@ describe('schedule a task from its row', () => {
     expect(chips[0]).toMatch(/^Today/); expect(chips[1]).toMatch(/^Tomorrow/)
     fireEvent.click(group.querySelectorAll('button')[0])
     await waitFor(() => expect(calls(fetcher, 'POST')).toHaveLength(1))
-    expect(JSON.parse(calls(fetcher, 'POST')[0][1]!.body as string)).toEqual({ title: 'Pay the invoice', task_id: 7, kind: 'flexible', starts_at: '2027-03-09T13:00:00.000Z', ends_at: '2027-03-09T13:45:00.000Z' })
+    // Booking goes through the task's schedule endpoint (not POST /api/events), with one idempotency key for this tap.
+    expect(calls(fetcher, 'POST')[0][0]).toMatch(/\/api\/tasks\/7\/schedule$/)
+    expect(JSON.parse(calls(fetcher, 'POST')[0][1]!.body as string)).toEqual({ starts_at: '2027-03-09T13:00:00.000Z', ends_at: '2027-03-09T13:45:00.000Z' })
+    expect((calls(fetcher, 'POST')[0][1]!.headers as Record<string, string>)['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/)
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(calls(fetcher, 'DELETE').map(c => c[0])).toEqual([expect.stringMatching(/\/api\/events\/99$/)]))
   })

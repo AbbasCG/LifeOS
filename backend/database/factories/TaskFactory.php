@@ -31,6 +31,12 @@ class TaskFactory extends Factory
         return $this->state(['status' => 'todo', 'due_at' => now()->subDays(fake()->numberBetween(1, 7))->setTime(17, 0)]);
     }
 
+    /** A task the user explicitly works in several blocks: it may have several active calendar sessions. */
+    public function splitSessions(): static
+    {
+        return $this->state(['split_sessions' => true]);
+    }
+
     public function recurring(string $recurrence = 'daily'): static
     {
         return $this->state(['recurrence' => $recurrence]);

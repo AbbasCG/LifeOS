@@ -66,6 +66,8 @@
  "smoke.spec.ts|mobile": 17.7,
  "suggestions.spec.ts|desktop": 2.6,
  "suggestions.spec.ts|mobile": 2.0,
+ "task-scheduling.spec.ts|desktop": 20.0,
+ "task-scheduling.spec.ts|mobile": 20.0,
  "timeline.spec.ts|desktop": 3.9,
  "timeline.spec.ts|mobile": 3.1,
  "timezone.spec.ts|desktop": 1.1,

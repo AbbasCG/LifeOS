@@ -162,6 +162,8 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('integrations/accounts/{id}/sync', [IntegrationController::class, 'sync'])->whereNumber('id')->middleware('throttle:auth');
         Route::delete('integrations/accounts/{id}', [IntegrationController::class, 'destroy'])->whereNumber('id');
         Route::post('events', [CalendarController::class, 'store']);
+        Route::post('tasks/{id}/schedule', [CalendarController::class, 'scheduleTask'])->whereNumber('id');
+        Route::put('tasks/{id}/schedule', [CalendarController::class, 'moveTaskSession'])->whereNumber('id');
         Route::patch('events/{id}', [CalendarController::class, 'update'])->whereNumber('id');
         Route::delete('events/{id}', [CalendarController::class, 'destroy'])->whereNumber('id');
         Route::get('reviews/{week}', [ReviewController::class, 'show'])->where('week', '\d{4}-\d{2}-\d{2}');

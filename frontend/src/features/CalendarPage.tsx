@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useSearchParams } from 'react-router'
 import { ChevronLeft, ChevronRight, Plus, GripVertical, Lock, AlertTriangle, MousePointerClick, X, Eye, EyeOff, Repeat, Globe, CalendarDays, CalendarRange, Columns3, List } from 'lucide-react'
 import { KindIcon } from '../components/visual'
 import { api, type Availability, type CalendarOccurrence, type RecordItem } from '../lib/api'
 import { useCalendar } from '../lib/useCalendar'
+import { CALENDAR_CHANGED, durationWords, isolate, scheduleOf } from '../lib/taskSchedule'
+import { TASKS_CHANGED } from '../lib/quickAdd'
+import { useTaskScheduling } from '../lib/useTaskScheduling'
 import EventForm from './EventForm'
 import { useRecords, localDate } from '../lib/hooks'
 import { useApi } from '../lib/useApi'
@@ -44,7 +48,9 @@ export default function CalendarPage() {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar', label = useStatusLabel(), toast = useToast()
   const zoneView = useCalendarZone(), zs = zoneView.shift
   const [now, setNow] = useState(() => new Date()), nowView = zs.viewDate(now), todayKey = localDate(nowView)
-  const [date, setDate] = useState(todayKey), [view, setViewState] = useState(() => { try { const saved = localStorage.getItem('lifeos-calendar-view'); if (saved && ['day', 'week', 'month', 'agenda'].includes(saved)) return saved } catch { /* storage unavailable */ } return window.innerWidth < 700 ? 'agenda' : 'week' })
+  // /calendar?date=YYYY-MM-DD&session=ID opens on that day and focuses that session ("View in calendar" from a task).
+  const [params] = useSearchParams(), wantedSession = Number(params.get('session')) || null
+  const [date, setDate] = useState(() => /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : todayKey), [view, setViewState] = useState(() => { try { const saved = localStorage.getItem('lifeos-calendar-view'); if (saved && ['day', 'week', 'month', 'agenda'].includes(saved)) return saved } catch { /* storage unavailable */ } return window.innerWidth < 700 ? 'agenda' : 'week' })
   // The chosen view is remembered on this device; phones start with the agenda.
   const setView = (next: string) => { setViewState(next); try { localStorage.setItem('lifeos-calendar-view', next) } catch { /* storage unavailable */ } }
   const swipe = useRef<{ x: number; y: number } | null>(null)
@@ -68,9 +74,10 @@ export default function CalendarPage() {
   const days = Array.from({ length: Math.round((end.getTime() - start.getTime()) / 86400000) }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return d })
   const availability = useApi<Availability>(`/api/availability?date=${localDate(start)}&days=${days.length}`)
   const timed = view === 'day' || view === 'week'
+  // A task is scheduled when the server says so (it knows sessions outside this period too); the visible items only add to that.
   const scheduledTaskIds = new Set(data.items.map(e => e.task_id).filter(Boolean))
-  const unscheduled = tasks.items.filter(task => !scheduledTaskIds.has(task.id))
-  const overlaps = overlappingIds(data.items)
+  const unscheduled = tasks.items.filter(task => !scheduleOf(task) && !scheduledTaskIds.has(task.id))
+  const overlaps = overlappingIds(data.items), placingLength = placing ? durationWords(placing.estimated_minutes ?? 30, t) : ''
 
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(id) }, [])
   useEffect(() => { if (timed && scroller.current) scroller.current.scrollTop = 7 * HOUR }, [timed])
@@ -92,6 +99,37 @@ export default function CalendarPage() {
   }
   function eventsOn(day: Date) { const next = new Date(day); next.setDate(next.getDate() + 1); return data.items.filter(i => new Date(i.starts_at!) < next && new Date(i.ends_at!) > day) }
   function refresh() { data.reload(); availability.reload() }
+  // Bookings made elsewhere (the task list, a dialog here): the calendar itself reloads in useCalendar; the free time and the tray follow.
+  const reloadAvailability = availability.reload, reloadTasks = tasks.reload
+  useEffect(() => {
+    const onCalendar = () => reloadAvailability(), onTasks = () => void reloadTasks()
+    window.addEventListener(CALENDAR_CHANGED, onCalendar); window.addEventListener(TASKS_CHANGED, onTasks)
+    return () => { window.removeEventListener(CALENDAR_CHANGED, onCalendar); window.removeEventListener(TASKS_CHANGED, onTasks) }
+  }, [reloadAvailability, reloadTasks])
+  const scheduling = useTaskScheduling()
+  // After a session was moved from its dialog the dialog closes and the calendar redraws: focus goes to the moved session once it is
+  // drawn at its new time, or to the heading when it is not on this period (or the redraw does not bring it).
+  const rangeFrom = zs.realDate(start).getTime(), rangeTo = zs.realDate(end).getTime()
+  const [moved, setMoved] = useState<{ id: number; startsAt: string } | null>(null), heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (!moved) return
+    const land = (target: HTMLElement | null) => { (target ?? heading.current)?.focus({ preventScroll: true }); setMoved(null) }
+    const at = Date.parse(moved.startsAt), inRange = at >= rangeFrom && at < rangeTo
+    const drawn = raw.items.some(i => i.event_id === moved.id && Date.parse(i.starts_at) === at)
+    if (!inRange) { land(null); return }
+    if (drawn) { land(document.querySelector<HTMLElement>(`[data-session="${moved.id}"]`)); return }
+    const id = window.setTimeout(() => land(null), 4000)
+    return () => window.clearTimeout(id)
+  }, [moved, raw.items, rangeFrom, rangeTo])
+  // Bring the wanted session into focus once it is on screen (once per link).
+  const focusedSession = useRef<number | null>(null)
+  useEffect(() => {
+    if (!wantedSession || focusedSession.current === wantedSession || data.loading) return
+    const target = document.querySelector<HTMLElement>(`[data-session="${wantedSession}"]`)
+    if (!target) return
+    focusedSession.current = wantedSession
+    target.scrollIntoView?.({ block: 'center' }); target.focus({ preventScroll: true })
+  }, [wantedSession, data.loading, data.items, view])
   async function save(fn: () => Promise<unknown>, success?: string) {
     setBusy(true)
     try { await fn(); data.setError(''); if (success) toast(success); refresh(); return true } catch (e) { toast((e as Error).message, 'error'); refresh(); return false } finally { setBusy(false) }
@@ -190,7 +228,8 @@ export default function CalendarPage() {
     const conflict = findConflict(data.items, undefined, s, e)
     if (conflict) { toast(t(`That time overlaps “${conflict.title}”. Pick a free slot.`, `هذا الوقت يتداخل مع «${conflict.title}». اختر وقتاً متاحاً.`), 'error'); return }
     setPlacing(null)
-    void save(() => api('/api/events', 'POST', { title: task.title, task_id: task.id, kind: 'flexible', starts_at: zs.realDate(s).toISOString(), ends_at: zs.realDate(e).toISOString() }), t(`Time blocked for “${task.title}”.`, `حُجز وقت لـ«${task.title}».`))
+    // Through the schedule endpoint: one request, one idempotency key, and a task that is already booked is refused rather than booked twice.
+    void scheduling.schedule(task, { starts_at: zs.realDate(s).toISOString(), ends_at: zs.realDate(e).toISOString() }, t(`Time blocked for “${task.title}”.`, `حُجز وقت لـ«${isolate(task.title)}».`))
   }
   function pointerMinutes(e: { clientY: number; currentTarget: HTMLElement }) { return snap((e.clientY - e.currentTarget.getBoundingClientRect().top) / HOUR * 60) }
   function dropOnDay(e: DragEvent<HTMLElement>, day: Date, minutes: number | null) {
@@ -209,7 +248,7 @@ export default function CalendarPage() {
 
   return <section className="page calendar-page">
     <header className="cal-bar">
-      <h1>{view === 'day' ? start.toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' }) : view === 'month' ? start.toLocaleDateString(language, { month: 'long', year: 'numeric' }) : <>{view === 'agenda' && <span className="sr-only">{t('Agenda', 'الجدول')}: </span>}{rangeLabel}</>}</h1>
+      <h1 ref={heading} tabIndex={-1}>{view === 'day' ? start.toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' }) : view === 'month' ? start.toLocaleDateString(language, { month: 'long', year: 'numeric' }) : <>{view === 'agenda' && <span className="sr-only">{t('Agenda', 'الجدول')}: </span>}{rangeLabel}</>}</h1>
       <div className="cal-nav">
         <button className="icon-button" aria-label={t('Previous', 'السابق')} onClick={() => shift(-1)}><ChevronLeft className="flip-rtl" /></button>
         <button className="quiet" onClick={() => setDate(todayKey)}>{t('Today', 'اليوم')}</button>
@@ -230,7 +269,7 @@ export default function CalendarPage() {
     </div>}
     <ErrorMessage error={data.error || tasks.error} />
     {overlaps.size > 0 && <p className="conflict-chip" role="status"><AlertTriangle size={15} aria-hidden="true" />{t(`${overlaps.size} overlapping`, `${overlaps.size} متداخلة`)}</p>}
-    {placing && <div className="banner placing" role="status"><MousePointerClick size={18} /><p>{t(`Tap a time slot to schedule “${placing.title}” (${placing.estimated_minutes} min).`, `اضغط على وقت لجدولة «${placing.title}» (${placing.estimated_minutes} د).`)}</p><button className="icon-button" aria-label={t('Cancel placing', 'إلغاء الجدولة')} onClick={() => setPlacing(null)}><X size={16} /></button></div>}
+    {placing && <div className="banner placing" role="status"><MousePointerClick size={18} /><p>{t(`Tap a time slot to schedule “${placing.title}” (${placingLength}).`, `اضغط على وقت لجدولة «${isolate(placing.title)}» (${placingLength}).`)}</p><button className="icon-button" aria-label={t('Cancel placing', 'إلغاء الجدولة')} onClick={() => setPlacing(null)}><X size={16} /></button></div>}
     <div className={`calendar-layout ${timed ? 'with-tray' : ''}`} onTouchStart={e => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }} onTouchEnd={e => swipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}>
       {timed ? <div className={`time-grid ${view} ${preview ? 'dragging' : ''} ${placing ? 'placing' : ''}`} style={{ ['--days' as string]: days.length }}>
         <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === todayKey ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
@@ -251,7 +290,7 @@ export default function CalendarPage() {
                 const top = (Math.max(s.getTime(), dayStart) - dayStart) / 3600000 * HOUR
                 const height = Math.max(22, (Math.min(en.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
                 const flexible = item.kind !== 'fixed' && item.editable, active = preview?.id === item.id, external = item.source !== 'lifeos'
-                return <div key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help"
+                return <div key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined}
                   className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
                   style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
@@ -279,7 +318,7 @@ export default function CalendarPage() {
             <button className="icon-button" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}><Plus size={17} /></button></header>
           {events.length === 0 ? <p className="agenda-empty">{t('Open day', 'يوم متاح')}</p> : <ul>{events.map(item => {
             const external = item.source !== 'lifeos', current = new Date(item.starts_at!) <= nowView && new Date(item.ends_at!) > nowView
-            return <li key={item.id}><button type="button" className={`agenda-item kind-${item.kind} ${external ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${current ? 'current' : ''} ${new Date(item.ends_at!) <= nowView ? 'past' : ''}`} onClick={() => setEditing(item)}>
+            return <li key={item.id}><button type="button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} className={`agenda-item kind-${item.kind} ${external ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${current ? 'current' : ''} ${new Date(item.ends_at!) <= nowView ? 'past' : ''}`} onClick={() => setEditing(item)}>
               <time><strong>{time(item.starts_at!)}</strong><small>{time(item.ends_at!)}</small></time>
               <span className="agenda-bar" aria-hidden="true" />
               <span className="agenda-title"><KindIcon kind={item.kind} source={item.source} /><strong>{item.title}</strong></span>
@@ -291,17 +330,17 @@ export default function CalendarPage() {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day)
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === todayKey ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
           <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
-          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" onClick={() => setEditing(item)}><small>{time(item.starts_at!)}</small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
+          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} onClick={() => setEditing(item)}><small>{time(item.starts_at!)}</small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
         </section>
       })}</div>}
       {timed && <aside className="panel task-tray" aria-label={t('Unscheduled tasks', 'مهام غير مجدولة')}>
         <h2 title={t('Drag a task onto the calendar, or tap “Place” and then a time slot.', 'اسحب مهمة إلى التقويم، أو اضغط «جدولة» ثم اختر وقتاً.')}>{t('Unscheduled', 'غير مجدولة')} <span className="tray-count">{unscheduled.length}</span></h2>
         {!unscheduled.length ? <p className="muted empty-small">{t('Everything open has a time. Nice.', 'كل المهام المفتوحة لها وقت. رائع.')}</p> : <ul>{unscheduled.slice(0, 20).map(task => <li key={task.id} draggable className={`tray-task priority-edge-${task.priority} ${placing?.id === task.id ? 'selected' : ''}`} onDragStart={e => { e.dataTransfer.setData('text/plain', `task:${task.id}`); e.dataTransfer.effectAllowed = 'copyMove' }} onDragEnd={() => setDropHint(null)}>
-          <GripVertical size={14} aria-hidden="true" /><span><strong>{task.title}</strong><small className="muted">{label(task.priority || 'medium')} · {task.estimated_minutes} {t('min', 'د')}</small></span>
+          <GripVertical size={14} aria-hidden="true" /><span><strong>{task.title}</strong><small className="muted">{label(task.priority || 'medium')} · {durationWords(task.estimated_minutes ?? 30, t)}</small></span>
           <button className="chip-button small" aria-pressed={placing?.id === task.id} onClick={() => setPlacing(placing?.id === task.id ? null : task)}>{placing?.id === task.id ? t('Cancel', 'إلغاء') : t('Place', 'جدولة')}</button>
         </li>)}</ul>}
       </aside>}
     </div>
-    {editing && <EventForm item={editing} tasks={tasks.items} shift={zs} onSaved={refresh} onClose={() => setEditing(null)} />}
+    {editing && <EventForm item={editing} tasks={tasks.items} shift={zs} onSaved={refresh} onMoved={(id, startsAt) => setMoved({ id, startsAt })} onClose={() => setEditing(null)} />}
   </section>
 }

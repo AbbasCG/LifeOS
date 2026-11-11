@@ -5,18 +5,25 @@ namespace App\Http\Controllers;
 use App\Http\Resources\WorkspaceResource;
 use App\Models\CalendarEvent;
 use App\Models\CalendarEventException;
+use App\Models\Task;
 use App\Models\User;
 use App\Services\CalendarService;
+use App\Services\TaskScheduleException;
+use App\Services\TaskScheduler;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class CalendarController extends Controller
 {
-    public function __construct(private CalendarService $calendar) {}
+    /** How long a client's Idempotency-Key is remembered. */
+    private const IDEMPOTENCY_SECONDS = 600;
+
+    public function __construct(private CalendarService $calendar, private TaskScheduler $scheduler) {}
 
     /**
      * Expanded occurrences (single, recurring and external) for a window of at most 62 days.
@@ -36,12 +43,62 @@ class CalendarController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $this->validated($request, true);
+        $key = $this->idempotencyKey($request);
         $event = new CalendarEvent;
         $this->fill($event, $data, $request->user());
+        // An event that adds an active session to a task goes through the task scheduler (one session per ordinary task).
+        if ($this->scheduler->isActiveSession($event)) {
+            return $this->createSession($request, $event, $key, false);
+        }
         $this->guardConflicts($request, $event, null);
         $event->save();
 
         return (new WorkspaceResource($event->fresh()))->response()->setStatusCode(201);
+    }
+
+    /**
+     * POST /api/tasks/{id}/schedule: put the task on the calendar once. 409 task_already_scheduled when an ordinary task already has an active
+     * session (move that one with PUT). An Idempotency-Key header makes a retry return the first event instead of creating another.
+     */
+    public function scheduleTask(Request $request, int $id): JsonResponse
+    {
+        $task = Task::where('user_id', $request->user()->id)->findOrFail($id);
+        $data = $request->validate(['starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:now']]);
+        $key = $this->idempotencyKey($request);
+        $event = new CalendarEvent;
+        $this->fill($event, ['title' => mb_substr($task->title, 0, 200), 'kind' => 'flexible', 'task_id' => $task->id] + $data, $request->user());
+
+        return $this->createSession($request, $event, $key, true);
+    }
+
+    /**
+     * PUT /api/tasks/{id}/schedule: move the task's existing active session (never creates one). The calendar rules of PATCH /api/events/{id}
+     * apply (confirmation for fixed events, no overlaps).
+     */
+    public function moveTaskSession(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate(['starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:now'], 'session_id' => ['nullable', 'integer'], 'confirm_fixed' => ['sometimes', 'boolean']]);
+
+        return DB::transaction(function () use ($request, $user, $id, $data) {
+            $task = Task::where('user_id', $user->id)->whereKey($id)->lockForUpdate()->firstOrFail();
+            $this->assertOpen($task);
+            $sessions = $this->scheduler->activeSessionsQuery($user->id, $task->id)->get();
+            if ($sessions->isEmpty()) {
+                throw new TaskScheduleException('task_not_scheduled', 'This task has no active session to move. Schedule it first.', 404);
+            }
+            $event = isset($data['session_id']) ? $sessions->firstWhere('id', (int) $data['session_id']) : null;
+            if (isset($data['session_id']) && ! $event) {
+                throw new TaskScheduleException('session_not_found', 'That session is not an active session of this task.', 404);
+            }
+            if (! $event && $sessions->count() > 1) {
+                throw new TaskScheduleException('task_has_several_sessions', 'This task has several sessions. Say which one to move with session_id.', 409, ['sessions' => $sessions->map(fn (CalendarEvent $s) => $this->scheduler->sessionPayload($s))->all()]);
+            }
+            $event ??= $sessions->first();
+            $moved = $this->applyUpdate($request, $event, ['starts_at' => $data['starts_at'], 'ends_at' => $data['ends_at']]);
+
+            return (new WorkspaceResource($moved))->additional(['schedule' => $this->scheduler->scheduleOf($task)])->response();
+        });
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -52,25 +109,104 @@ class CalendarController extends Controller
             return $this->updateOccurrence($request, $event, $data);
         }
 
-        return DB::transaction(function () use ($request, $event, $data) {
-            $before = ['start' => $event->starts_at, 'rule' => $event->recurrence, 'tz' => $event->timezone];
-            $this->fill($event, $data, $request->user());
-            $timeChanged = ! $event->starts_at->equalTo($before['start']) || $event->isDirty('ends_at');
-            if ($timeChanged && $event->getOriginal('kind') === 'fixed' && $event->kind === 'fixed' && ! $request->boolean('confirm_fixed')) {
-                throw ValidationException::withMessages(['fixed' => ['This is a fixed commitment. Confirm before changing its time.']]);
+        return DB::transaction(fn () => (new WorkspaceResource($this->applyUpdate($request, $event, $data)))->response());
+    }
+
+    /**
+     * Apply a series/single-event update inside the caller's transaction and return the saved event.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function applyUpdate(Request $request, CalendarEvent $event, array $data): CalendarEvent
+    {
+        $before = ['start' => $event->starts_at, 'rule' => $event->recurrence, 'tz' => $event->timezone];
+        $sessionOf = $this->scheduler->isActiveSession($event) ? $event->task_id : null;
+        $this->fill($event, $data, $request->user());
+        // Linking an event to a task, or turning an old/recurring one into a future single event of it, adds a session to that task.
+        if ($this->scheduler->isActiveSession($event) && (int) $event->task_id !== (int) $sessionOf) {
+            $this->scheduler->guardNewSession($request->user(), $event->task_id, $event->id);
+        }
+        $timeChanged = ! $event->starts_at->equalTo($before['start']) || $event->isDirty('ends_at');
+        if ($timeChanged && $event->getOriginal('kind') === 'fixed' && $event->kind === 'fixed' && ! $request->boolean('confirm_fixed')) {
+            throw ValidationException::withMessages(['fixed' => ['This is a fixed commitment. Confirm before changing its time.']]);
+        }
+        if ($timeChanged || $event->isDirty(['recurrence', 'kind'])) {
+            $this->guardConflicts($request, $event, $event->id);
+        }
+        $event->save();
+        if ($event->isRecurring()) {
+            $this->remapExceptions($event, $before);
+        } else {
+            $event->exceptions()->delete();
+        }
+
+        return $event->fresh();
+    }
+
+    /**
+     * Create an event that is an active session of its task, atomically: the task row is locked, then a replayed Idempotency-Key returns the
+     * event it created the first time (200), otherwise the one-session-per-task rule and the calendar conflicts are checked and the event saved (201).
+     */
+    private function createSession(Request $request, CalendarEvent $event, ?string $idempotencyKey, bool $withSchedule): JsonResponse
+    {
+        $user = $request->user();
+        [$saved, $replayed, $schedule] = DB::transaction(function () use ($request, $user, $event, $idempotencyKey, $withSchedule) {
+            $task = Task::where('user_id', $user->id)->whereKey($event->task_id)->lockForUpdate()->firstOrFail();
+            if ($withSchedule) {
+                $this->assertOpen($task);
             }
-            if ($timeChanged || $event->isDirty(['recurrence', 'kind'])) {
-                $this->guardConflicts($request, $event, $event->id);
+            $cacheKey = $idempotencyKey ? 'event-idempotency:'.$user->id.':'.$task->id.':'.hash('sha256', $idempotencyKey) : null;
+            if ($cacheKey && ($firstId = Cache::get($cacheKey)) && ($first = CalendarEvent::where('user_id', $user->id)->where('task_id', $task->id)->find($firstId))) {
+                return [$first, true, $this->scheduler->scheduleOf($task)];
             }
+            $active = $this->scheduler->activeSessionsQuery($user->id, $task->id)->get();
+            // Without a key, the same request sent again (a double tap) finds the session it made: identical task, title and times.
+            $same = $active->first(fn (CalendarEvent $s) => $s->title === $event->title && $s->starts_at->equalTo($event->starts_at) && $s->ends_at->equalTo($event->ends_at));
+            if ($same) {
+                return [$same, true, $this->scheduler->scheduleOf($task)];
+            }
+            $this->scheduler->assertCanAdd($task, $active);
+            $this->guardConflicts($request, $event, null);
             $event->save();
-            if ($event->isRecurring()) {
-                $this->remapExceptions($event, $before);
-            } else {
-                $event->exceptions()->delete();
+            if ($cacheKey) {
+                Cache::put($cacheKey, $event->id, self::IDEMPOTENCY_SECONDS);
             }
 
-            return (new WorkspaceResource($event->fresh()))->response();
+            return [$event->fresh(), false, $this->scheduler->scheduleOf($task)];
         });
+        $resource = new WorkspaceResource($saved);
+        if ($withSchedule) {
+            $resource->additional(['schedule' => $schedule]);
+        }
+        $response = $resource->response()->setStatusCode($replayed ? 200 : 201);
+
+        return $replayed ? $response->header('Idempotent-Replay', 'true') : $response;
+    }
+
+    /**
+     * @throws ValidationException when the task is completed or cancelled
+     */
+    private function assertOpen(Task $task): void
+    {
+        if ($this->scheduler->isClosed($task)) {
+            throw ValidationException::withMessages(['task' => ['A completed or cancelled task cannot be scheduled.']]);
+        }
+    }
+
+    /**
+     * The optional Idempotency-Key header (at most 100 characters).
+     */
+    private function idempotencyKey(Request $request): ?string
+    {
+        $key = $request->header('Idempotency-Key');
+        if ($key === null || $key === '') {
+            return null;
+        }
+        if (mb_strlen($key) > 100) {
+            throw ValidationException::withMessages(['idempotency_key' => ['The Idempotency-Key header may be at most 100 characters.']]);
+        }
+
+        return $key;
     }
 
     public function destroy(Request $request, int $id): JsonResponse

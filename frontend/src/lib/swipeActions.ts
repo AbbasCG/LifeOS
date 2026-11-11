@@ -43,7 +43,7 @@ export const useSwipeActions = (): SwipeSides => useSyncExternalStore(subscribe,
 export function swipeWords(t: (en: string, ar: string) => string): Record<SwipeAction, { short: string; full: string }> {
   return {
     complete: { short: t('Done', 'تم'), full: t('Complete', 'إنجاز') },
-    tomorrow: { short: t('Tomorrow', 'غداً'), full: t('Snooze to tomorrow', 'تأجيل إلى الغد') },
+    tomorrow: { short: t('Tomorrow', 'غدًا'), full: t('Snooze to tomorrow', 'تأجيل إلى الغد') },
     nextweek: { short: t('Next week', 'الأسبوع القادم'), full: t('Snooze to next week', 'تأجيل إلى الأسبوع القادم') },
     schedule: { short: t('Schedule', 'جدولة'), full: t('Schedule in the next free time', 'جدولة في أقرب وقت متاح') },
     focus: { short: t('Focus', 'تركيز'), full: t('Start focus', 'بدء التركيز') },

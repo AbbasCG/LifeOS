@@ -14,7 +14,7 @@ class Task extends Model
 
     protected function casts(): array
     {
-        return ['due_at' => 'immutable_datetime', 'remind_at' => 'immutable_datetime', 'scheduled_start' => 'immutable_datetime', 'scheduled_end' => 'immutable_datetime', 'completed_at' => 'immutable_datetime', 'subtasks' => 'array', 'tags' => 'array', 'last_postponed_at' => 'immutable_datetime'];
+        return ['due_at' => 'immutable_datetime', 'remind_at' => 'immutable_datetime', 'scheduled_start' => 'immutable_datetime', 'scheduled_end' => 'immutable_datetime', 'completed_at' => 'immutable_datetime', 'subtasks' => 'array', 'tags' => 'array', 'last_postponed_at' => 'immutable_datetime', 'split_sessions' => 'boolean'];
     }
 
     /**
@@ -43,6 +43,8 @@ class Task extends Model
         $next = $this->replicate(['completed_at', 'scheduled_start', 'scheduled_end']);
         $next->status = 'todo';
         $next->actual_minutes = 0;
+        // A new occurrence is a new piece of work: it starts as an ordinary task with at most one session.
+        $next->split_sessions = false;
         // A new occurrence has not been postponed yet.
         $next->postponed_count = 0;
         $next->last_postponed_at = null;
