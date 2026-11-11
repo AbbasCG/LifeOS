@@ -53,9 +53,20 @@ class WeeklyPlanningTest extends TestCase
         $this->assertDatabaseCount('calendar_events', 0);
     }
 
-    public function test_time_already_logged_or_scheduled_is_not_planned_again(): void
+    public function test_a_task_that_already_has_a_session_is_not_planned_again(): void
     {
+        // Changed from a top-up block: an ordinary task has one session, so a plan with a second one could not be accepted.
         $task = Task::create(['user_id' => $this->user->id, 'title' => 'Report', 'estimated_minutes' => 120, 'actual_minutes' => 30]);
+        CalendarEvent::create(['user_id' => $this->user->id, 'task_id' => $task->id, 'title' => 'Report', 'kind' => 'flexible', 'starts_at' => '2027-01-05T09:00:00Z', 'ends_at' => '2027-01-05T10:00:00Z']);
+
+        $plan = $this->postJson('/api/plans', ['date' => '2027-01-04', 'days' => 7])->assertCreated()->json();
+
+        $this->assertSame([], $plan['items']);
+    }
+
+    public function test_time_already_logged_or_scheduled_is_not_planned_again_for_a_split_task(): void
+    {
+        $task = Task::create(['user_id' => $this->user->id, 'title' => 'Report', 'estimated_minutes' => 120, 'actual_minutes' => 30, 'split_sessions' => true]);
         CalendarEvent::create(['user_id' => $this->user->id, 'task_id' => $task->id, 'title' => 'Report', 'kind' => 'flexible', 'starts_at' => '2027-01-05T09:00:00Z', 'ends_at' => '2027-01-05T10:00:00Z']);
 
         $plan = $this->postJson('/api/plans', ['date' => '2027-01-04', 'days' => 7])->assertCreated()->json();

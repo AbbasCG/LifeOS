@@ -23,6 +23,7 @@ use App\Models\UserSetting;
 use App\Policies\OwnedResourcePolicy;
 use App\Services\AuditLogger;
 use App\Services\HabitStreaks;
+use App\Services\TaskScheduler;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -122,12 +123,21 @@ class WorkspaceController extends Controller
             });
         }
 
+        if ($resource === 'tasks') {
+            app(TaskScheduler::class)->attachSchedules($request->user()->id, $page->getCollection());
+        }
+
         return WorkspaceResource::collection($page);
     }
 
     public function show(Request $request, string $resource, int $id): WorkspaceResource
     {
-        return new WorkspaceResource($this->owned($request, $resource, $id));
+        $record = $this->owned($request, $resource, $id);
+        if ($resource === 'tasks') {
+            app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$record]));
+        }
+
+        return new WorkspaceResource($record);
     }
 
     public function store(ResourceRequest $request, string $resource): JsonResponse
@@ -156,6 +166,11 @@ class WorkspaceController extends Controller
         return $this->save($request, $resource, $id);
     }
 
+    /**
+     * Lock order across the app is: user row, proposal row, task rows (ascending id), calendar rows. This method takes the user row first and then
+     * only updates the one task row, so it follows that order and cannot deadlock with plan acceptance (user, proposal, tasks) or with the
+     * assistant (proposal, tasks). Its UPDATE of the task row also queues behind a scheduler that holds the task's FOR UPDATE lock.
+     */
     private function save(ResourceRequest $request, string $resource, ?int $id): WorkspaceResource
     {
         return DB::transaction(function () use ($request, $resource, $id) {
@@ -174,7 +189,12 @@ class WorkspaceController extends Controller
                 $record->createNextOccurrence();
             }
 
-            return new WorkspaceResource($record->fresh());
+            $saved = $record->fresh();
+            if ($resource === 'tasks') {
+                app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$saved]));
+            }
+
+            return new WorkspaceResource($saved);
         });
     }
 

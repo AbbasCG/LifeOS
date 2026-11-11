@@ -42,7 +42,7 @@ export function PriorityMark({ priority, labelled = false }: { priority?: string
 }
 
 /** A deadline as a short relative chip: "Today 14:00", "Tomorrow", "Tue", "3d late" (late is red with an icon). */
-export function DueChip({ due, done = false }: { due?: string | null; done?: boolean }) {
+export function DueChip({ due, done = false, label }: { due?: string | null; done?: boolean; label?: string }) {
   const t = useText(), { language } = useLanguage()
   if (!due) return null
   const d = new Date(due), now = new Date()
@@ -52,10 +52,10 @@ export function DueChip({ due, done = false }: { due?: string | null; done?: boo
   const time = d.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
   const text = late && diff < 0 ? t(`${-diff}d late`, `متأخرة ${-diff} يوم`, `${-diff} d te laat`)
     : diff === 0 ? (d.getHours() || d.getMinutes() ? `${t('Today', 'اليوم', 'Vandaag')} ${time}` : t('Today', 'اليوم', 'Vandaag'))
-      : diff === 1 ? t('Tomorrow', 'غداً', 'Morgen')
+      : diff === 1 ? t('Tomorrow', 'غدًا', 'Morgen')
         : diff > 1 && diff < 7 ? d.toLocaleDateString(language, { weekday: 'short' })
           : d.toLocaleDateString(language, { day: 'numeric', month: 'short' })
-  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={d.toLocaleString(language)}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}<time dateTime={due}>{text}</time></span>
+  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={d.toLocaleString(language)}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={due}>{text}</time></span>
 }
 
 /** The kind of a calendar item as an icon: meetings, focus blocks, tasks, everything else. */

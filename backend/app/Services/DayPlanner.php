@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\CalendarEvent;
 use App\Models\Category;
 use App\Models\ScheduleProposal;
 use App\Models\Task;
@@ -357,8 +356,10 @@ class DayPlanner
     {
         $tasks = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->limit(500)->get();
         $areas = Category::where('user_id', $user->id)->pluck('area', 'id');
-        $future = CalendarEvent::where('user_id', $user->id)->whereNotNull('task_id')->whereNull('recurrence')->where('starts_at', '>=', now())->get(['task_id', 'starts_at', 'ends_at'])
-            ->groupBy('task_id')->map(fn ($events) => (int) $events->sum(fn ($e) => $e->starts_at->diffInMinutes($e->ends_at)));
+        // Active sessions (the same definition as everywhere: non-recurring, not over). A task already on the calendar is not planned again unless split.
+        $scheduled = app(TaskScheduler::class)->activeSessions($user->id, $tasks->pluck('id'));
+        $tasks = $tasks->reject(fn (Task $task) => ! $task->split_sessions && $scheduled->has($task->id))->values();
+        $future = $scheduled->map(fn ($events) => (int) $events->sum(fn ($e) => max($e->starts_at, now())->diffInMinutes($e->ends_at)));
         $missed = $this->planning->missedBlocks($user)->pluck('task_id')->unique()->flip();
         $endOfTomorrow = $day->addDays(2)->utc();
 

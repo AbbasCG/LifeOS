@@ -10,6 +10,8 @@ import { Dialog, ErrorMessage } from '../components/ui/Shared'
 import { DateTimeField } from '../components/ui/DateTimePicker'
 import { sourceName } from '../lib/sources'
 import { makeShift, type ZoneShift } from '../lib/zoneShift'
+import { isAlreadyScheduled } from '../lib/taskSchedule'
+import { TaskSessionPanel } from './tasks/ScheduleParts'
 
 type Draft = Partial<CalendarOccurrence> & { starts_at?: string; ends_at?: string }
 type Scope = 'occurrence' | 'series'
@@ -17,7 +19,7 @@ const REMINDERS = [null, 0, 5, 10, 15, 30, 60, 120, 1440]
 
 /** `shift` says which timezone the times are drawn in (see lib/zoneShift): the form shows and edits them there. */
 const NO_SHIFT = makeShift(undefined)
-export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onClose }: { item: Draft; tasks: RecordItem[]; shift?: ZoneShift; onSaved: () => void; onClose: () => void }) {
+export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMoved, onClose }: { item: Draft; tasks: RecordItem[]; shift?: ZoneShift; onSaved: () => void; onMoved?: (eventId: number, startsAt: string) => void; onClose: () => void }) {
   const t = useText(), { language } = useLanguage(), toast = useToast()
   const isNew = !item.event_id, external = item.source && item.source !== 'lifeos'
   const [scope, setScope] = useState<Scope>(item.recurring ? 'occurrence' : 'series')
@@ -70,6 +72,7 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onCl
       onSaved(); onClose()
     } catch (err) {
       if (err instanceof ApiError && err.errors.recurrence_conflicts) setConflicts(err.errors.recurrence_conflicts[0])
+      else if (isAlreadyScheduled(err)) setError(t('This task is already scheduled.', 'هذه المهمة مجدولة بالفعل.', 'Deze taak is al ingepland.'))
       else setError((err as Error).message)
     } finally { setBusy(false) }
   }
@@ -92,6 +95,9 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onCl
           <button type="button" role="radio" aria-checked={scope === 'series'} className={scope === 'series' ? 'active' : ''} onClick={() => setScope('series')}>{t('All events in the series', 'كل مواعيد السلسلة')}</button>
         </div>
       </fieldset>}
+      {!isNew && item.task_id && item.event_id && <TaskSessionPanel taskId={item.task_id} eventId={item.event_id} title={tasks.find(x => x.id === item.task_id)?.title ?? item.title ?? ''} zone={shift.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+        startsAt={(item as { real_times?: { starts_at: string } }).real_times?.starts_at ?? shift.toReal(item.starts_at!)} endsAt={(item as { real_times?: { ends_at: string } }).real_times?.ends_at ?? shift.toReal(item.ends_at!)}
+        canMove={!item.recurring} onMoved={slot => { onSaved(); onMoved?.(item.event_id!, slot.starts_at); onClose() }} />}
       <label className="full">{t('Title', 'العنوان')}<input data-autofocus required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required value={start} onChange={setStart} /></label>
       <label>{t('End', 'النهاية')}<DateTimeField kind="datetime" required value={end} onChange={setEnd} min={start} /></label>

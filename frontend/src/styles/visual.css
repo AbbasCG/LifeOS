@@ -220,7 +220,7 @@ dialog[data-closing] { pointer-events: none; }
 .task-item { display: flex; align-items: center; gap: var(--space-3); padding: 10px 0; border-bottom: 1px solid var(--hairline, var(--color-border)); min-width: 0; transition: opacity 300ms var(--ease); }
 .task-item:last-child { border-bottom: 0; }
 .task-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.task-body strong { font-size: 15px; font-weight: 650; overflow-wrap: normal; }
+.task-body strong { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
 .tick { flex-shrink: 0; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--hairline-strong, var(--color-border)); background: transparent; color: transparent; transition: all var(--duration) var(--ease); }
 .tick:hover { border-color: var(--color-success); color: var(--color-success); }
 .task-item.is-done .tick, .tick.checked { background: var(--color-success); border-color: var(--color-success); color: #fff; animation: tick-pop 380ms var(--ease); }
@@ -495,6 +495,24 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 .task-quick > .small { flex-basis: 100%; }
 .task-quick .filter-chip { min-height: 40px; }
 .task-quick .filter-chip[aria-checked="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
+
+/* Task scheduling: a calm badge for the calendar session (apart from the deadline and the estimated length), its actions, and the "already scheduled" notice. */
+.sched-badge { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; max-width: 100%; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 650; line-height: 1.25; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent); }
+.sched-badge time::before, .sched-count::before { content: "\00b7"; margin-inline-end: 0.35em; }
+.sched-count { white-space: nowrap; }
+.due-label { font-weight: 650; margin-inline-end: 2px; }
+.sched-duration { white-space: nowrap; }
+a.filter-chip { text-decoration: none; color: var(--color-text); }
+.task-quick .filter-chip[aria-disabled="true"] { opacity: 0.55; cursor: progress; }
+.sched-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px var(--space-3) var(--space-3); padding: 10px 12px; border-radius: var(--radius-md); font-size: 14px; background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border)); }
+.sched-notice > svg { color: var(--color-primary); flex-shrink: 0; }
+.sched-notice p { flex: 1 1 160px; margin: 0; line-height: 1.5; }
+.sched-panel { display: grid; gap: var(--space-2); padding: 12px 14px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--color-border); }
+.sched-panel-title { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--color-primary); }
+.sched-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
+.sched-panel dt { color: var(--color-text-muted); }
+.sched-panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.sched-panel > .filter-chip { justify-self: start; }
 
 /* Quick add: the field, the microphone and what it hears (V31). */
 .quick-add-input { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

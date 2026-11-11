@@ -2,7 +2,10 @@ import type { WeeklyIntelligenceData } from './intelligence'
 export class ApiError extends Error {
   status: number
   errors: Record<string, string[]>
-  constructor(status: number, message: string, errors: Record<string, string[]> = {}) { super(message); this.status = status; this.errors = errors }
+  /** The whole error body, for answers that carry more than a message (a machine-readable `code`, the session a task is already booked in). */
+  data: Record<string, unknown>
+  constructor(status: number, message: string, errors: Record<string, string[]> = {}, data: Record<string, unknown> = {}) { super(message); this.status = status; this.errors = errors; this.data = data }
+  get code(): string | undefined { return typeof this.data.code === 'string' ? this.data.code : undefined }
 }
 const base = import.meta.env.VITE_API_BASE_URL || ''
 /**
@@ -10,8 +13,9 @@ const base = import.meta.env.VITE_API_BASE_URL || ''
  * each caller gets its own copy of the answer. Nothing is kept after the answer arrives, so later reads are always fresh.
  */
 const inFlight = new Map<string, Promise<unknown>>()
-export function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  if (method !== 'GET' || body !== undefined) return send<T>(path, method, body)
+/** `headers` (an `Idempotency-Key`, say) are only for writes; a retry with the same key must not do the work twice. */
+export function api<T>(path: string, method = 'GET', body?: unknown, headers?: Record<string, string>): Promise<T> {
+  if (method !== 'GET' || body !== undefined || headers) return send<T>(path, method, body, headers)
   let pending = inFlight.get(path) as Promise<T> | undefined
   if (!pending) {
     pending = send<T>(path, method, body).finally(() => inFlight.delete(path))
@@ -19,22 +23,24 @@ export function api<T>(path: string, method = 'GET', body?: unknown): Promise<T>
   }
   return pending.then(data => (data !== null && typeof data === 'object' ? structuredClone(data) : data))
 }
-async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+async function send<T>(path: string, method: string, body?: unknown, extra?: Record<string, string>): Promise<T> {
   const token = document.cookie.split('; ').find(v => v.startsWith('XSRF-TOKEN='))?.split('=').slice(1).join('=')
   let response: Response
   try {
-    response = await fetch(`${base}${path}`, { method, credentials: 'include', headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })
+    response = await fetch(`${base}${path}`, { method, credentials: 'include', headers: { Accept: 'application/json', ...extra, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })
   } catch {
     const ar = typeof document !== 'undefined' && document.documentElement.lang === 'ar'
     const offline = typeof navigator !== 'undefined' && !navigator.onLine
     throw new ApiError(0, offline ? (ar ? 'أنت غير متصل. أعد الاتصال لتحميل التغييرات أو حفظها.' : 'You are offline. Reconnect to load or save changes.') : (ar ? 'تعذر الوصول إلى LifeOS. تحقق من اتصالك وحاول مجدداً.' : 'Could not reach LifeOS. Check your connection and try again.'))
   }
   const data = response.status === 204 ? null : await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(response.status, data?.message || `Request failed (${response.status})`, data?.errors)
+  if (!response.ok) throw new ApiError(response.status, data?.message || `Request failed (${response.status})`, data?.errors, data && typeof data === 'object' ? data : {})
   return data as T
 }
 export async function csrf() { await api('/sanctum/csrf-cookie') }
-export type RecordItem = { id: number; title: string; description?: string; status?: string; priority?: string; category_id?: number | null; project_id?: number | null; goal_id?: number | null; area?: string | null; task_id?: number | null; due_at?: string | null; starts_at?: string; ends_at?: string; estimated_minutes?: number; actual_minutes?: number; completed_at?: string | null; color?: string; target?: number; progress?: number; recurrence?: string; entries?: { date: string }[]; [key: string]: unknown }
+/** Where a task is booked in the calendar: its earliest active session. `due_at` is the deadline and says nothing about this. */
+export type TaskSchedule = { session_id: number; starts_at: string; ends_at: string; sessions: number; split: boolean }
+export type RecordItem = { id: number; schedule?: TaskSchedule | null; title: string; description?: string; status?: string; priority?: string; category_id?: number | null; project_id?: number | null; goal_id?: number | null; area?: string | null; task_id?: number | null; due_at?: string | null; starts_at?: string; ends_at?: string; estimated_minutes?: number; actual_minutes?: number; completed_at?: string | null; color?: string; target?: number; progress?: number; recurrence?: string; entries?: { date: string }[]; [key: string]: unknown }
 export type Page<T> = { data: T[]; current_page: number; last_page: number; total: number }
 export type Suggestion = { type: 'info' | 'warning' | 'positive'; en: string; ar: string; action?: string | null }
 export type HabitStat = { id: number; title: string; color: string; recurrence: string; routine?: string | null; current_streak: number; longest_streak: number; done_today: boolean; done_this_period: boolean; at_risk?: boolean }

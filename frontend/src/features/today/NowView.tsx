@@ -9,6 +9,7 @@ import { useToast } from '../../lib/toast'
 import { useApi } from '../../lib/useApi'
 import { useStartFocus } from '../../lib/useStartFocus'
 import { minutesLabel } from '../../lib/dates'
+import { durationWords } from '../../lib/taskSchedule'
 import { isValidZone } from '../../lib/dial'
 import { DueChip, EmptyNote, KindIcon, PriorityMark, ProgressRing, RingStat } from '../../components/visual'
 import { openQuickAdd } from '../../lib/quickAdd'
@@ -62,7 +63,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
       </> : task ? <>
         <p className="now-eyebrow">{t('Do now', 'ابدأ الآن')}</p>
         <h2 id="now-title" className="now-title">{task.title}</h2>
-        <div className="meta-row"><PriorityMark priority={task.priority} labelled /><DueChip due={task.due_at} /><span><Timer size={13} aria-hidden="true" />{minutesLabel(task.estimated_minutes, language === 'ar')}</span></div>
+        <div className="meta-row"><PriorityMark priority={task.priority} labelled /><DueChip due={task.due_at} /><span><Timer size={13} aria-hidden="true" />{durationWords(task.estimated_minutes, t)}</span></div>
         <div className="now-actions">
           <button className="cta" disabled={focus.busy} onClick={() => void focus.go(task.id)}><Play size={20} />{t('Start focus', 'ابدأ التركيز')}</button>
           <button className="quiet" disabled={completing} onClick={() => void complete(task)} aria-label={t(`Mark “${task.title}” done`, `إنجاز «${task.title}»`)}><Check size={18} />{t('Done', 'تم')}</button>
@@ -149,7 +150,7 @@ export function TopThree({ briefing, onChange }: { briefing: Briefing | null; on
     {items.length === 0 ? <EmptyNote icon={CheckCircle2} text={t('No open tasks.', 'لا مهام مفتوحة.')} action={<button className="quiet" onClick={openQuickAdd}><Plus size={16} />{t('Add', 'أضف')}</button>} />
       : <ul className="task-list compact"><AnimatePresence initial={false}>{items.map(task => <m.li key={task.id} layout exit={{ opacity: 0, height: 0 }} className={`task-item ${done.includes(task.id) ? 'is-done' : ''}`}>
         <button type="button" className="tick" disabled={busy === task.id || done.includes(task.id)} onClick={() => void complete(task)} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><Check size={16} /></button>
-        <div className="task-body"><strong>{task.title}</strong><div className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} /><span><Timer size={12} aria-hidden="true" />{task.estimated_minutes}′</span></div></div>
+        <div className="task-body"><strong>{task.title}</strong><div className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} /><span><Timer size={12} aria-hidden="true" />{durationWords(task.estimated_minutes, t)}</span></div></div>
         <button type="button" className="icon-button play" disabled={focus.busy} onClick={() => void focus.go(task.id)} aria-label={t(`Focus on “${task.title}”`, `ركّز على «${task.title}»`)}><Play size={17} /></button>
       </m.li>)}</AnimatePresence></ul>}
   </section>
