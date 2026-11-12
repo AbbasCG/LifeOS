@@ -228,7 +228,7 @@ class DayPlanner
                 ];
             }
             if ($t['must'] && $need >= 15) {
-                $warnings[] = ['task_id' => $t['task']->id, 'title' => $t['task']->title, 'priority' => $t['task']->priority, 'needed_minutes' => (int) $need, 'due_at' => $t['task']->due_at?->toIso8601String(),
+                $warnings[] = ['task_id' => $t['task']->id, 'title' => $t['task']->title, 'priority' => $t['task']->priority, 'needed_minutes' => (int) $need, 'due_at' => $t['task']->due_at?->toIso8601String(), ...$t['task']->dueMetaForOwner(),
                     'reason' => 'Not enough free time today inside its boundary.', 'reason_ar' => 'لا يوجد وقت كافٍ اليوم ضمن حدودها.', 'alternatives' => [['type' => 'deadline', 'en' => 'Move the deadline or ask for more time.', 'ar' => 'انقل الموعد أو اطلب وقتاً إضافياً.'], ['type' => 'manual', 'en' => 'Add a block manually, even outside your usual hours.', 'ar' => 'أضف فترة يدوياً ولو خارج ساعاتك المعتادة.']]];
             }
         }

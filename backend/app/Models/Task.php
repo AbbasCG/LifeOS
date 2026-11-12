@@ -65,6 +65,22 @@ class Task extends Model
     }
 
     /**
+     * The fields every response that emits a task's due_at carries beside it, so clients never guess date-only from 23:59.
+     *
+     * @return array{due_all_day: bool, due_date: ?string}
+     */
+    public function dueMeta(string $tz): array
+    {
+        return ['due_all_day' => (bool) $this->due_all_day, 'due_date' => $this->dueDate($tz)];
+    }
+
+    /** Same, looking the account timezone up (only when the task is date-only). */
+    public function dueMetaForOwner(): array
+    {
+        return $this->dueMeta($this->due_all_day ? (User::find($this->user_id)?->timezone() ?? 'UTC') : 'UTC');
+    }
+
+    /**
      * Move a deadline by whole days. A date-only deadline keeps landing on the end of its local day (across DST changes); a timed one moves by
      * the same number of days in UTC, exactly as before.
      */

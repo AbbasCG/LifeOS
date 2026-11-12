@@ -414,6 +414,7 @@ class PlanningService
             'priority' => $task->priority,
             'needed_minutes' => $remaining,
             'due_at' => $task->due_at?->toIso8601String(),
+            ...$task->dueMetaForOwner(),
             'reason' => $deadlineInside ? 'Insufficient time before the deadline. No partial task was scheduled.' : 'Not enough free working time in this window. No partial task was scheduled.',
             'reason_ar' => $deadlineInside ? 'لا يوجد وقت كافٍ قبل الموعد النهائي. لم تتم جدولة المهمة جزئياً.' : 'لا يوجد وقت عمل كافٍ في هذه الفترة. لم تتم جدولة المهمة جزئياً.',
             'alternatives' => $alternatives,

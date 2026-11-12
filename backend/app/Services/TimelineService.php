@@ -85,10 +85,10 @@ class TimelineService
 
         // LifeOS tasks: due in range (open or completed in range).
         Task::where('user_id', $user->id)->where('status', '!=', 'cancelled')->whereBetween('due_at', [$from->utc(), $to->utc()])->limit(300)->get()
-            ->each(function (Task $t) use ($items, $taskAreas) {
+            ->each(function (Task $t) use ($items, $taskAreas, $tz) {
                 $items->push([
                     'id' => 'task:'.$t->id, 'kind' => 'task', 'source' => $t->source_ref ? explode(':', $t->source_ref)[0] : 'lifeos', 'source_label' => 'LifeOS', 'account_id' => null, 'account' => null,
-                    'title' => $t->title, 'starts_at' => $t->due_at->toIso8601String(), 'ends_at' => null, 'all_day' => false, 'area' => $taskAreas($t->category_id),
+                    'title' => $t->title, 'starts_at' => $t->due_at->toIso8601String(), 'ends_at' => null, 'all_day' => (bool) $t->due_all_day, 'due_all_day' => (bool) $t->due_all_day, 'due_date' => $t->dueDate($tz), 'area' => $taskAreas($t->category_id),
                     'read_only' => false, 'status' => $t->status, 'recurring' => (bool) $t->recurrence, 'moved_from' => null, 'link' => '/tasks',
                     'meta' => array_filter(['priority' => $t->priority, 'estimated_minutes' => $t->estimated_minutes, 'copied' => $t->source_ref !== null ? true : null]),
                 ]);

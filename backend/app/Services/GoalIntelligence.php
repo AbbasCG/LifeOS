@@ -64,7 +64,7 @@ class GoalIntelligence
                 $expected = (int) round(min(1, max(0, $goal->created_at->diffInSeconds($now) / $span)) * 100);
             }
             [$status, $reasons, $pressure] = $this->status($percent, $expected, $daysLeft, $recent, $open->count());
-            $nextActions = BriefingService::rank($open->values(), $now)->take(3)->map(fn (array $r) => ['id' => $r['task']->id, 'title' => $r['task']->title, 'priority' => $r['task']->priority, 'due_at' => $r['task']->due_at?->toIso8601String(), 'estimated_minutes' => $r['task']->estimated_minutes])->values();
+            $nextActions = BriefingService::rank($open->values(), $now)->take(3)->map(fn (array $r) => ['id' => $r['task']->id, 'title' => $r['task']->title, 'priority' => $r['task']->priority, 'due_at' => $r['task']->due_at?->toIso8601String(), ...$r['task']->dueMetaForOwner(), 'estimated_minutes' => $r['task']->estimated_minutes])->values();
             $existingTitles = $linked->map(fn (Task $t) => mb_strtolower($t->title))->all();
             $suggested = $milestones->where('completed', false)->filter(fn ($m) => ! in_array(mb_strtolower($m['title']), $existingTitles, true))->take(3)->map(fn ($m) => ['title' => $m['title'], 'source' => 'milestone'])->values();
             $recommendations = [];

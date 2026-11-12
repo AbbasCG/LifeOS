@@ -125,7 +125,7 @@ class ConflictService
             $free = (int) $summary->filter(fn ($d) => $d['date'] < $dueDay)->sum('free_minutes') + (int) round(($summary[$dueDay]['free_minutes'] ?? 0) / 2);
             if ($need > $free) {
                 $meetings = $occurrences->filter(fn ($o) => $o['starts_at'] >= $now && $o['starts_at'] < $task->due_at && (($o['source'] ?? 'lifeos') !== 'lifeos' || ($o['kind'] ?? '') === 'fixed'))->values();
-                $out[] = ['type' => 'deadline', 'severity' => 'high', 'at' => $task->due_at->toIso8601String(), 'minutes' => $need - $free, 'items' => ['task:'.$task->id], 'titles' => [$task->title],
+                $out[] = ['type' => 'deadline', 'severity' => 'high', 'at' => $task->due_at->toIso8601String(), ...$task->dueMeta($c['tz']), 'minutes' => $need - $free, 'items' => ['task:'.$task->id], 'titles' => [$task->title],
                     'need' => $need, 'free' => $free, 'meetings' => $meetings->count(), 'meeting_minutes' => (int) $meetings->sum(fn ($o) => $o['starts_at']->diffInMinutes($o['ends_at'])),
                     'connected_meetings' => $meetings->where('source', '!=', 'lifeos')->count()];
             }

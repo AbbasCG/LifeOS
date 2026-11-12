@@ -137,7 +137,7 @@ class CopilotService
             return ['message' => $ar ? "لا توجد {$noun}".($scope ? " {$scope}" : '').'.' : "No {$noun}".($scope ? " {$scope}" : '').'.', 'tasks' => [], 'items' => []];
         }
         $minutes = (int) $rows->sum(fn (array $r) => $r['task']->estimated_minutes);
-        $lines = $rows->values()->map(fn (array $r, int $i) => ($i + 1).'. '.$r['task']->title.($r['task']->due_at ? ' — '.$r['task']->due_at->setTimezone($tz)->locale($ar ? 'ar' : 'en')->translatedFormat('D j M H:i') : ''))->implode("\n");
+        $lines = $rows->values()->map(fn (array $r, int $i) => ($i + 1).'. '.$r['task']->title.($r['task']->due_at ? ' — '.$r['task']->due_at->setTimezone($tz)->locale($ar ? 'ar' : 'en')->translatedFormat($r['task']->due_all_day ? 'D j M' : 'D j M H:i') : ''))->implode("\n");
         $count = $tasks->count();
         $head = $ar ? "{$count} {$noun}".($scope ? " {$scope}" : '').($status === 'completed' ? ':' : " (نحو {$minutes} دقيقة في المعروض)، مرتبة حسب الأولوية:") : "{$count} {$noun}".($scope ? " {$scope}" : '').($status === 'completed' ? ':' : " (about {$minutes} min shown), ranked by priority:");
         $more = $count > $rows->count() ? ($ar ? "\n… و".($count - $rows->count()).' أخرى.' : "\n… and ".($count - $rows->count()).' more.') : '';
@@ -212,7 +212,7 @@ class CopilotService
         $tz = $user->timezone();
         $facts = collect([
             $ar ? 'الأولوية: '.['urgent' => 'عاجلة', 'high' => 'عالية', 'medium' => 'متوسطة', 'low' => 'منخفضة'][$task->priority] : "Priority: {$task->priority}",
-            $task->due_at ? ($ar ? 'الموعد: '.$task->due_at->setTimezone($tz)->locale('ar')->translatedFormat('l j F H:i') : 'Due: '.$task->due_at->setTimezone($tz)->format('D j M H:i')) : ($ar ? 'بلا موعد نهائي' : 'No deadline'),
+            $task->due_at ? ($ar ? 'الموعد: '.$task->due_at->setTimezone($tz)->locale('ar')->translatedFormat($task->due_all_day ? 'l j F' : 'l j F H:i') : 'Due: '.$task->due_at->setTimezone($tz)->format($task->due_all_day ? 'D j M' : 'D j M H:i')) : ($ar ? 'بلا موعد نهائي' : 'No deadline'),
             $ar ? "التقدير: {$task->estimated_minutes} دقيقة" : "Estimate: {$task->estimated_minutes} min",
             $task->goal_id && isset($pressure[$task->goal_id]) ? ($ar ? 'مرتبطة بهدف يحتاج اهتماماً' : 'Linked to a goal that needs attention') : null,
             $task->status === 'in_progress' ? ($ar ? 'بدأت العمل عليها بالفعل' : 'Already in progress') : null,
@@ -421,6 +421,6 @@ class CopilotService
      */
     private function taskSummary(Task $task, array $reasons = []): array
     {
-        return ['id' => $task->id, 'title' => $task->title, 'priority' => $task->priority, 'estimated_minutes' => $task->estimated_minutes, 'due_at' => $task->due_at?->toIso8601String(), 'reasons' => $reasons];
+        return ['id' => $task->id, 'title' => $task->title, 'priority' => $task->priority, 'estimated_minutes' => $task->estimated_minutes, 'due_at' => $task->due_at?->toIso8601String(), ...$task->dueMetaForOwner(), 'reasons' => $reasons];
     }
 }

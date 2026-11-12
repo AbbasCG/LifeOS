@@ -153,6 +153,7 @@ class ConnectedAccountsTest extends TestCase
 
         $this->getJson('/api/connected/tasks')->assertOk()->assertJsonPath('0.source', 'Google Tasks')->assertJsonPath('0.url', 'https://tasks.google.com/task/t1');
         $this->getJson('/api/today')->assertOk()->assertJsonFragment(['type' => 'external', 'source' => 'Google Tasks', 'title' => 'Renew passport']);
+        $this->getJson('/api/today')->assertJsonFragment(['type' => 'external', 'due_all_day' => true, 'due_date' => '2027-01-05']);
 
         $copy = $this->postJson("/api/connected/tasks/{$task->id}/copy")->assertCreated()->json();
         $this->assertSame('google_tasks:L1|t1', Task::find($copy['id'])->source_ref);
@@ -163,6 +164,9 @@ class ConnectedAccountsTest extends TestCase
         $this->assertSame(1, Task::count());
         $this->assertSame(['Done already'], collect($this->getJson('/api/connected/tasks')->assertOk()->json())->pluck('title')->all());
         $today = collect($this->getJson('/api/today')->json('deadlines'));
+        $copied = $today->firstWhere('title', 'Renew passport');
+        $this->assertTrue($copied['due_all_day']);
+        $this->assertSame('2027-01-05', $copied['due_date']);
         $this->assertSame(1, $today->where('title', 'Renew passport')->count(), 'shown once, as the LifeOS task');
         $this->assertSame('task', $today->firstWhere('title', 'Renew passport')['type']);
 

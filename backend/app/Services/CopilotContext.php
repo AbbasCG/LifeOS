@@ -55,8 +55,8 @@ class CopilotContext
 
         $tasks = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])
             ->orderByRaw("case priority when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end")->orderByRaw('due_at IS NULL, due_at ASC')->limit(self::MAX_TASKS)
-            ->get(['id', 'title', 'priority', 'status', 'estimated_minutes', 'due_at', 'category_id', 'project_id', 'goal_id']);
-        $data['authorized_tasks'] = $tasks->map(fn (Task $t) => ['id' => $t->id, 'title' => self::clean($t->title), 'priority' => $t->priority, 'status' => $t->status, 'estimated_minutes' => $t->estimated_minutes, 'due' => $t->due_at?->setTimezone($tz)->format('Y-m-d H:i')])->all();
+            ->get(['id', 'title', 'priority', 'status', 'estimated_minutes', 'due_at', 'due_all_day', 'category_id', 'project_id', 'goal_id']);
+        $data['authorized_tasks'] = $tasks->map(fn (Task $t) => ['id' => $t->id, 'title' => self::clean($t->title), 'priority' => $t->priority, 'status' => $t->status, 'estimated_minutes' => $t->estimated_minutes, 'due' => $t->due_at?->setTimezone($tz)->format($t->due_all_day ? 'Y-m-d' : 'Y-m-d H:i'), 'due_all_day' => (bool) $t->due_all_day])->all();
         $sources[] = ['source' => 'tasks', 'count' => $tasks->count()];
         $ids = ['tasks' => $tasks->pluck('id')->all(), 'goals' => [], 'projects' => []];
 

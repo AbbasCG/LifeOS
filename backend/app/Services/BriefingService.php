@@ -132,6 +132,7 @@ class BriefingService
                 'status' => $row['task']->status,
                 'estimated_minutes' => $row['task']->estimated_minutes,
                 'due_at' => $row['task']->due_at?->toIso8601String(),
+                ...$row['task']->dueMeta($tz),
                 'score' => $row['score'],
                 'reasons' => $row['reasons'],
             ])->values(),

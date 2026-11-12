@@ -41,7 +41,7 @@ class TodayService
 
         $deadlines = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->whereNotNull('due_at')
             ->where('due_at', '<', $day->addDays(7)->utc())->orderBy('due_at')->limit(12)->get()
-            ->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'due_at' => $t->due_at->toIso8601String(), 'type' => 'task',
+            ->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'due_at' => $t->due_at->toIso8601String(), 'type' => 'task', ...$t->dueMeta($c['tz']),
                 'bucket' => $t->due_at < $now ? 'overdue' : ($t->due_at < $day->addDay() ? 'today' : ($t->due_at < $day->addDays(2) ? 'tomorrow' : 'week'))]);
         $deadlines = $deadlines->concat(Project::where('user_id', $user->id)->where('status', 'active')->whereBetween('due_at', [$now->utc(), $day->addDays(7)->utc()])->get()
             ->map(fn (Project $p) => ['id' => $p->id, 'title' => $p->title, 'priority' => null, 'due_at' => $p->due_at->toIso8601String(), 'type' => 'project', 'bucket' => $p->due_at < $day->addDay() ? 'today' : ($p->due_at < $day->addDays(2) ? 'tomorrow' : 'week')]))
@@ -151,7 +151,7 @@ class TodayService
             ->where('external_tasks.status', 'open')->whereNotNull('external_tasks.due_at')->where('external_tasks.due_at', '<=', $day->addDays(7)->utc())
             ->orderBy('external_tasks.due_at')->limit(12)->get(['external_tasks.*', 'calendar_accounts.provider'])
             ->reject(fn (ExternalTask $t) => $copied->has($t->sourceRef($t->provider)))
-            ->map(fn (ExternalTask $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'due_at' => $t->due_at->toIso8601String(), 'type' => 'external', 'source' => $labels[$t->provider] ?? $t->provider, 'url' => $t->url,
+            ->map(fn (ExternalTask $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'due_at' => $t->due_at->toIso8601String(), 'type' => 'external', 'due_all_day' => (bool) $t->due_is_date, 'due_date' => $t->due_is_date ? $t->due_at->setTimezone($day->getTimezone())->toDateString() : null, 'source' => $labels[$t->provider] ?? $t->provider, 'url' => $t->url,
                 'bucket' => $t->due_at < $now ? 'overdue' : ($t->due_at < $day->addDay() ? 'today' : ($t->due_at < $day->addDays(2) ? 'tomorrow' : 'week'))])
             ->values();
     }
