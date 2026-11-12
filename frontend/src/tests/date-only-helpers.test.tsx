@@ -6,7 +6,8 @@ import { ThemeProvider } from '../contexts/ThemeContext'
 import { DueLine } from '../features/tasks/ScheduleParts'
 import { DueChip } from '../components/visual'
 import { setAccountZone } from '../lib/accountDay'
-import { draftOf, dueDay, duePayload, formatDue, isAllDay, moveDue, restoreDue } from '../lib/dueDate'
+import { DeadlinesWidget } from '../features/today/TodayWidgets'
+import { draftOf, groupOf, dueDay, duePayload, formatDue, isAllDay, moveDue, restoreDue } from '../lib/dueDate'
 
 // The browser is in Auckland; the account is in Amsterdam.
 const BROWSER_TZ = process.env.TZ
@@ -21,13 +22,34 @@ beforeEach(() => { cleanup(); localStorage.clear(); setAccountZone('Europe/Amste
 afterEach(() => { vi.useRealTimers(); cleanup(); setAccountZone(undefined) })
 
 describe('date-only deadline helpers (browser zone differs from the account zone)', () => {
-  it('reads the flag, and 23:59 account time for lists that do not carry it', () => {
+  it('reads only the flag: a timed deadline at 23:59 account time stays timed', () => {
     expect(isAllDay(ALL_DAY)).toBe(true)
     expect(isAllDay({ due_at: '2026-11-14T16:00:00Z', due_all_day: false })).toBe(false)
-    expect(isAllDay({ due_at: '2026-11-14T22:59:00Z' })).toBe(true)      // no flag: 23:59 in Amsterdam
-    expect(isAllDay({ due_at: '2026-11-14T10:59:00Z' })).toBe(false)     // 23:59 in Auckland is not the account's end of day
+    expect(isAllDay({ due_at: '2026-11-14T22:59:00Z', due_all_day: false })).toBe(false)   // timed 23:59
+    expect(isAllDay({ due_at: '2026-11-14T22:59:00Z' })).toBe(false)                         // no flag: not date-only
     expect(isAllDay({ due_at: null })).toBe(false)
     expect(dueDay(ALL_DAY)).toBe('2026-11-14')
+  })
+  it('a timed 23:59 deadline shows its time, a date-only one does not (Today, Review, Dashboard and Briefing all use formatDue)', () => {
+    const o = { language: 'en', timeZone: 'Europe/Amsterdam' }
+    expect(formatDue({ due_at: '2026-11-14T22:59:00Z', due_all_day: false }, o)).toBe('Sat, Nov 14 23:59')
+    expect(formatDue({ due_at: '2026-11-14T22:59:00Z', due_all_day: true }, o)).toBe('Sat, Nov 14')
+  })
+  it('the Today deadlines widget: the row\'s own flag decides, project rows without one stay timed', () => {
+    localStorage.setItem('lifeos-language', 'en')
+    const row = (id: number, type: string, due_all_day?: boolean) => ({ id, title: `R${id}`, priority: null, due_at: '2026-11-14T22:59:00Z', type, bucket: 'week', ...(due_all_day === undefined ? {} : { due_all_day }) })
+    render(wrap(<DeadlinesWidget data={{ deadlines: [row(1, 'task', false), row(2, 'task', true), row(3, 'external', true), row(4, 'project')] } as never} />))
+    const lines = [...document.querySelectorAll('.deadline-list li small')].map(e => e.textContent)
+    expect(lines[0]).toContain('23:59'); expect(lines[1]).not.toContain(':'); expect(lines[2]).not.toContain(':'); expect(lines[3]).toContain('23:59')
+  })
+  it('groupOf: a date-only deadline is "next" through the same day next week, a timed one by 7x24 hours', () => {
+    const now = Date.parse('2026-11-12T10:00:00Z')   // Thu 12 Nov 11:00 Amsterdam
+    const t = (over: Record<string, unknown>) => ({ id: 1, title: 'x', status: 'todo', ...over }) as never
+    expect(groupOf(t({ due_at: '2026-11-19T22:59:00Z', due_all_day: true, due_date: '2026-11-19' }), now)).toBe('next')    // Thu 19 Nov, date-only
+    expect(groupOf(t({ due_at: '2026-11-20T22:59:00Z', due_all_day: true, due_date: '2026-11-20' }), now)).toBe('later')
+    expect(groupOf(t({ due_at: '2026-11-19T22:59:00Z', due_all_day: false }), now)).toBe('later')                          // timed 23:59 is past 7x24 h
+    expect(groupOf(t({ due_at: '2026-11-19T09:00:00Z', due_all_day: false }), now)).toBe('next')
+    expect(groupOf(t({ due_at: '2026-11-12T22:59:00Z', due_all_day: true, due_date: '2026-11-12' }), now)).toBe('now')
   })
   it('the dialog opens an all-day task with the toggle on, the date and 17:00 behind it', () => {
     expect(draftOf(ALL_DAY)).toEqual({ field: '2026-11-14T17:00', noTime: true })
@@ -100,6 +122,7 @@ describe('what a date-only deadline reads as', () => {
     expect(document.querySelector('.due time')!.textContent).toBe('Today 16:00')
     cleanup()
     render(wrap(<DueChip due="2099-11-14T22:59:00Z" allDay />))
+    expect(document.querySelector('.due time')!.getAttribute('datetime')).toBe('2099-11-14')
     expect(document.querySelector('.due time')!.textContent).toBe('Nov 14')   // the day Amsterdam reads (the 14th; Auckland would say the 15th), never 23:59
   })
 })

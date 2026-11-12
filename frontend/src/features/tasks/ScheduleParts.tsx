@@ -38,11 +38,11 @@ export function DueLine({ due, allDay, done = false }: { due?: string | null; al
   const t = useText(), { language } = useLanguage(), now = useClock()
   if (!due || Number.isNaN(Date.parse(due))) return null
   // A date-only deadline shows the day alone ("Due: Fri 14 Nov"); it is late only once that day has ended (its due_at is the end of the day).
-  const when = sessionWhen(due, language, t, now), late = !done && Date.parse(due) < now.getTime(), text = isAllDay({ due_at: due, due_all_day: allDay }) ? when.dayText : when.text
+  const when = sessionWhen(due, language, t, now), late = !done && Date.parse(due) < now.getTime(), date = isAllDay({ due_at: due, due_all_day: allDay }), text = date ? when.dayText : when.text
   return <span className={`due ${late ? 'late' : when.day === 'today' ? 'today' : ''}`}>
     {late ? <AlertTriangle size={12} aria-hidden="true" /> : <Flag size={12} aria-hidden="true" />}
     <span className="due-label">{t('Due', 'الاستحقاق', 'Deadline')}:</span>
-    <bdi><time dateTime={due}>{text}</time></bdi>{late && <span className="sr-only"> {t('(overdue)', '(متأخرة)', '(te laat)')}</span>}
+    <bdi><time dateTime={date ? when.date : due}>{text}</time></bdi>{late && <span className="sr-only"> {t('(overdue)', '(متأخرة)', '(te laat)')}</span>}
   </span>
 }
 

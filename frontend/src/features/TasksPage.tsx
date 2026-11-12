@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router'
 import { AnimatePresence, m } from 'motion/react'
 import { Bell, CalendarClock, CalendarPlus, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Trash2, type LucideIcon } from 'lucide-react'
 import { api, type Availability, type RecordItem } from '../lib/api'
-import { accountDay, accountInstant, shiftDay } from '../lib/accountDay'
-import { moveDue, restoreDue } from '../lib/dueDate'
+import { accountDay } from '../lib/accountDay'
+import { groupOf, type Group, moveDue, restoreDue } from '../lib/dueDate'
 import { suggestSlots } from '../lib/scheduleSlots'
 import { scheduleOf } from '../lib/taskSchedule'
 import { useTaskScheduling, type Change, type Conflict } from '../lib/useTaskScheduling'
@@ -23,19 +23,9 @@ import { completeTaskOrQueue } from '../lib/offline'
 import { swipeTone, swipeWords, useSwipeActions, type SwipeAction, type SwipeSides } from '../lib/swipeActions'
 
 type Filter = 'open' | 'overdue' | 'today' | 'week' | 'done'
-type Group = 'now' | 'next' | 'later'
 const STATUSES = ['inbox', 'todo', 'in_progress', 'completed', 'cancelled']
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
-/** Now: late, due today or started. Next: due this week, or urgent/high without a date. Later: everything else. */
-function groupOf(task: RecordItem, now = Date.now()): Group {
-  const due = task.due_at ? Date.parse(task.due_at) : null
-  // The end of today is the account's: the same day the server, the form and the badges use, whatever zone this device is in.
-  const endOfToday = Date.parse(accountInstant(shiftDay(accountDay(new Date(now)), 1), 0)) - 1
-  if (task.status === 'in_progress' || (due !== null && due <= endOfToday)) return 'now'
-  if ((due !== null && due <= now + 7 * 86400000) || (due === null && (task.priority === 'urgent' || task.priority === 'high'))) return 'next'
-  return 'later'
-}
 
 /**
  * Tasks (V20): tap and do. Tasks are grouped into Now, Next and Later; one tap completes (with undo), one tap starts

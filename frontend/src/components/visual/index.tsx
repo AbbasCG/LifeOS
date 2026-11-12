@@ -62,7 +62,7 @@ export function DueChip({ due, allDay, done = false, label }: { due?: string | n
       : diff === 1 ? t('Tomorrow', 'غدًا', 'Morgen')
         : formatDayText(d, { language, timeZone: zone }, diff > 1 && diff < 7 ? { weekday: 'short' } : { day: 'numeric', month: 'short' })
   const title = date ? formatDayText(d, { language, timeZone: zone }, { day: 'numeric', month: 'short', year: 'numeric' }) : formatMediumDateTime(d, { language, timeZone: zone })
-  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={title}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={due}>{text}</time></span>
+  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={title}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={date ? dayIn(d, zone) : due}>{text}</time></span>
 }
 
 /** The kind of a calendar item as an icon: meetings, focus blocks, tasks, everything else. */

@@ -47,7 +47,7 @@ export type HabitStat = { id: number; title: string; color: string; recurrence: 
 export type Briefing = {
   date: string; timezone: string; period: 'morning' | 'afternoon' | 'evening'
   stats: { completed_today: number; focus_minutes_today: number; open_tasks: number; overdue_tasks: number; available_minutes: number; booked_minutes: number; load_percent: number }
-  focus: { id: number; title: string; priority: string; status: string; estimated_minutes: number; due_at: string | null; score: number; reasons: string[] }[]
+  focus: { id: number; title: string; priority: string; status: string; estimated_minutes: number; due_at: string | null; due_all_day?: boolean; score: number; reasons: string[] }[]
   agenda: { id: number; title: string; kind: string; task_id: number | null; starts_at: string; ends_at: string }[]
   next_event: { id: number; title: string; starts_at: string } | null
   habits: HabitStat[]
@@ -76,13 +76,13 @@ export type Analytics = {
 }
 export type InboxNotification = { id: number; title: string; body?: string | null; kind: string; category?: string; link: string | null; push_status?: string | null; push_error?: string | null; read_at: string | null; created_at: string; actions?: { action: string; title: string; link: string }[] }
 export type CopilotItem = { type: 'project' | 'goal' | 'overlap' | 'overload' | 'deadline' | 'link' | string; id?: number; title: string; detail: string; status?: string; status_label?: string; link?: string }
-export type AssistantReply = { provider: 'local' | 'openai' | string; intent: string; message: string; notice?: string; items?: CopilotItem[]; subtasks: { title: string; estimated_minutes: number }[]; tasks: { id: number; title: string; priority: string; estimated_minutes: number; due_at: string | null; reasons?: string[] }[]; suggestions: string[]; proposal?: AssistantProposal | null }
-export type AssistantAction = { id: string; type: 'create_event' | 'move_event' | 'create_task' | 'reschedule_task'; title: string; starts_at?: string; ends_at?: string; minutes: number; task_id?: number | null; event_id?: number; from_starts_at?: string; from_ends_at?: string; goal_id?: number; priority?: string; estimated_minutes?: number; due_at?: string; from_due_at?: string; reason?: string; conflicts?: { title: string; source_label: string; starts_at: string; ends_at: string; minutes: number }[] }
+export type AssistantReply = { provider: 'local' | 'openai' | string; intent: string; message: string; notice?: string; items?: CopilotItem[]; subtasks: { title: string; estimated_minutes: number }[]; tasks: { id: number; title: string; priority: string; estimated_minutes: number; due_at: string | null; due_all_day?: boolean; reasons?: string[] }[]; suggestions: string[]; proposal?: AssistantProposal | null }
+export type AssistantAction = { id: string; type: 'create_event' | 'move_event' | 'create_task' | 'reschedule_task'; title: string; starts_at?: string; ends_at?: string; minutes: number; task_id?: number | null; event_id?: number; from_starts_at?: string; from_ends_at?: string; goal_id?: number; priority?: string; estimated_minutes?: number; due_at?: string; due_all_day?: boolean; from_due_at?: string; from_due_all_day?: boolean; reason?: string; conflicts?: { title: string; source_label: string; starts_at: string; ends_at: string; minutes: number }[] }
 export type AssistantProposal = { id: string; kind: 'schedule' | 'rebalance' | string; provider: string; status: 'pending' | 'applied' | 'dismissed' | 'expired' | 'undone'; summary: string; explanation: string[]; actions: AssistantAction[]; results: { action_id: string; type: string; event_id?: number; task_id?: number; undo?: { done: boolean; reason?: string } }[] | null; expires_at: string; applied_at: string | null; undo_until?: string | null }
 export type AssistantStatus = { active: { provider: string; label: string; model: string | null }; selected: string; external_allowed: boolean; voice_allowed?: boolean; providers: { provider: string; label: string; configured: boolean; selected: boolean; model: string }[] }
 export type Bilingual = { en: string; ar: string }
 export type PlanItem = { key?: string; task_id: number; task_version?: string; title: string; priority: string; starts_at: string; ends_at: string; minutes: number; part?: number; parts?: number; manual?: boolean; reasons: string[]; explanation?: Bilingual }
-export type PlanWarning = { task_id: number; title: string; priority: string; needed_minutes: number; due_at: string | null; reason: string; reason_ar: string; alternatives: (Bilingual & { type: string; task_id?: number })[] }
+export type PlanWarning = { task_id: number; title: string; priority: string; needed_minutes: number; due_at: string | null; due_all_day?: boolean; reason: string; reason_ar: string; alternatives: (Bilingual & { type: string; task_id?: number })[] }
 export type PlanDay = { date: string; work_day: boolean; capacity_minutes: number; fixed_minutes: number; existing_flexible_minutes: number; planned_minutes: number; free_minutes: number; load_percent: number; overloaded: boolean }
 export type Plan = { id: number; status: 'pending' | 'accepted' | 'rejected'; starts_on: string | null; days: number; items: PlanItem[]; warnings: PlanWarning[]; summary: { days: PlanDay[]; totals: { planned_minutes: number; blocks: number; tasks_scheduled: number; tasks_unscheduled: number; unscheduled_minutes: number; capacity_minutes: number }; overload: (Bilingual & { date: string; load_percent: number; suggested_date: string | null })[] } | null; created_at: string; accepted_at: string | null }
 export type MissedBlock = { event_id: number; task_id: number; title: string; starts_at: string; ends_at: string; minutes: number }
@@ -92,14 +92,14 @@ export type WeeklyReviewData = {
   week_start: string; week_end: string; timezone: string; intelligence?: WeeklyIntelligenceData
   metrics: { completed: number; unfinished: number; focus_minutes: number; previous_focus_minutes: number; focus_change: number | null; on_time_rate: number | null; habit_consistency: number | null; estimate_overruns: number }
   completed: { id: number; title: string; priority: string; completed_at: string | null; estimated_minutes: number; actual_minutes: number }[]
-  unfinished: { id: number; title: string; priority: string; status: string; due_at: string | null; overdue: boolean; estimated_minutes: number }[]
+  unfinished: { id: number; title: string; priority: string; status: string; due_at: string | null; due_all_day?: boolean; overdue: boolean; estimated_minutes: number }[]
   focus_by_day: { date: string; minutes: number }[]
   planned_vs_actual: PlannedVsActual
   goals: { id: number; title: string; color: string; progress: number; target: number; percent: number; due_at: string | null }[]
   habits: (HabitStat & { completions: number; expected: number; consistency: number })[]
   achievements: (Bilingual & { key: string })[]
   improvements: (Bilingual & { key: string })[]
-  suggested_priorities: { id: number; title: string; priority: string; estimated_minutes: number; due_at: string | null; reasons: string[] }[]
+  suggested_priorities: { id: number; title: string; priority: string; estimated_minutes: number; due_at: string | null; due_all_day?: boolean; reasons: string[] }[]
   review: { status: 'new' | 'draft' | 'completed'; reflection: { wins: string; challenges: string; lessons: string; rating: number | null }; decisions: Record<string, ReviewDecision>; priorities: number[]; completed_at: string | null }
   applied?: Record<ReviewDecision, number>
 }
@@ -131,6 +131,6 @@ export type TodayData = {
   timeline: { id: string; title: string; starts_at: string; ends_at: string; kind: string; source: string; all_day: boolean }[]
   windows?: Record<string, { start: string; end: string }>
   focus_time: { free_minutes: number; slots: { area: string; starts_at: string; ends_at: string; minutes: number }[]; peak: { start: string; end: string } | null; next_task: { id: number; title: string } | null }
-  deadlines: { id: number; title: string; priority: string | null; due_at: string; type: 'task' | 'project' | 'goal' | 'external'; source?: string; url?: string | null; bucket: 'overdue' | 'today' | 'tomorrow' | 'week' }[]
+  deadlines: { id: number; title: string; priority: string | null; due_at: string; due_all_day?: boolean; type: 'task' | 'project' | 'goal' | 'external'; source?: string; url?: string | null; bucket: 'overdue' | 'today' | 'tomorrow' | 'week' }[]
   progress: { tasks: { done: number; target: number }; focus: { done: number; target: number }; habits: { done: number; target: number }; overall: number }
 }

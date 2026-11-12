@@ -3,7 +3,7 @@ import type { AssistantProposal } from './api'
 export type Bi = { en: string; ar: string }
 export type Confidence = 'high' | 'medium' | 'low'
 export type PriorityInsight = {
-  id: number; title: string; priority: string; status: string; due_at: string | null; estimated_minutes: number; score: number; reasons: string[]
+  id: number; title: string; priority: string; status: string; due_at: string | null; due_all_day?: boolean; estimated_minutes: number; score: number; reasons: string[]
   risk: 'high' | 'medium' | 'low'; scheduled: boolean; postponed_count: number; confidence: Confidence; sources: string[]
 }
 export type RecAction = { kind: 'link'; to: string; label: Bi } | { kind: 'proposal'; proposal: 'find_time' | 'rebalance'; task_ids?: number[]; label: Bi }

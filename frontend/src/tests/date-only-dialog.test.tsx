@@ -87,6 +87,13 @@ describe('the deadline toggle "No specific time"', () => {
     const body = calls.find(c => c.method === 'POST')!.body!
     expect(body.due_date).toBe('2026-11-13'); expect(body).not.toHaveProperty('due_at')
   })
+  it('the toggle is described by the helper text, which is a polite live region that changes with it', () => {
+    server(); open('tasks', allDay({ due_at: '2026-11-14T08:30:00Z', due_all_day: false, due_date: null }))
+    const helper = document.getElementById(toggle().getAttribute('aria-describedby')!)!
+    expect(helper.getAttribute('aria-live')).toBe('polite'); expect(helper.textContent).not.toContain('overdue only')
+    fireEvent.click(toggle())
+    expect(helper.textContent).toContain('overdue only after the day ends')
+  })
   it('has a label in Arabic and Dutch', () => {
     localStorage.setItem('lifeos-language', 'ar'); server(); open()
     expect(screen.getByRole('checkbox', { name: 'بدون وقت محدد' })).toBeInTheDocument()

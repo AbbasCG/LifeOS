@@ -107,8 +107,8 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
               : <small className="conflict-check warn">{t('Overlaps', 'يتداخل مع')}: {action.conflicts.map(c => `${c.title} (${c.source_label})`).join(', ')}</small>)}
           </span>}
           <span className="proposal-time">
-            {action.type === 'create_task' && <><ListPlus size={13} />{action.estimated_minutes} {t('min', 'د')}{action.due_at && <> · {t('due', 'الموعد')} {dueLabel(action.due_at)}</>}</>}
-            {action.type === 'reschedule_task' && action.due_at && <>{action.from_due_at && <><s>{dueLabel(action.from_due_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}<CalendarClock size={13} />{dueLabel(action.due_at)}</>}
+            {action.type === 'create_task' && <><ListPlus size={13} />{action.estimated_minutes} {t('min', 'د')}{action.due_at && <> · {t('due', 'الموعد')} {dueLabel(action.due_at, action.due_all_day)}</>}</>}
+            {action.type === 'reschedule_task' && action.due_at && <>{action.from_due_at && <><s>{dueLabel(action.from_due_at, action.from_due_all_day)}</s><ArrowRight size={13} className="flip-rtl" /></>}<CalendarClock size={13} />{dueLabel(action.due_at, action.due_all_day)}</>}
             {action.type === 'move_event' && action.from_starts_at && action.from_ends_at && <><s>{range(action.from_starts_at, action.from_ends_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}
             {action.starts_at && action.ends_at && <><Clock size={13} />{grouped && action.type !== 'move_event' ? `${time(action.starts_at)}–${time(action.ends_at)}` : range(action.starts_at, action.ends_at)}</>}
           </span>
