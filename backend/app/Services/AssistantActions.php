@@ -547,7 +547,15 @@ class AssistantActions
                 if (! $task || ! isset($result['before']) || $task->due_at?->toIso8601String() !== $result['after']['due_at']) {
                     return $kept('changed since');
                 }
-                $task->update(['due_at' => CarbonImmutable::parse($result['before']['due_at']), 'due_all_day' => (bool) ($result['before']['due_all_day'] ?? false)]);
+                // A date-only deadline is rebuilt from its stored date in the CURRENT zone; if the instant is not an end of day there, the flag is dropped.
+                $tz = $user->timezone();
+                $at = CarbonImmutable::parse($result['before']['due_at'])->utc();
+                $wasAllDay = (bool) ($result['before']['due_all_day'] ?? false);
+                if ($wasAllDay && ! empty($result['before']['due_date'])) {
+                    $at = Task::endOfDay($result['before']['due_date'], $tz);
+                }
+                $allDay = $wasAllDay && $at->equalTo(Task::endOfDay($at->setTimezone($tz)->toDateString(), $tz));
+                $task->update(['due_at' => $at, 'due_all_day' => $allDay]);
 
                 return ['done' => true];
         }
@@ -699,7 +707,7 @@ class AssistantActions
         if (! $due || ! $from || ! $task->due_at?->equalTo($from)) {
             $fail('This task changed since the suggestion was made.');
         }
-        $before = ['due_at' => $task->due_at->toIso8601String(), 'due_all_day' => (bool) $task->due_all_day];
+        $before = ['due_at' => $task->due_at->toIso8601String(), 'due_all_day' => (bool) $task->due_all_day, 'due_date' => $task->dueDate($user->timezone())];
         $task->update(['due_at' => $due, 'due_all_day' => false]);
 
         return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String()]];

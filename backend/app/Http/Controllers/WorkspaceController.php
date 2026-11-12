@@ -251,20 +251,24 @@ class WorkspaceController extends Controller
     public function saveSettings(Request $request): JsonResponse
     {
         $data = $request->validate(['language' => 'sometimes|in:en,ar,nl', 'theme' => 'sometimes|in:light,dark,system', 'discovery' => 'sometimes|array:hints_enabled', 'discovery.hints_enabled' => 'sometimes|boolean', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'daily_focus_goal' => 'nullable|integer|min:10|max:720', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'ai_connected_data' => 'sometimes|boolean', 'voice_input' => 'sometimes|boolean', 'checkins_enabled' => 'sometimes|boolean', 'buffer_minutes' => 'sometimes|integer|min:0|max:60', 'study_start' => 'nullable|date_format:H:i', 'study_end' => 'nullable|date_format:H:i|required_with:study_start', 'personal_start' => 'nullable|date_format:H:i', 'personal_end' => 'nullable|date_format:H:i|required_with:personal_start', 'study_daily_limit' => 'nullable|integer|min:15|max:900', 'personal_daily_limit' => 'nullable|integer|min:15|max:900', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,updates,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean'] + self::todayLayoutRules());
-        $record = UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
-        $prefs = array_replace($record->preferences, $data);
-        if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {
-            throw ValidationException::withMessages(['work_end' => ['Work end must follow work start.']]);
-        }
-        $oldTimezone = $record->preferences['timezone'] ?? 'UTC';
-        DB::transaction(function () use ($request, $record, $prefs, $oldTimezone) {
+        UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
+        $prefs = DB::transaction(function () use ($request, $data) {
+            // The previous zone is read AFTER the per-user lock, so two concurrent saves cannot both recompute from the same stale zone.
+            User::lockForOrdering($request->user()->id);
+            $record = UserSetting::where('user_id', $request->user()->id)->firstOrFail();
+            $prefs = array_replace($record->preferences, $data);
+            if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {
+                throw ValidationException::withMessages(['work_end' => ['Work end must follow work start.']]);
+            }
             // Date-only deadlines are stored as the end of their day in the account timezone, so changing the timezone moves them to the end of the
             // SAME calendar date in the new zone (the person still means "Friday"). Timed deadlines are real instants and do not move.
+            $oldTimezone = $record->preferences['timezone'] ?? 'UTC';
             if (($prefs['timezone'] ?? 'UTC') !== $oldTimezone) {
-                User::lockForOrdering($request->user()->id);
                 $this->recomputeDateOnlyDeadlines($request->user()->id, $oldTimezone, $prefs['timezone']);
             }
             $record->update(['preferences' => $prefs]);
+
+            return $prefs;
         });
 
         return response()->json($prefs);
@@ -295,15 +299,18 @@ class WorkspaceController extends Controller
      */
     private function recomputeDateOnlyDeadlines(int $userId, string $from, string $to): void
     {
-        DB::table('tasks')->where('user_id', $userId)->where('due_all_day', true)->whereNotNull('due_at')->orderBy('id')->chunkById(200, function ($rows) use ($from, $to) {
-            foreach ($rows as $row) {
-                $date = CarbonImmutable::parse($row->due_at, 'UTC')->setTimezone($from)->toDateString();
-                $due = Task::endOfDay($date, $to)->format('Y-m-d H:i:s');
-                if ($due !== CarbonImmutable::parse($row->due_at, 'UTC')->format('Y-m-d H:i:s')) {
-                    DB::table('tasks')->where('id', $row->id)->update(['due_at' => $due, 'updated_at' => now()]);
+        // Imported date-only dues (external_tasks) were stored the same way, so they follow the zone too.
+        foreach ([['tasks', 'due_all_day'], ['external_tasks', 'due_is_date']] as [$table, $flag]) {
+            DB::table($table)->where('user_id', $userId)->where($flag, true)->whereNotNull('due_at')->orderBy('id')->chunkById(200, function ($rows) use ($table, $from, $to) {
+                foreach ($rows as $row) {
+                    $old = CarbonImmutable::parse($row->due_at, 'UTC');
+                    $due = Task::endOfDay($old->setTimezone($from)->toDateString(), $to);
+                    if (! $due->equalTo($old)) {
+                        DB::table($table)->where('id', $row->id)->update(['due_at' => $due->format('Y-m-d H:i:s'), 'updated_at' => now()]);
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 
     public function export(Request $request): JsonResponse
