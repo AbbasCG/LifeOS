@@ -58,7 +58,7 @@ class FocusController extends Controller
             $data['project_id'] = Task::whereKey($data['task_id'])->value('project_id');
         }
         $session = DB::transaction(function () use ($user, $data) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            User::lockForOrdering($user->id);
             if (FocusSession::where('user_id', $user->id)->whereIn('status', ['running', 'paused'])->exists()) {
                 throw ValidationException::withMessages(['session' => ['Finish or cancel your active session first.']]);
             }
@@ -171,7 +171,7 @@ class FocusController extends Controller
     public function completeTask(Request $request, int $id): JsonResponse
     {
         $task = DB::transaction(function () use ($request, $id) {
-            User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            User::lockForOrdering($request->user()->id);
             $session = FocusSession::where('user_id', $request->user()->id)->findOrFail($id);
             if ($session->status !== 'completed' || $session->kind !== 'focus' || ! $session->task_id) {
                 throw ValidationException::withMessages(['session' => ['Only a finished focus session linked to a task can complete that task.']]);

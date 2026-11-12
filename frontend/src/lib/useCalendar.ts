@@ -31,7 +31,14 @@ export function useCalendar(from: Date, to: Date) {
   const reload = useCallback(() => setRevision(v => v + 1), [])
   // A session booked, moved or removed anywhere in the app (the task list, a dialog) makes every open calendar read the server again.
   useEffect(() => { window.addEventListener(CALENDAR_CHANGED, reload); return () => window.removeEventListener(CALENDAR_CHANGED, reload) }, [reload])
-  const setItems = useCallback((items: CalendarOccurrence[]) => setState(s => ({ ...s, items })), [])
+  // The optimistic edit of a block and its rollback change one item and must not undo a reload that landed in between: they pass an updater.
+  const setItems = useCallback((items: CalendarOccurrence[] | ((current: CalendarOccurrence[]) => CalendarOccurrence[])) => setState(s => ({ ...s, items: typeof items === 'function' ? items(s.items) : items })), [])
+  // A second tab or device may have moved or removed blocks while this one was hidden: read the server again when it comes back (an event, not polling).
+  useEffect(() => {
+    const back = () => { if (document.visibilityState === 'visible') reload() }
+    document.addEventListener('visibilitychange', back)
+    return () => document.removeEventListener('visibilitychange', back)
+  }, [reload])
   const setError = useCallback((error: string) => setState(s => ({ ...s, error })), [])
   return { items: state.items, setItems, error: state.error, setError, loading: !state.key.startsWith(key), reload }
 }

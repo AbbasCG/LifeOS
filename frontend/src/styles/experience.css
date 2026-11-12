@@ -172,7 +172,7 @@ p { text-wrap: pretty; }
 .drag-ghost { position: absolute; inset-inline: 3px; z-index: 6; pointer-events: none; padding: 5px 8px; border-radius: 8px; border: 2px dashed var(--chart-2); background: color-mix(in srgb, var(--chart-2) 18%, var(--color-surface)); box-shadow: var(--shadow-lift); display: grid; align-content: start; gap: 2px; font-size: 11px; }
 .drag-ghost strong { font-size: 12px; font-variant-numeric: tabular-nums; }
 .drag-ghost.bad { border-color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface)); color: var(--color-danger); }
-.free-band { position: absolute; inset-inline: 4px; z-index: 1; pointer-events: none; border-radius: 6px; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-success) 9%, transparent) 0 6px, transparent 6px 12px); border-inline-start: 2px solid color-mix(in srgb, var(--color-success) 45%, transparent); }
+.free-band { position: absolute; inset-inline: 4px; z-index: 1; pointer-events: none; border-radius: 6px; background: color-mix(in srgb, var(--color-success) 10%, transparent); border-inline-start: 2px solid color-mix(in srgb, var(--color-success) 45%, transparent); }
 .free-band span { position: absolute; bottom: 4px; inset-inline-end: 6px; font-size: 10px; font-weight: 600; color: var(--color-success); }
 .slot { z-index: 0; }
 .free-band ~ .slot { z-index: 0; }
@@ -663,3 +663,9 @@ progress::-moz-progress-bar { background: var(--bar, var(--color-primary)); bord
 .living-orb.is-live .orb-fallback { opacity: 0; }
 @media (prefers-reduced-motion: no-preference) { .living-orb:not(.is-live) .orb-fallback { animation: orb-breathe 8s ease-in-out infinite; } }
 @keyframes orb-breathe { 50% { transform: scale(1.035); } }
+
+/* Calendar audit: legend for the free-time shading, and blocks shorter than 22px (15 minutes is 11px) */
+.cal-legend { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--color-text-muted); }
+.cal-legend i { width: 14px; height: 10px; border-radius: 3px; background: color-mix(in srgb, var(--color-success) 10%, transparent); border-inline-start: 2px solid color-mix(in srgb, var(--color-success) 45%, transparent); }
+.grid-event.tiny { padding-block: 0; }
+.grid-event.tiny strong, .grid-event.tiny small { font-size: 10px; line-height: 11px; }

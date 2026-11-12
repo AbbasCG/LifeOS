@@ -20,7 +20,7 @@ class PlanningService
 {
     public const MAX_BLOCKS_PER_TASK_PER_DAY = 2;
 
-    public function __construct(private CalendarService $calendar, private TaskScheduler $scheduler) {}
+    public function __construct(private CalendarService $calendar, private TaskScheduler $scheduler, private CalendarBooking $booking) {}
 
     private const PRIORITY_BOOST = 60;
 
@@ -554,7 +554,7 @@ class PlanningService
     public function accept(User $user, int $id): ScheduleProposal
     {
         return DB::transaction(function () use ($user, $id) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            User::lockForOrdering($user->id);
             $proposal = ScheduleProposal::where('user_id', $user->id)->lockForUpdate()->findOrFail($id);
             if ($proposal->status !== 'pending') {
                 throw ValidationException::withMessages(['proposal' => ['This proposal has already been resolved.']]);
@@ -605,6 +605,8 @@ class PlanningService
                 }
                 foreach ($occupied as [$busyStart, $busyEnd]) {
                     if ($start < $busyEnd && $end > $busyStart) {
+                        $this->booking->assertFree($user, $start->utc(), $end->utc(), null, null, 'proposal', 'The calendar changed. Generate a new plan to avoid conflicts.');
+
                         throw ValidationException::withMessages(['proposal' => ['The calendar changed. Generate a new plan to avoid conflicts.']]);
                     }
                 }

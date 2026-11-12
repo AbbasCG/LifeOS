@@ -13,7 +13,6 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -33,7 +32,7 @@ class AssistantActions
     /** Existing events one proposal may move. */
     public const MAX_MOVES = 10;
 
-    public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit, private GoalIntelligence $goals, private TaskScheduler $scheduler) {}
+    public function __construct(private CalendarService $calendar, private PlanningService $planning, private AuditLogger $audit, private GoalIntelligence $goals, private TaskScheduler $scheduler, private CalendarBooking $booking) {}
 
     /**
      * Place activities into the free time of one day.
@@ -456,7 +455,8 @@ class AssistantActions
             throw ValidationException::withMessages(['action_ids' => ['Choose at least one suggested change.']]);
         }
 
-        $results = DB::transaction(function () use ($user, $proposal, $selected) {
+        // User row first (the booking lock: no other booking of this user runs while the actions check and write), then the proposal row, then tasks.
+        $results = $this->booking->run($user, [], function () use ($user, $proposal, $selected) {
             $locked = AssistantProposal::whereKey($proposal->id)->lockForUpdate()->first();
             if ($locked->status !== 'pending') {
                 throw ValidationException::withMessages(['proposal' => ['This suggestion was already handled.']]);
@@ -481,7 +481,7 @@ class AssistantActions
         if (! $proposal->canUndo()) {
             throw ValidationException::withMessages(['proposal' => [$proposal->status === 'undone' ? 'These changes were already undone.' : 'These changes can no longer be undone.']]);
         }
-        $results = DB::transaction(function () use ($user, $proposal) {
+        $results = $this->booking->run($user, [], function () use ($user, $proposal) {
             $locked = AssistantProposal::whereKey($proposal->id)->lockForUpdate()->first();
             if (! $locked->canUndo()) {
                 throw ValidationException::withMessages(['proposal' => ['These changes were already undone.']]);
@@ -626,6 +626,9 @@ class AssistantActions
                 if (! $task) {
                     $fail('The linked task no longer exists.');
                 }
+                if ($this->scheduler->isClosed($task)) {
+                    $fail('The linked task is no longer open.');
+                }
 
                 try {
                     $this->scheduler->assertCanAdd($task, $this->scheduler->activeSessionsQuery($user->id, $task->id)->get(), false);
@@ -634,7 +637,7 @@ class AssistantActions
                     $fail("this task is already scheduled on {$when}. Move that session instead of adding another.");
                 }
             }
-            $this->assertFree($user, $start, $end, null, $fail);
+            $this->assertFree($user, $start, $end, null, $action);
             $event = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $action['task_id'] ?: null, 'title' => mb_substr($action['title'], 0, 200), 'starts_at' => $start, 'ends_at' => $end, 'kind' => 'flexible']);
 
             return ['action_id' => $action['id'], 'type' => 'create_event', 'event_id' => $event->id, 'after' => $this->eventState($event)];
@@ -650,7 +653,7 @@ class AssistantActions
         if (! $event->starts_at->equalTo(CarbonImmutable::parse($action['from_starts_at']))) {
             $fail('This event changed since the suggestion was made.');
         }
-        $this->assertFree($user, $start, $end, $event->id, $fail);
+        $this->assertFree($user, $start, $end, $event->id, $action);
         $before = $this->eventState($event);
         $event->update(['starts_at' => $start, 'ends_at' => $end]);
 
@@ -702,12 +705,14 @@ class AssistantActions
         return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String()]];
     }
 
-    private function assertFree(User $user, CarbonImmutable $start, CarbonImmutable $end, ?int $ignore, callable $fail): void
+    /**
+     * @param  array<string, mixed>  $action
+     *
+     * @throws ScheduleConflictException 422 on `actions`, with the structured conflict
+     */
+    private function assertFree(User $user, CarbonImmutable $start, CarbonImmutable $end, ?int $ignore, array $action): void
     {
-        $conflict = $this->calendar->conflicts($user, $start, $end, $ignore)->first();
-        if ($conflict) {
-            $fail("now overlaps “{$conflict['title']}”.");
-        }
+        $this->booking->assertFree($user, $start, $end, $ignore, null, 'actions', fn (array $conflict) => "“{$action['title']}”: now overlaps “{$conflict['title']}”.");
     }
 
     /**

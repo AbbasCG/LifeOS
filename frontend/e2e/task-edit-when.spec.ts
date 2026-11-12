@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, field, pick } from './fixtures'
 import { a11yViolations } from './axe'
 import type { Page } from '@playwright/test'
 
@@ -115,19 +115,21 @@ test('moving the session from the dialog changes the calendar once and keeps the
     expect(booked.status).toBe(201)
     const eventId = (booked.body.data as { id: number }).id
     const dialog = await openDialog(page, title)
-    const block = dialog.getByRole('region', { name: 'Scheduled session time' })
+    const block = dialog.getByRole('region', { name: 'Scheduled execution time' })
     await expect(block).toBeVisible()
     await expect(block).toContainText(wall(slot.starts_at, zone).time.replace(/^0/, ''))   // the session's own time, apart from the deadline
     await expect(block.getByText(/does not move the session/)).toBeVisible()
 
+    // The new start is saved by the dialog's own Save: ONE PUT on the same session, then the task fields.
     const put: string[] = []
     page.on('request', r => { if (r.method() === 'PUT' && /\/api\/tasks\/\d+\/schedule$/.test(r.url())) put.push(r.postData() ?? '') })
-    await block.getByRole('button', { name: 'Reschedule' }).click()
+    await pick(page, field(block, 'Execution start'), `${wall(slot.starts_at, zone).day}T11:30`)
     const moved = page.waitForResponse(r => /\/api\/tasks\/\d+\/schedule$/.test(r.url()) && r.request().method() === 'PUT')
-    await block.getByRole('button', { name: /Suggested times/ }).first().dblclick()
+    await dialog.getByRole('button', { name: 'Save' }).dblclick()
     expect((await moved).status()).toBe(200)
-    await expect(block.getByRole('button', { name: 'Reschedule' })).toBeFocused()
+    await expect(dialog).toBeHidden()
     expect(put).toHaveLength(1)
+    const again = (await openDialog(page, title)).getByRole('region', { name: 'Scheduled execution time' })   // after a reload it still shows the new time
 
     const after = await sessionsOf(page, id)
     expect(after).toHaveLength(1)
@@ -135,7 +137,7 @@ test('moving the session from the dialog changes the calendar once and keeps the
     expect(after[0].starts_at).not.toBe(slot.starts_at)
 
     // "View in calendar" now points at the new day, and the session is drawn there once, at its new time.
-    await block.getByRole('link', { name: 'View in calendar' }).click()
+    await again.getByRole('link', { name: 'View in calendar' }).click()
     await expect(page).toHaveURL(new RegExp(`/calendar\\?date=${wall(after[0].starts_at, zone).day}&session=${eventId}`))
     const drawn = page.locator(`[data-session="${eventId}"]`)
     await expect(drawn).toHaveCount(1)
@@ -157,8 +159,7 @@ test('the dialog reads right in Arabic (right to left) with the deadline and the
     await row.getByRole('button', { name: 'تعديل' }).click()
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByText('الموعد النهائي (الاستحقاق)')).toBeVisible()
-    await expect(dialog.getByRole('region', { name: 'موعد الجلسة المجدولة' })).toBeVisible()
-    await expect(dialog.getByRole('button', { name: 'إعادة الجدولة' })).toBeVisible()
+    await expect(dialog.getByRole('region', { name: 'موعد التنفيذ المجدول' })).toBeVisible()
     await expect(dialog.getByRole('link', { name: 'عرض في التقويم' })).toBeVisible()
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).direction)).toBe('rtl')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)

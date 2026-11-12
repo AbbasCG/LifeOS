@@ -7,7 +7,7 @@ import { accountDay } from '../lib/accountDay'
 import { suggestSlots } from '../lib/scheduleSlots'
 import { scheduleOf } from '../lib/taskSchedule'
 import { useTaskScheduling, type Change, type Conflict } from '../lib/useTaskScheduling'
-import { Duration, ScheduleBadge, ScheduleControls, ScheduledNotice } from './tasks/ScheduleParts'
+import { DueLine, Duration, ScheduleBadge, ScheduleControls, ScheduledNotice } from './tasks/ScheduleParts'
 import { useRecords } from '../lib/hooks'
 import { announce } from '../lib/announce'
 import { useText } from '../lib/i18n'
@@ -112,6 +112,8 @@ export default function TasksPage() {
   const [conflict, setConflict] = useState<Conflict | null>(null)
   const scheduling = useTaskScheduling({
     onConflict: setConflict,
+    // "Choose another time": focus goes back to the row's time choices (or the row itself when they are not shown).
+    onChooseTime: id => { const row = document.querySelector<HTMLElement>(`[data-task="${id}"]`); (row?.querySelector<HTMLElement>('[data-sched-chips] button:not([aria-disabled])') ?? row?.querySelector<HTMLElement>('.task-body'))?.focus() },
     onChanged: (change: Change) => { if (change.schedule !== undefined) data.setItems(data.items.map(i => (i.id === change.taskId ? { ...i, schedule: change.schedule } : i))) },
   })
   /** The first free time that fits, in the next week: used by the swipe, which has no list of times to pick from. */
@@ -164,6 +166,7 @@ export default function TasksPage() {
             </section> })}
     {data.lastPage > 1 && <p className="muted small">{t('Showing the first 100. Narrow with a filter or search.', 'تُعرض أول ١٠٠. ضيّق النتائج بفلتر أو بحث.')}</p>}
     <ConnectedTasksPanel onCopied={() => void data.reload()} />
+    {scheduling.conflictDialog}
     {editing && <RecordForm resource="tasks" item={editing} onSave={() => void data.reload()} onClose={() => setEditing(null)} />}
     {deleting && <Dialog title={t('Delete this task?', 'حذف هذه المهمة؟')} onClose={() => setDeleting(null)}><p>{deleting.title}</p><div className="toolbar"><button className="quiet" onClick={() => setDeleting(null)}>{t('Cancel', 'إلغاء')}</button><button className="danger" disabled={busy} onClick={() => void run(async () => { await api(`/api/tasks/${deleting.id}`, 'DELETE'); setDeleting(null) }, t('Deleted.', 'حُذفت.'))}><Trash2 size={15} />{t('Delete', 'حذف')}</button></div></Dialog>}
   </section>
@@ -210,7 +213,7 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, o
       <button type="button" className="tick" disabled={done} onClick={onComplete} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><CheckIcon /></button>
       <button ref={bodyButton} type="button" className="task-body text-button" aria-expanded={expanded} onClick={onToggle}>
         <strong>{task.title}</strong>
-        <span className="meta-row"><PriorityMark priority={task.priority} />{schedule && <ScheduleBadge schedule={schedule} />}<DueChip due={task.due_at} done={done} label={schedule ? t('Due', 'الاستحقاق', 'Deadline') : undefined} />{task.estimated_minutes ? <Duration minutes={task.estimated_minutes} /> : null}{subtasks.length > 0 && <span><ListChecks size={12} aria-hidden="true" />{subtasks.filter(s => s.completed).length}/{subtasks.length}</span>}{typeof task.remind_at === 'string' && <span title={t('Reminder', 'تذكير')}><Bell size={12} aria-hidden="true" /></span>}{task.status === 'in_progress' && <span className="chip">{statusLabel('in_progress')}</span>}</span>
+        <span className="meta-row"><PriorityMark priority={task.priority} /><DueLine due={task.due_at} done={done} />{schedule && <ScheduleBadge schedule={schedule} />}{task.estimated_minutes ? <Duration minutes={task.estimated_minutes} /> : null}{subtasks.length > 0 && <span><ListChecks size={12} aria-hidden="true" />{subtasks.filter(s => s.completed).length}/{subtasks.length}</span>}{typeof task.remind_at === 'string' && <span title={t('Reminder', 'تذكير')}><Bell size={12} aria-hidden="true" /></span>}{task.status === 'in_progress' && <span className="chip">{statusLabel('in_progress')}</span>}</span>
       </button>
       {!done && <button type="button" className="icon-button play" onClick={onFocus} aria-label={t(`Focus on “${task.title}”`, `ركّز على «${task.title}»`)}><Play size={17} /></button>}
       <ChevronDown size={16} className={`task-chev ${expanded ? 'open' : ''}`} aria-hidden="true" />

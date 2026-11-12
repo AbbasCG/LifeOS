@@ -212,9 +212,10 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('plans/{id}/accept', [PlanningController::class, 'accept']);
         Route::post('plans/{id}/reject', [PlanningController::class, 'reject']);
         Route::get('{resource}', [WorkspaceController::class, 'index'])->whereIn('resource', array_keys(WorkspaceController::MODELS));
-        Route::post('{resource}', [WorkspaceController::class, 'store'])->whereIn('resource', array_keys(WorkspaceController::MODELS));
+        // Calendar events are written only by CalendarController (overlap checks under the booking lock); the generic writer never serves them.
+        Route::post('{resource}', [WorkspaceController::class, 'store'])->whereIn('resource', array_diff(array_keys(WorkspaceController::MODELS), ['events']));
         Route::get('{resource}/{id}', [WorkspaceController::class, 'show'])->whereIn('resource', array_keys(WorkspaceController::MODELS));
-        Route::patch('{resource}/{id}', [WorkspaceController::class, 'update'])->whereIn('resource', array_keys(WorkspaceController::MODELS));
-        Route::delete('{resource}/{id}', [WorkspaceController::class, 'destroy'])->whereIn('resource', array_keys(WorkspaceController::MODELS));
+        Route::patch('{resource}/{id}', [WorkspaceController::class, 'update'])->whereIn('resource', array_diff(array_keys(WorkspaceController::MODELS), ['events']));
+        Route::delete('{resource}/{id}', [WorkspaceController::class, 'destroy'])->whereIn('resource', array_diff(array_keys(WorkspaceController::MODELS), ['events']));
     });
 });
