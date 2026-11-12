@@ -1,4 +1,4 @@
-import { accountDay, accountInstant, accountZone, shiftDay, wallClockToInstant, weekdayOf, zonedParts } from './accountDay'
+import { accountDay, accountInstant, accountZone, shiftDay, wallClockToFirstInstant, wallClockToInstant, weekdayOf, zonedParts } from './accountDay'
 
 /** Ask the app shell to open Quick Add (from the topbar, the bottom bar, a shortcut or an empty state). */
 export const QUICK_ADD = 'lifeos:quick-add'
@@ -41,38 +41,43 @@ export function dueForDay(day: string, now = new Date()): string | null {
 }
 
 /**
- * The task dialog's deadline field. Its value is 'YYYY-MM-DDTHH:mm' (or '' for no deadline) on the BROWSER's wall clock, exactly as the
- * date pickers have always stored it ("a deadline typed as 14:30 comes back as 14:30 on the same device"). The quick choices pick their
- * DAY on the ACCOUNT calendar (as they always did) and keep the field's own HH:mm; there is no instant arithmetic in field space. A
- * deadline always has a time (the schema has no date-only deadline), so with none yet the visible default is 17:00.
- * Known follow-up: typed times could use the account zone instead of the browser's; that is a product decision, not made here.
+ * The task dialog's deadline field, and the scheduled start/end fields next to it. Its value is 'YYYY-MM-DDTHH:mm' (or '' for no
+ * deadline) on the ACCOUNT's wall clock (the timezone saved in Settings; the browser's own only while that is not known yet): the same
+ * clock the calendar, the list badges ("Due: today 17:00") and the server use, whatever zone this device is in. The quick choices pick
+ * their DAY on the account calendar and keep the field's own HH:mm; there is no instant arithmetic in field space. A deadline always
+ * has a time (the schema has no date-only deadline), so with none yet the visible default is 17:00.
  */
 export const DEFAULT_DEADLINE_TIME = '17:00'
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const FIELD = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/
 
-/** Deadline field value for an instant: its day and time on the browser's wall clock. Empty or invalid: ''. */
+/** Deadline field value for an instant: its day and time on the account's wall clock. Empty or invalid: ''. */
 export function deadlineField(iso?: string | null): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return ''
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  const p = zonedParts(new Date(iso), accountZone())
+  return `${p.year}-${pad2(p.month)}-${pad2(p.day)}T${pad2(p.hour)}:${pad2(p.minute)}`
 }
-/** The instant (ISO, UTC) a field value means on the browser's wall clock (what the form posts); null for '' or something that is not a date. */
+/**
+ * The instant (ISO, UTC) a field value means on the account's wall clock (what the form posts); null for '' or something that is not a
+ * date. A time the clock skips (spring change) moves forward by the gap; a time it repeats (autumn change) means the first of the two.
+ */
 export function deadlineInstant(field: string): string | null {
   const m = FIELD.exec(field)
   if (!m) return null
-  const at = new Date(`${m[1]}T${m[2] ?? DEFAULT_DEADLINE_TIME}`)
-  return Number.isNaN(at.getTime()) ? null : at.toISOString()
+  const [y, mo, d] = m[1].split('-').map(Number), [h, mi] = (m[2] ?? DEFAULT_DEADLINE_TIME).split(':').map(Number)
+  const real = new Date(Date.UTC(y, mo - 1, d))
+  // Not a real day (31 February), hour or minute: no instant, like an invalid date was before.
+  if (real.getUTCMonth() !== mo - 1 || real.getUTCDate() !== d || h > 23 || mi > 59) return null
+  return wallClockToFirstInstant(y, mo, d, h, mi, 0, accountZone()).toISOString()
 }
 
 /** The day "This week" means: the coming Sunday, or today when it is Sunday. */
 export const weekEndDay = (today: string) => shiftDay(today, (7 - weekdayOf(today)) % 7)
 export type DeadlineWhen = 'none' | 'today' | 'tomorrow' | 'week' | 'custom'
 /**
- * Which "When" choice a deadline field value is. The field is read as the instant it means on the browser's clock, and that instant's
- * ACCOUNT day is compared with the account's today, tomorrow and Sunday. Empty: none. Today, then tomorrow, then the end of this week win
- * in that order; any other day, past or future, is 'custom' so no tile claims it. When the browser and account zones differ, the tile follows
- * the account day of the typed moment (e.g. 23:30 in a browser an hour behind the account can read as the account's tomorrow).
+ * Which "When" choice a deadline field value is. The field is the account's wall clock, so its day is compared with the account's
+ * today, tomorrow and Sunday (whatever zone the browser is in). Empty: none. Today, then tomorrow, then the end of this week win
+ * in that order; any other day, past or future, is 'custom' so no tile claims it.
  */
 export function deriveWhen(field: string, now = new Date()): DeadlineWhen {
   const iso = deadlineInstant(field)
@@ -87,14 +92,15 @@ export function nextHalfHour(now = new Date(), timeZone?: string): string {
 }
 /**
  * A deadline field value after tapping a "When" tile: the chosen DAY (account calendar) with the HH:mm already in the field. With no time
- * yet it is 17:00, or, when that day is today and 17:00 has already passed on the field's clock, the next half hour (never a silent
+ * yet it is 17:00, or, when that day is today and 17:00 has already passed on the account's clock, the next half hour (never a silent
  * late-night time). 'none' clears it.
  */
 export function whenField(when: When, field: string, now = new Date()): string {
   if (when === 'none') return ''
   const today = accountDay(now)
   const day = when === 'tomorrow' ? shiftDay(today, 1) : when === 'week' ? weekEndDay(today) : when === 'nextweek' ? nextWeekDay(now) : today
-  const time = FIELD.exec(field)?.[2] ?? (day === today && now.getHours() * 60 + now.getMinutes() >= 17 * 60 ? nextHalfHour(now) : DEFAULT_DEADLINE_TIME)
+  const zone = accountZone(), p = zonedParts(now, zone)
+  const time = FIELD.exec(field)?.[2] ?? (day === today && p.hour * 60 + p.minute >= 17 * 60 ? nextHalfHour(now, zone) : DEFAULT_DEADLINE_TIME)
   return `${day}T${time}`
 }
 /**

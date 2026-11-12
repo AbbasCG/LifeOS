@@ -24,7 +24,7 @@ async function sessionsOf(page: Page, taskId: number) {
   expect(r.status).toBe(200)
   return (r.body.data as unknown as Occurrence[]).filter(o => o.task_id === taskId)
 }
-/** Day ('YYYY-MM-DD') and wall time ('HH:mm') of an instant in a timezone. Quick choices take their day from the account calendar; the field's time is the browser's (UTC in this spec). */
+/** Day ('YYYY-MM-DD') and wall time ('HH:mm') of an instant in a timezone. The deadline and session fields are on this same account clock; the browser here is in UTC, to prove it. */
 const wall = (at: Date | string, zone: string) => {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(at)).map(x => [x.type, x.value]))
   return { day: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` }
@@ -64,6 +64,9 @@ test('Today and Tomorrow keep the time, the saved day selects its tile after reo
     const before = (await deadlineValue(dialog))!
     const time = before.slice(11)
     expect(time).not.toBe('23:00')
+    // The field is the account's clock, not this UTC browser's: 12:00Z reads as that zone's wall time, the same as the list badge.
+    const dueWall = wall(`${shift(wall(new Date(), zone).day, 5)}T12:00:00.000Z`, zone)
+    expect(before).toBe(`${dueWall.day}T${dueWall.time}`)
     const { day: today } = wall(new Date(), zone)
     await expect(checkedWhen(dialog)).toHaveCount(0)                        // five days away: no tile claims it
     await expect(dialog.locator('.rf-custom')).toContainText('Custom due date')

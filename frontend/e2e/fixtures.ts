@@ -106,3 +106,15 @@ export async function chooseByTapping(page: Page, trigger: import('@playwright/t
   if (await sheet.isVisible()) await sheet.getByRole('button', { name: /^Done$|^تم$/ }).click()
   await expect(sheet).toBeHidden()
 }
+
+/** The instant (ISO, UTC) at which the wall clock in `zone` reads `local` ('YYYY-MM-DDTHH:mm'), for a zone other than the test process's own. */
+export function zonedInstant(local: string, zone: string): string {
+  const [date, time = '00:00'] = local.split('T'), [y, m, d] = date.split('-').map(Number), [h, mi] = time.split(':').map(Number)
+  const wanted = Date.UTC(y, m - 1, d, h, mi)
+  let guess = wanted
+  for (let i = 0; i < 3; i++) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(guess)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]))
+    guess += wanted - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second)
+  }
+  return new Date(guess).toISOString()
+}

@@ -9,6 +9,8 @@ import { ScheduledTimeSection } from './tasks/TaskSessionBlock'
 import { useSessionFields } from './tasks/sessionFields'
 import { useTaskScheduling } from '../lib/useTaskScheduling'
 import { DateTimeField } from '../components/ui/DateTimePicker'
+import { ZoneNote } from '../components/ui/ZoneNote'
+import { typedTimesShifted } from '../lib/zoneShift'
 import { ChoiceGroup, PickerField, type ChoiceOption } from '../components/ui/Choice'
 import { BottomSheet, SheetCancel } from '../components/visual'
 import { ErrorMessage } from '../components/ui/Shared'
@@ -23,7 +25,7 @@ const STATUSES = ['inbox', 'todo', 'in_progress', 'completed', 'cancelled']
 export function useStatusLabel() { const t = useT(); return (s: string) => ({ inbox: t('Inbox', 'الوارد'), todo: t('To do', 'للإنجاز'), in_progress: t('In progress', 'قيد التنفيذ'), completed: t('Completed', 'مكتمل'), cancelled: t('Cancelled', 'ملغى'), low: t('Low', 'منخفضة'), medium: t('Medium', 'متوسطة'), high: t('High', 'عالية'), urgent: t('Urgent', 'عاجلة'), active: t('Active', 'نشط'), paused: t('Paused', 'متوقف') }[s] || s) }
 
 const MINUTES = [15, 30, 45, 60, 90, 120]
-/** A saved instant as the date fields show it: the browser's wall clock ('' for none), exactly as before; posted back as that wall time's instant. */
+/** A saved instant as the date fields show it: the account's wall clock ('' for none); posted back as that wall time's instant. */
 const fieldOf = deadlineField
 /** 'Wednesday 11 November' for a 'YYYY-MM-DD' day: a calendar date, so no timezone shifts it. */
 const dayText = (day: string, language: string, thisYear = accountDay().slice(0, 4)) => new Intl.DateTimeFormat(language === 'ar' ? 'ar-u-nu-latn' : language === 'nl' ? 'nl-NL' : 'en', { weekday: 'long', day: 'numeric', month: 'long', ...(day.slice(0, 4) !== thisYear ? { year: 'numeric' as const } : {}), timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))
@@ -37,7 +39,7 @@ type Step = { title: string; completed: boolean }
  */
 export function RecordForm({ resource, item, onSave, onClose }: { resource: string; item: Partial<RecordItem>; onSave: () => void; onClose: () => void }) {
   const t = useT(), label = useStatusLabel(), toast = useToast(), { language } = useLanguage()
-  const saving = useRef(false), helperId = useId()
+  const saving = useRef(false), helperId = useId(), zoneId = useId()
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const wantsLists = resource === 'tasks', projects = useRecords('projects'), categories = useRecords('categories'), goals = useRecords('goals'), tasks = useRecords('tasks')
   const [subtasks, setSubtasks] = useState<Step[]>((((resource === 'projects' || resource === 'goals') ? item.milestones : item.subtasks) as Step[]) || [])
@@ -123,8 +125,9 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const tasksFields = <>
     <div className="field-block"><span className="field-title">{t('When', 'متى')}</span>
       <ChoiceGroup<string> label={t('When', 'متى')} variant="tiles" columns={4} value={chosenWhen} onChange={w => { const next = whenField(w as When, due); setDue(next); setLastTile(w === 'none' ? null : { tile: w, field: next }) }} options={whenOptions} />
-      <div role="group" aria-label={t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')} aria-describedby={helperId}>
+      <div role="group" aria-label={t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')} aria-describedby={typedTimesShifted() ? `${helperId} ${zoneId}` : helperId}>
         <label className="rf-deadline">{t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')}<DateTimeField kind="datetime" name="due_at" value={due} onChange={setDue} /></label></div>
+      <ZoneNote id={zoneId} />
       <small className="rf-custom" aria-hidden="true">{customText}</small>
       <span className="sr-only" role="status">{customText && customNote === customText ? customNote : ''}</span>
       <small id={helperId} className="muted">{t(`Choosing a day keeps the time; with no time yet it starts at ${DEFAULT_DEADLINE_TIME} (or the next half hour if that has passed today).`, `اختيار اليوم يُبقي الوقت كما هو؛ وإن لم يكن هناك وقت يبدأ عند ${DEFAULT_DEADLINE_TIME} (أو أقرب نصف ساعة إن كانت الساعة 17:00 قد مضت اليوم).`, `Een dag kiezen behoudt de tijd; zonder tijd begint het om ${DEFAULT_DEADLINE_TIME} (of het volgende halve uur als dat vandaag voorbij is).`)}</small></div>
@@ -154,7 +157,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
 
   const otherFields = <>
     <label className="full">{t('Description', 'الوصف')}<textarea name="description" defaultValue={item.description || ''} rows={3} /></label>
-    {['projects', 'goals'].includes(resource) && <label>{t('Deadline', 'الموعد النهائي')}<DateTimeField kind="datetime" name="due_at" defaultValue={fieldOf(item.due_at)} /></label>}
+    {['projects', 'goals'].includes(resource) && <><label>{t('Deadline', 'الموعد النهائي')}<DateTimeField kind="datetime" name="due_at" defaultValue={fieldOf(item.due_at)} /></label><ZoneNote /></>}
     {(resource === 'projects' || resource === 'goals') && stepsEditor(t('Milestones', 'المراحل'), t('Add milestone', 'إضافة مرحلة'), t('Milestone title', 'عنوان المرحلة'))}
     {resource === 'projects' && <div className="field-block"><span className="field-title">{t('Status', 'الحالة')}</span><ChoiceGroup label={t('Status', 'الحالة')} name="status" value={status} onChange={setStatus} options={['active', 'paused', 'completed'].map(s => ({ value: s, label: label(s) }))} /></div>}
     {['projects', 'categories'].includes(resource) && <label>{t('Color', 'اللون')}<input type="color" name="color" defaultValue={item.color || '#6366f1'} /></label>}
@@ -167,6 +170,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
     {resource === 'events' && <>
       <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required name="starts_at" defaultValue={fieldOf(item.starts_at)} /></label>
       <label>{t('End', 'النهاية')}<DateTimeField kind="datetime" required name="ends_at" defaultValue={fieldOf(item.ends_at)} /></label>
+      <ZoneNote />
       <div className="field-block"><span className="field-title">{t('Type', 'النوع')}</span><ChoiceGroup label={t('Type', 'النوع')} name="kind" value={kind} onChange={setKind} options={[{ value: 'fixed', label: t('Fixed commitment', 'موعد ثابت') }, { value: 'flexible', label: t('Flexible block', 'فترة مرنة') }]} /></div>
       {item.id && item.kind === 'fixed' && <label className="inline full confirm-fixed"><input type="checkbox" name="confirm_fixed" value="1" />{t('This is a fixed commitment. I confirm I want to change its time.', 'هذا التزام ثابت. أؤكد رغبتي في تغيير وقته.')}</label>}
       <PickerField label={t('Task', 'المهمة')} name="task_id" value={pick.task_id} onChange={setPicked('task_id')} options={asOptions(tasks.items)} loading={tasks.loading} /></>}

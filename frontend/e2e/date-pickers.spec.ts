@@ -1,10 +1,11 @@
-import { test, expect, chooseByTapping } from './fixtures'
+import { test, expect, chooseByTapping, zonedInstant } from './fixtures'
 import type { Locator, Page } from '@playwright/test'
 
 /**
  * Every date and time field in the app, used for real: open it, choose a day / hour / minute, save the form, open the form again and
- * check that the same value is shown and that the right instant was stored. Run in other time zones too, because a deadline
- * typed as "14:30" must come back as 14:30 on the same device.
+ * check that the same value is shown and that the right instant was stored. Typed times mean the ACCOUNT's timezone (the demo
+ * account's, Europe/Amsterdam), not the browser's; the tests run with the browser in other time zones, because a deadline typed as
+ * "14:30" must come back as 14:30 and be stored as 14:30 account time whatever zone the device is in.
  */
 const api = (page: Page, method: string, path: string, body?: unknown) => page.evaluate(async ([m, p, b]) => {
   const token = decodeURIComponent(document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '')
@@ -12,7 +13,10 @@ const api = (page: Page, method: string, path: string, body?: unknown) => page.e
   return r.status === 204 ? null : r.json().catch(() => null)
 }, [method, path, body] as const)
 const ymd = (offsetDays: number) => { const d = new Date(Date.now() + offsetDays * 86400_000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
-const instant = (page: Page, local: string) => page.evaluate(v => new Date(v).toISOString(), local)
+/** The account's timezone (Settings), which is what a typed time means. */
+const accountZoneOf = async (page: Page) => ((await api(page, 'GET', '/api/settings')) as { timezone: string }).timezone
+/** The instant a typed 'YYYY-MM-DDTHH:mm' means: that wall time in the account's timezone (before this was the browser's zone). */
+const instant = async (page: Page, local: string) => zonedInstant(local, await accountZoneOf(page))
 const stamp = () => `Picker ${Date.now().toString(36)}`
 const label = (scope: Page | Locator, text: string) => scope.locator('label', { hasText: new RegExp(`^${text}`) }).locator('.dtp-trigger').first()
 
@@ -214,6 +218,7 @@ test.describe('behaviour of the picker itself', () => {
 
   test('an existing deadline is shown as it was, and saving without touching it changes nothing', async ({ page, setLanguage }) => {
     await setLanguage('en')
+    await page.goto('/tasks')   // the account's zone is read from the signed-in app
     const due = await instant(page, `${ymd(6)}T16:20`)
     const { title, id } = await makeTask(page, { due_at: due })
     try {
@@ -230,6 +235,7 @@ test.describe('behaviour of the picker itself', () => {
 
   test('a deadline can be cleared and set again', async ({ page, setLanguage }) => {
     await setLanguage('en')
+    await page.goto('/tasks')
     const { title, id } = await makeTask(page, { due_at: await instant(page, `${ymd(6)}T16:20`) })
     try {
       const form = await editTask(page, title)

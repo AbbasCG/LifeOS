@@ -1,4 +1,4 @@
-import { test, expect, field, pick } from './fixtures'
+import { test, expect, field, pick, zonedInstant } from './fixtures'
 import { a11yViolations } from './axe'
 import type { Locator, Page } from '@playwright/test'
 
@@ -6,8 +6,8 @@ import type { Locator, Page } from '@playwright/test'
  * Task scheduling from the edit dialog, and the "this time is already taken" answer. Real Laravel server, throwaway database, isolated
  * e2e data only: every task and session made here is removed at the end.
  *
- * The date fields are the browser's wall clock (UTC here); the sentences and lists show times in the account's timezone, so the
- * expected texts below are computed in that zone. The day is about three weeks ahead (not "tomorrow") so the demo data and another spec's "first free time"
+ * The date fields, the sentences and the lists all use the ACCOUNT's timezone (the browser is in UTC here, to prove it): a typed 09:00 is
+ * 09:00 account time, so every expected instant below is computed in that zone. The day is about three weeks ahead (not "tomorrow") so the demo data and another spec's "first free time"
  * bookings are not in the same hour.
  */
 test.use({ timezoneId: 'UTC' })
@@ -37,6 +37,9 @@ async function pickAr(page: Page, trigger: Locator, value: string) {
   await sheet.getByRole('button', { name: 'تم' }).click()
   await expect(sheet).toBeHidden()
 }
+/** The account's timezone, read by makeTask; `wall(day, '09:00')` is the instant at which the account's clock reads that time. */
+let accountZone = 'Europe/Amsterdam'
+const wall = (day: string, hm: string) => zonedInstant(`${day}T${hm}`, accountZone)
 const clock = (at: string, zone: string) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone })
 /**
  * A day, from about `n` days ahead, with nothing in the calendar between 08:00 and 12:00 (the demo data has events and weekly series);
@@ -55,6 +58,7 @@ async function freeDay(page: Page, n: number, mobile: boolean) {
 async function makeTask(page: Page, label: string) {
   await page.goto('/')
   const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
+  accountZone = zone
   const title = `E2E conflict ${label} ${Date.now()}`
   const due = new Date(Math.floor((Date.now() + 10 * 86_400_000) / 60_000) * 60_000).toISOString()   // whole minutes: the dialog's date field has no seconds
   const made = await call(page, 'POST', '/api/tasks', { title, status: 'todo', priority: 'medium', estimated_minutes: 30, due_at: due })
@@ -94,7 +98,7 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
     expect(seen.filter(c => c.method === 'POST')).toHaveLength(1); expect(seen[0].key).toMatch(/^[0-9a-f-]{36}$/)
     const created = await sessionsOf(page, first.id)
     expect(created).toHaveLength(1)
-    expect(Date.parse(created[0].starts_at)).toBe(Date.parse(`${day}T09:00:00Z`)); expect(Date.parse(created[0].ends_at)).toBe(Date.parse(`${day}T09:30:00Z`))
+    expect(Date.parse(created[0].starts_at)).toBe(Date.parse(wall(day, '09:00'))); expect(Date.parse(created[0].ends_at)).toBe(Date.parse(wall(day, '09:30')))
     const eventId = created[0].event_id as number
     await page.goto(`/calendar?date=${day}`)
     await expect(page.locator('[data-session]', { hasText: first.title })).toHaveCount(1)
@@ -112,7 +116,7 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
     expect(seen.filter(c => c.method === 'PUT')).toHaveLength(1)
     const afterMove = await sessionsOf(page, first.id)
     expect(afterMove).toHaveLength(1); expect(afterMove[0].event_id).toBe(eventId)
-    expect(Date.parse(afterMove[0].starts_at)).toBe(Date.parse(`${day}T10:00:00Z`)); expect(Date.parse(afterMove[0].ends_at)).toBe(Date.parse(`${day}T10:30:00Z`))
+    expect(Date.parse(afterMove[0].starts_at)).toBe(Date.parse(wall(day, '10:00'))); expect(Date.parse(afterMove[0].ends_at)).toBe(Date.parse(wall(day, '10:30')))
     // The deadline did not move with the session.
     const read = await call(page, 'GET', `/api/tasks/${first.id}`)
     expect(Date.parse((read.body.data as { due_at: string }).due_at)).toBe(Date.parse(first.due))
@@ -130,7 +134,7 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
     const alert = page.getByRole('alertdialog')
     await expect(alert).toBeVisible()
     await expect(alert.getByRole('heading')).toHaveText('This time is already booked for another task.')
-    const asked = [`${day}T09:45:00Z`, `${day}T10:15:00Z`].map(at => clock(at, second.zone)), other = [`${day}T10:00:00Z`, `${day}T10:30:00Z`].map(at => clock(at, first.zone))
+    const asked = [wall(day, '09:45'), wall(day, '10:15')].map(at => clock(at, second.zone)), other = [wall(day, '10:00'), wall(day, '10:30')].map(at => clock(at, first.zone))
     await expect(alert).toContainText(`You can't schedule this task from ${asked[0]} to ${asked[1]}, because you already have another task from ${other[0]} to ${other[1]}.`)
     await expect(alert).toContainText(first.title); await expect(alert).toContainText('15 min overlap')
     await expect(alert.getByRole('link', { name: 'View the conflicting item' })).toHaveAttribute('href', new RegExp(`/calendar\\?date=\\d{4}-\\d{2}-\\d{2}&session=${eventId}`))
@@ -151,7 +155,7 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
     await expect(dialog).toBeHidden()
     const placed = await sessionsOf(page, second.id)
     expect(placed).toHaveLength(1)
-    expect(Date.parse(placed[0].starts_at) >= Date.parse(`${day}T10:30:00Z`) || Date.parse(placed[0].ends_at) <= Date.parse(`${day}T10:00:00Z`)).toBe(true)
+    expect(Date.parse(placed[0].starts_at) >= Date.parse(wall(day, '10:30')) || Date.parse(placed[0].ends_at) <= Date.parse(wall(day, '10:00'))).toBe(true)
     expect(seen.filter(c => c.method === 'POST')).toHaveLength(4)   // first task, the refused try, the same try again after Escape, the suggestion
     expect(await sessionsOf(page, first.id)).toHaveLength(1)
   } finally { await cleanup(page, second.id); await cleanup(page, first.id) }
@@ -162,8 +166,8 @@ test('the server answers an overlapping booking with a 422 conflict and creates 
   const first = await makeTask(page, 'c'), second = await makeTask(page, 'd')
   const day = await freeDay(page, 25, testInfo.project.name === 'mobile')
   try {
-    expect((await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: `${day}T09:00:00Z`, ends_at: `${day}T09:30:00Z` }, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
-    const refused = await call(page, 'POST', `/api/tasks/${second.id}/schedule`, { starts_at: `${day}T09:15:00Z`, ends_at: `${day}T09:45:00Z` }, { 'Idempotency-Key': crypto.randomUUID() })
+    expect((await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: wall(day, '09:00'), ends_at: wall(day, '09:30') }, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
+    const refused = await call(page, 'POST', `/api/tasks/${second.id}/schedule`, { starts_at: wall(day, '09:15'), ends_at: wall(day, '09:45') }, { 'Idempotency-Key': crypto.randomUUID() })
     expect(refused.status).toBe(422)
     expect(refused.body.conflict?.code).toBe('schedule_conflict')
     expect(refused.body.conflict?.conflicts.length).toBeGreaterThan(0)
@@ -178,7 +182,7 @@ test('the conflict dialog reads right in Arabic and fits a 320px screen', async 
   const first = await makeTask(page, 'e'), second = await makeTask(page, 'f')
   const day = await freeDay(page, 28, testInfo.project.name === 'mobile')
   try {
-    expect((await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: `${day}T09:00:00Z`, ends_at: `${day}T09:30:00Z` }, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
+    expect((await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: wall(day, '09:00'), ends_at: wall(day, '09:30') }, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
     const dialog = await openDialog(page, second.title)
     await pickAr(page, field(dialog.getByRole('region', { name: 'موعد التنفيذ المجدول' }), 'بداية التنفيذ'), `${day}T09:15`)
     await dialog.getByRole('button', { name: 'حفظ' }).click()
@@ -203,7 +207,7 @@ test('a time that was free in the choices but is taken when tapped opens the con
   const first = await makeTask(page, 'g'), blockers: number[] = []
   const day = await freeDay(page, 12, testInfo.project.name === 'mobile')
   try {
-    const booked = await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: `${day}T09:00:00Z`, ends_at: `${day}T09:30:00Z` }, { 'Idempotency-Key': crypto.randomUUID() })
+    const booked = await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: wall(day, '09:00'), ends_at: wall(day, '09:30') }, { 'Idempotency-Key': crypto.randomUUID() })
     expect(booked.status).toBe(201)
     const eventId = (booked.body.data as { id: number }).id
     await page.goto(`/calendar?date=${day}`)
@@ -226,7 +230,7 @@ test('a time that was free in the choices but is taken when tapped opens the con
     await expect(alert.getByRole('heading')).toContainText('already booked')
     // Nothing moved.
     const now = await sessionsOf(page, first.id)
-    expect(now).toHaveLength(1); expect(Date.parse(now[0].starts_at)).toBe(Date.parse(`${day}T09:00:00Z`))
+    expect(now).toHaveLength(1); expect(Date.parse(now[0].starts_at)).toBe(Date.parse(wall(day, '09:00')))
     await alert.getByRole('button', { name: 'Choose another time' }).click()
     await expect(alert).toBeHidden()
     await expect(panel).toBeVisible()

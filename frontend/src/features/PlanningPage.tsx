@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { Sparkles, CalendarClock, Trash2, Plus, AlertTriangle, RotateCcw, Check, X, Pencil, Hand, Target, Lightbulb } from 'lucide-react'
 import { api, ApiError, type MissedBlock, type Plan, type PlanItem, type PlannedVsActual, type RecordItem } from '../lib/api'
-import { localDate, localInput } from '../lib/hooks'
+import { localDate } from '../lib/hooks'
+import { deadlineField, deadlineInstant } from '../lib/quickAdd'
+import { accountZone } from '../lib/accountDay'
+import { dayIn } from '../lib/taskSchedule'
+import { ZoneNote } from '../components/ui/ZoneNote'
 import { addDays, minutesLabel, mondayOf } from '../lib/dates'
 import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
@@ -93,11 +97,11 @@ export default function PlanningPage() {
   const pending = plan?.status === 'pending'
   const byDay = useMemo(() => {
     const groups = new Map<string, { item: Draft; index: number }[]>()
-    draft.forEach((item, index) => { const key = localDate(new Date(item.starts_at)); groups.set(key, [...(groups.get(key) || []), { item, index }]) })
+    draft.forEach((item, index) => { const key = dayIn(new Date(item.starts_at)); groups.set(key, [...(groups.get(key) || []), { item, index }]) })
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
   }, [draft])
   const dayFormat = (day: string) => new Date(`${day}T12:00`).toLocaleDateString(language, { weekday: 'long', month: 'short', day: 'numeric' })
-  const time = (iso: string) => formatClock(iso, { language })
+  const time = (iso: string) => formatClock(iso, { language, timeZone: accountZone() })
 
   return <section className="page planning-page">
     <header className="page-heading reveal"><div><p className="eyebrow">{t('Smart planning', 'التخطيط الذكي')}</p><h1>{t('A realistic week, made with you', 'أسبوع واقعي بمشاركتك')}</h1><p className="muted">{t('LifeOS proposes focus blocks around your commitments. Review, adjust, then accept — your calendar changes only when you say so.', 'يقترح LifeOS فترات تركيز حول التزاماتك. راجعها وعدّلها ثم وافق — لا يتغير تقويمك إلا بموافقتك.')}</p></div><Link className="quiet" to="/review"><Target size={17} />{t('Weekly review', 'المراجعة الأسبوعية')}</Link></header>
@@ -189,14 +193,15 @@ export default function PlanningPage() {
 
 function BlockEditor({ initial, tasks, isNew, onClose, onSave }: { initial: Partial<Draft>; tasks: RecordItem[]; isNew: boolean; onClose: () => void; onSave: (item: Partial<Draft>) => void }) {
   const t = useText()
-  const startDefault = initial.starts_at ? localInput(initial.starts_at) : ''
+  const startDefault = initial.starts_at ? deadlineField(initial.starts_at) : ''
   const duration = initial.starts_at && initial.ends_at ? Math.round((new Date(initial.ends_at).getTime() - new Date(initial.starts_at).getTime()) / 60000) : 60
   const [taskId, setTaskId] = useState(String(initial.task_id ?? tasks[0]?.id ?? '')), [start, setStart] = useState(startDefault), [minutes, setMinutes] = useState(duration)
   const options = [15, 25, 30, 45, 60, 75, 90, 120, 150, 180, 240]
   return <Dialog title={isNew ? t('Add a focus block', 'إضافة فترة تركيز') : t('Change block time', 'تغيير وقت الفترة')} onClose={onClose}>
-    <form className="form-grid" onSubmit={e => { e.preventDefault(); const s = new Date(start); const task = tasks.find(x => x.id === Number(taskId)); onSave({ task_id: Number(taskId), title: initial.title || task?.title, priority: initial.priority || task?.priority, starts_at: s.toISOString(), ends_at: new Date(s.getTime() + minutes * 60000).toISOString() }) }}>
+    <form className="form-grid" onSubmit={e => { e.preventDefault(); const s = new Date(deadlineInstant(start) ?? start); const task = tasks.find(x => x.id === Number(taskId)); onSave({ task_id: Number(taskId), title: initial.title || task?.title, priority: initial.priority || task?.priority, starts_at: s.toISOString(), ends_at: new Date(s.getTime() + minutes * 60000).toISOString() }) }}>
       {isNew && <label className="full">{t('Task', 'المهمة')}<select value={taskId} onChange={e => setTaskId(e.target.value)} required>{initial.task_id && !tasks.some(x => x.id === initial.task_id) && <option value={initial.task_id}>{initial.title}</option>}{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}
       <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required value={start} onChange={setStart} /></label>
+      <ZoneNote />
       <label>{t('Duration', 'المدة')}<select value={minutes} onChange={e => setMinutes(Number(e.target.value))}>{[...new Set([...options, minutes])].sort((a, b) => a - b).map(m => <option key={m} value={m}>{m} {t('min', 'د')}</option>)}</select></label>
       <p className="muted full">{t('Manual blocks may sit outside working hours. They still cannot overlap other commitments.', 'يمكن وضع الفترات اليدوية خارج ساعات العمل، لكنها لا تتداخل مع الالتزامات الأخرى.')}</p>
       <footer className="full row"><button type="button" className="quiet" onClick={onClose}>{t('Cancel', 'إلغاء')}</button><button className="primary" disabled={!start || !taskId}>{t('Apply', 'تطبيق')}</button></footer>
