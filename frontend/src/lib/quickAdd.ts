@@ -1,4 +1,4 @@
-import { accountDay, accountInstant, shiftDay, weekdayOf } from './accountDay'
+import { accountDay, accountInstant, accountZone, shiftDay, wallClockToInstant, weekdayOf, zonedParts } from './accountDay'
 
 /** Ask the app shell to open Quick Add (from the topbar, the bottom bar, a shortcut or an empty state). */
 export const QUICK_ADD = 'lifeos:quick-add'
@@ -80,9 +80,9 @@ export function deriveWhen(field: string, now = new Date()): DeadlineWhen {
   const today = accountDay(now), day = accountDay(new Date(iso))
   return day === today ? 'today' : day === shiftDay(today, 1) ? 'tomorrow' : day === weekEndDay(today) ? 'week' : 'custom'
 }
-/** The next half hour after `now` on the browser's wall clock ('HH:mm'); '23:59' when that would be tomorrow. */
-export function nextHalfHour(now = new Date()): string {
-  const next = (Math.floor((now.getHours() * 60 + now.getMinutes()) / 30) + 1) * 30
+/** The next half hour after `now` on a wall clock ('HH:mm'; the browser's unless a timezone is given); '23:59' when that would be tomorrow. */
+export function nextHalfHour(now = new Date(), timeZone?: string): string {
+  const p = zonedParts(now, timeZone), next = (Math.floor((p.hour * 60 + p.minute) / 30) + 1) * 30
   return next >= 24 * 60 ? '23:59' : `${pad2(Math.floor(next / 60))}:${pad2(next % 60)}`
 }
 /**
@@ -97,9 +97,21 @@ export function whenField(when: When, field: string, now = new Date()): string {
   const time = FIELD.exec(field)?.[2] ?? (day === today && now.getHours() * 60 + now.getMinutes() >= 17 * 60 ? nextHalfHour(now) : DEFAULT_DEADLINE_TIME)
   return `${day}T${time}`
 }
-/** A task's new deadline (ISO) when moved to a quick choice, keeping the time of day it already had (see whenField). null clears it. */
+/**
+ * A saved task's new deadline (ISO) when moved to a quick choice (the list's "Move to" chips and the swipe snooze). It maps an instant to an
+ * instant with no text field, so BOTH the day and the time of day are the ACCOUNT's: the same day and clock time the calendar shows.
+ * It keeps the time of day the deadline already had; with none it is 17:00 account time, or the next half hour when that is today and
+ * 17:00 has passed. null clears the deadline.
+ */
 export function dueKeepingTime(when: When, currentIso: string | null | undefined, now = new Date()): string | null {
-  return deadlineInstant(whenField(when, deadlineField(currentIso), now))
+  if (when === 'none') return null
+  const zone = accountZone(), today = accountDay(now)
+  const day = when === 'tomorrow' ? shiftDay(today, 1) : when === 'week' ? weekEndDay(today) : when === 'nextweek' ? nextWeekDay(now) : today
+  let time = DEFAULT_DEADLINE_TIME
+  if (currentIso && !Number.isNaN(Date.parse(currentIso))) { const p = zonedParts(new Date(currentIso), zone); time = `${pad2(p.hour)}:${pad2(p.minute)}` }
+  else { const p = zonedParts(now, zone); if (day === today && p.hour * 60 + p.minute >= 17 * 60) time = nextHalfHour(now, zone) }
+  const [y, m, d] = day.split('-').map(Number), [h, mi] = time.split(':').map(Number)
+  return wallClockToInstant(y, m, d, h, mi, 0, zone).toISOString()
 }
 
 /**

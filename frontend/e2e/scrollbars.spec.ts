@@ -66,12 +66,14 @@ for (const [language, theme] of [['en', 'light'], ['ar', 'dark']] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true)
       expect(await pageBarSpace(page)).toBe(0)
       await page.mouse.move(200, 200)
-      await page.mouse.wheel(0, 400)
-      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+      await expect.poll(async () => { await page.mouse.wheel(0, 400); return page.evaluate(() => window.scrollY) }).toBeGreaterThan(0)
       await page.evaluate(() => window.scrollTo(0, 0))
-      await page.locator('body').click({ position: { x: 5, y: 5 } })
+      // Keys go to the focused element: make sure nothing holds focus (a click at a fixed point can land on a control or a focusable scroller).
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
       await page.keyboard.press('End')
-      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+      // Wait until End has reached the bottom: the page scrolls smoothly, and a key pressed during that animation is overridden by it.
+      await expect.poll(() => page.evaluate(() => Math.ceil(window.scrollY) >= document.documentElement.scrollHeight - window.innerHeight - 1)).toBe(true)
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
       await page.keyboard.press('Home')
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
 
@@ -114,8 +116,8 @@ test('the dashboard and the calendar time grid scroll without a visible scrollba
   await expect(page.locator('main')).toBeVisible()
   expect(await pageBarSpace(page)).toBe(0)
   await page.mouse.move(300, 300)
-  await page.mouse.wheel(0, 300)
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  // The wheel is sent again until the page has laid out and scrolls (a wheel sent before that is simply ignored).
+  await expect.poll(async () => { await page.mouse.wheel(0, 300); return page.evaluate(() => window.scrollY) }).toBeGreaterThan(0)
 
   await page.addInitScript(() => localStorage.setItem('lifeos-calendar-view', 'day'))
   await page.goto('/calendar')

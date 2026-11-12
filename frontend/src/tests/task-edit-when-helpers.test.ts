@@ -130,6 +130,28 @@ describe('when the browser zone and the account zone differ', () => {
   })
 })
 
+describe('dueKeepingTime (the list chips and the swipe snooze) uses the ACCOUNT zone for both the day and the time of day', () => {
+  // Cases where the browser zone differs from the account zone. The old code read the time on the browser clock and the day on the account calendar.
+  const run = (browser: string, account: string, when: Parameters<typeof dueKeepingTime>[0], due: string | null, now: string) => {
+    process.env.TZ = browser; setAccountZone(account)
+    try { return dueKeepingTime(when, due, new Date(now)) } finally { process.env.TZ = 'Europe/Amsterdam' }
+  }
+  const table: [string, string, string, Parameters<typeof dueKeepingTime>[0], string | null, string, string | null][] = [
+    ['CI case: browser UTC, account Amsterdam, due in one hour across the account midnight', 'UTC', AMS, 'tomorrow', '2026-11-11T23:09:00Z', '2026-11-11T22:09:00Z', '2026-11-11T23:09:00.000Z'],
+    ['browser Amsterdam, account UTC, 00:30 local is 23:30 UTC', AMS, 'UTC', 'tomorrow', '2026-11-11T23:30:00Z', '2026-11-11T10:00:00Z', '2026-11-12T23:30:00.000Z'],
+    ['browser Auckland, account New York (the browser day is ahead)', 'Pacific/Auckland', 'America/New_York', 'tomorrow', '2026-11-11T20:00:00Z', '2026-11-11T15:00:00Z', '2026-11-12T20:00:00.000Z'],
+    ['browser New York, account Auckland (the browser day is behind)', 'America/New_York', 'Pacific/Auckland', 'tomorrow', '2026-11-11T20:00:00Z', '2026-11-11T15:00:00Z', '2026-11-12T20:00:00.000Z'],
+    ['spring change 2026-03-29, browser UTC', 'UTC', AMS, 'tomorrow', '2026-03-20T09:30:00Z', '2026-03-28T10:00:00Z', '2026-03-29T08:30:00.000Z'],
+    ['autumn change 2026-10-25, browser UTC', 'UTC', AMS, 'tomorrow', '2026-10-20T08:30:00Z', '2026-10-24T10:00:00Z', '2026-10-25T09:30:00.000Z'],
+    ['this week keeps the account clock time', 'UTC', AMS, 'week', '2026-11-11T23:30:00Z', '2026-11-11T10:00:00Z', '2026-11-14T23:30:00.000Z'],
+    ['no deadline yet: 17:00 account time', 'UTC', AMS, 'tomorrow', null, '2026-11-11T10:00:00Z', '2026-11-12T16:00:00.000Z'],
+    ['no deadline, today, 17:00 passed in the account zone: next half hour there (17:10 -> 17:30)', 'UTC', AMS, 'today', null, '2026-11-11T16:10:00Z', '2026-11-11T16:30:00.000Z'],
+    ['no deadline, today, still before 17:00 there', 'UTC', AMS, 'today', null, '2026-11-11T14:00:00Z', '2026-11-11T16:00:00.000Z'],
+    ['no date clears', 'UTC', AMS, 'none', '2026-11-11T14:00:00Z', '2026-11-11T14:00:00Z', null],
+  ]
+  it.each(table)('%s', (_n, browser, account, when, due, now, expected) => { expect(run(browser, account, when, due, now)).toBe(expected) })
+})
+
 describe('dueFor (quick add, dictation) is unchanged', () => {
   it('still answers 17:00, 23:00 once 17:00 has passed, Sunday for the week', () => {
     setAccountZone(AMS)
