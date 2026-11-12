@@ -94,6 +94,8 @@ describe('date-only deadline helpers (browser zone differs from the account zone
 })
 
 describe('what a date-only deadline reads as', () => {
+  // "Tomorrow"/"Today" wording depends on the clock: pin it so the test does not depend on the day it runs.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], now: NOW }) })
   const dueText = () => document.querySelector('.due')!.textContent!
   it.each([['en', 'Due:', 'Sat, Nov 14'], ['nl', 'Deadline:', 'za 14 nov'], ['ar', 'الاستحقاق:', '14']])('DueLine in %s has no time', (lang, label, day) => {
     localStorage.setItem('lifeos-language', lang)
