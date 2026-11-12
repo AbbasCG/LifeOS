@@ -16,16 +16,41 @@ export const test = base.extend<{ guard: { allowConsole: (pattern: RegExp) => vo
   }, { auto: true }],
   setLanguage: async ({ page }, use) => {
     await use(async language => {
+      const settled = watchScripts(page)
+      // The app asks the server about announcements once it is idle. If that call were still pending when a test installs its own stub and
+      // navigates, the OLD page would receive the stubbed announcement, mark it shown for this browser session, and the new page would show nothing.
+      const discovery = page.waitForResponse(r => r.url().includes('/api/discovery/bootstrap'), { timeout: 15_000 }).catch(() => null)
       await page.goto('/')
       const status = await page.evaluate(async l => {
         const token = decodeURIComponent(document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '')
         return (await fetch('/api/settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': token }, body: JSON.stringify({ language: l }) })).status
       }, language)
       expect(status).toBe(200)
+      // The page is still fetching its lazy chunks; navigating away now cancels them and Chromium logs each as a failed load. Let them finish.
+      await discovery
+      await settled()
     })
   },
 })
 export { expect }
+
+/**
+ * Counts the page's script downloads. The app fetches lazy chunks after load; leaving the page while one is in flight makes Chromium log
+ * "Failed to load resource: net::ERR_FAILED", which the guard (rightly) treats as an error. `networkidle` cannot be used: the app keeps requests open.
+ * `settled()` resolves once no script has been in flight for a few consecutive checks.
+ */
+function watchScripts(page: Page) {
+  let inflight = 0
+  const isScript = (r: import('@playwright/test').Request) => r.resourceType() === 'script'
+  const start = (r: import('@playwright/test').Request) => { if (isScript(r)) inflight++ }
+  const end = (r: import('@playwright/test').Request) => { if (isScript(r)) inflight-- }
+  page.on('request', start); page.on('requestfinished', end); page.on('requestfailed', end)
+  return async () => {
+    let quiet = 0
+    await expect.poll(() => { quiet = inflight === 0 ? quiet + 1 : 0; return quiet }, { intervals: [150], timeout: 15_000 }).toBeGreaterThanOrEqual(4)
+    page.off('request', start); page.off('requestfinished', end); page.off('requestfailed', end)
+  }
+}
 
 export async function noHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)

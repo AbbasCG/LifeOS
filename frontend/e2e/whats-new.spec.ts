@@ -28,8 +28,10 @@ for (const language of ['en', 'ar'] as const) {
 
     // The footer is reachable without scrolling the page: it stays inside the visible screen.
     const got = dialog.getByRole('button', { name: language === 'ar' ? 'حسنًا' : 'Got it' })
-    const box = await got.boundingBox(), size = page.viewportSize()!
-    expect(box!.y + box!.height).toBeLessThanOrEqual(size.height)
+    // The dialog slides in; the footer must END inside the screen, so measure once the entrance animation has finished.
+    await dialog.evaluate(d => Promise.all(d.getAnimations({ subtree: true }).map(a => a.finished.catch(() => undefined))))
+    const size = page.viewportSize()!
+    await expect.poll(async () => { const box = await got.boundingBox(); return box!.y + box!.height }).toBeLessThanOrEqual(size.height)
 
     expect(await a11yViolations(page, 'dialog[open]')).toEqual([])
 
