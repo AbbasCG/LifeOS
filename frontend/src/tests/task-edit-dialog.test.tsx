@@ -154,11 +154,58 @@ describe('accessibility and wording of the When tiles', () => {
 })
 
 describe('browser zone differs from the account zone', () => {
-  it('the day is the account\'s today, the time stays, and the tile follows the account day of that moment', () => {
-    server(); setAccountZone('Pacific/Auckland')   // 23:00 on the 11th there; the field is Amsterdam time
-    open(task({ due_at: '2026-11-11T12:00:00Z' }))   // field 13:00 on the 11th, but 01:00 on the 12th in Auckland
-    expect(deadline()).toBe('2026-11-11T13:00'); expect(selected()).toEqual(['Tomorrow'])
-    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T13:00')   // account today = the 11th, time kept
+  it('the field shows the account\'s clock (not the browser\'s), the tile follows it, and Today keeps the time', () => {
+    server(); setAccountZone('Pacific/Auckland')   // 23:00 on the 11th there; the browser is in Amsterdam
+    open(task({ due_at: '2026-11-11T12:00:00Z' }))   // 01:00 on the 12th in Auckland (13:00 in Amsterdam)
+    expect(deadline()).toBe('2026-11-12T01:00'); expect(selected()).toEqual(['Tomorrow'])
+    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T01:00')   // account today = the 11th, time kept
+  })
+})
+
+describe.each(['UTC', 'America/New_York'])('browser in %s, account in Amsterdam: the dialog speaks the account clock', browser => {
+  const sessionStart = () => (screen.getByText('Execution start').closest('label')!.querySelector('.dtp-trigger') as HTMLElement).dataset.value
+  beforeEach(() => { process.env.TZ = browser })
+  afterEach(() => { process.env.TZ = 'Europe/Amsterdam' })
+
+  it('shows the deadline and the scheduled start/end as the calendar and the list badges show them (17:00, 09:00-09:30)', () => {
+    server(); open(task({ due_at: '2026-11-20T16:00:00Z', schedule: session() }))
+    expect(deadline()).toBe('2026-11-20T17:00')
+    expect(sessionStart()).toBe('2026-11-12T09:00')
+    expect(screen.getByText('Execution end').closest('label')!.querySelector<HTMLElement>('.dtp-trigger')!.dataset.value).toBe('2026-11-12T09:30')
+  })
+  it('saving without touching anything sends the same deadline instant, and no session request', async () => {
+    const calls = server(); open(task({ due_at: '2026-11-20T16:00:00Z', schedule: session() }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
+    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-20T16:00:00.000Z' })
+    expect(calls.filter(c => /schedule$/.test(c.url))).toHaveLength(0)
+  })
+  it('a tile keeps the typed time and posts it as account time (Today 17:00 is 16:00Z)', async () => {
+    const calls = server(); open(task({ due_at: '2026-11-20T16:00:00Z' }))
+    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T17:00')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
+    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-11T16:00:00.000Z' })
+  })
+  it('says which zone the times are in, and ties the note to the deadline for screen readers', () => {
+    server(); open()
+    const [note, ...others] = screen.getAllByText(/Times are in/)   // one under the deadline, one in the scheduled-time box
+    expect(others).toHaveLength(1)
+    expect(note).toHaveTextContent('Times are in Europe/Amsterdam')
+    expect(screen.getByRole('group', { name: 'Deadline (due)' }).getAttribute('aria-describedby')).toContain(note.id)
+  })
+})
+
+describe('browser in the account zone', () => {
+  it('shows no zone note: there is nothing to explain', () => {
+    server(); open()
+    expect(screen.queryByText(/Times are in/)).not.toBeInTheDocument()
+  })
+  it('the note reads in Arabic, with the zone name kept left-to-right', () => {
+    process.env.TZ = 'UTC'; localStorage.setItem('lifeos-language', 'ar')
+    try { server(); open() } finally { process.env.TZ = 'Europe/Amsterdam' }
+    const note = screen.getAllByText(/الأوقات بتوقيت/)[0]
+    expect(note.querySelector('bdi')).toHaveAttribute('dir', 'ltr'); expect(note).toHaveTextContent('Europe/Amsterdam')
   })
 })
 

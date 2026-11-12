@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import { setAccountZone } from '../lib/accountDay'
 import { DEFAULT_DEADLINE_TIME, deadlineField, deadlineInstant, deriveWhen, dueFor, dueKeepingTime, nextHalfHour, weekEndDay, whenField } from '../lib/quickAdd'
 
-// The browser's zone (what the date fields use) is Amsterdam here, the usual case where it equals the account's; differing zones are tested apart.
+// The browser's zone is Amsterdam here, the usual case where it equals the account's; differing zones are tested in account-zone-times.test.ts.
 const BROWSER_TZ = process.env.TZ
 process.env.TZ = 'Europe/Amsterdam'
 afterAll(() => { if (BROWSER_TZ === undefined) delete process.env.TZ; else process.env.TZ = BROWSER_TZ })
@@ -12,14 +12,14 @@ const AMS = 'Europe/Amsterdam'
 const NOON = new Date('2026-11-11T10:00:00Z')
 const at = (local: string, zone = AMS) => { setAccountZone(zone); return new Date(deadlineInstant(local)!) }
 
-describe('the deadline field is the browser wall clock, as the pickers always stored it', () => {
-  it('round-trips an instant through the browser zone (Amsterdam here), whatever the account zone is', () => {
+describe('the deadline field is the account wall clock (the browser zone only while the account zone is unknown)', () => {
+  it('round-trips an instant through the account zone, or the browser zone (Amsterdam here) when there is none', () => {
     expect(deadlineField('2026-11-11T16:00:00Z')).toBe('2026-11-11T17:00')
     expect(deadlineInstant('2026-11-11T17:00')).toBe('2026-11-11T16:00:00.000Z')
     expect(deadlineField('2026-11-11T23:30:00Z')).toBe('2026-11-12T00:30')   // the UTC day is the 11th, the browser day the 12th
     setAccountZone('America/New_York')
-    expect(deadlineField('2026-11-11T22:00:00Z')).toBe('2026-11-11T23:00')   // unchanged by the account zone
-    expect(deadlineInstant('2026-11-11T23:00')).toBe('2026-11-11T22:00:00.000Z')
+    expect(deadlineField('2026-11-11T22:00:00Z')).toBe('2026-11-11T17:00')   // New York wall clock, not the browser's 23:00
+    expect(deadlineInstant('2026-11-11T17:00')).toBe('2026-11-11T22:00:00.000Z')
   })
   it('knows nothing for empty or invalid values', () => {
     expect(deadlineField(null)).toBe(''); expect(deadlineField('nope')).toBe('')
@@ -121,12 +121,11 @@ describe('tapping a "When" tile moves the day and keeps the time', () => {
 })
 
 describe('when the browser zone and the account zone differ', () => {
-  it('the day comes from the account calendar, the time from the field, and the tile follows the account day of the typed moment', () => {
+  it('the day comes from the account calendar, the time from the field, and the tile follows the field, which is account time', () => {
     setAccountZone('Pacific/Auckland')   // browser: Amsterdam. NOW is 23:00 on the 11th in Auckland.
     expect(whenField('today', '2026-11-20T09:30', NOON)).toBe('2026-11-11T09:30')
-    // 13:00 Amsterdam on the 11th is 01:00 on the 12th in Auckland: the account's tomorrow, although the field shows the 11th.
-    expect(deriveWhen('2026-11-11T13:00', NOON)).toBe('tomorrow')
-    expect(deriveWhen('2026-11-11T10:00', NOON)).toBe('today')   // 22:00 on the 11th in Auckland
+    expect(deriveWhen('2026-11-11T13:00', NOON)).toBe('today')      // the field is Auckland time: 13:00 on the 11th is today there
+    expect(deriveWhen('2026-11-12T01:00', NOON)).toBe('tomorrow')
   })
 })
 

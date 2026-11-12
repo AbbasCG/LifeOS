@@ -145,7 +145,7 @@ describe('the fields of the scheduled time', () => {
     const { result } = hook({ schedule: null })
     act(() => result.current.changeStart('2026-11-13T10:00'))
     expect(result.current.end).toBe('2026-11-13T10:45')
-    expect(result.current.plan()).toEqual({ slot: { starts_at: new Date('2026-11-13T10:00').toISOString(), ends_at: new Date('2026-11-13T10:45').toISOString() } })
+    expect(result.current.plan()).toEqual({ slot: { starts_at: '2026-11-13T09:00:00.000Z', ends_at: '2026-11-13T09:45:00.000Z' } })   // 10:00 to 10:45 on the account's (Amsterdam) clock, whatever the browser zone is
     const moved = hook({ schedule })
     act(() => moved.result.current.changeStart('2026-11-12T10:00'))
     expect(moved.result.current.end).toBe('2026-11-12T10:30')   // the session was 30 minutes long: it stays 30

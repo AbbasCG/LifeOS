@@ -58,6 +58,22 @@ export function wallClockToInstant(y: number, m: number, d: number, h: number, m
   return new Date(guess)
 }
 
+/**
+ * Like wallClockToInstant, but when the clock goes back and the wall time happens twice (e.g. 02:30 on 2026-10-25 in Amsterdam) the
+ * EARLIER of the two is returned, as the browser's own Date does. A time the clock skips (02:30 on 2026-03-29) moves forward (03:30).
+ */
+export function wallClockToFirstInstant(y: number, m: number, d: number, h: number, mi: number, sec: number, timeZone?: string): Date {
+  const base = wallClockToInstant(y, m, d, h, mi, sec, timeZone)
+  if (!timeZone) return base
+  const t = base.getTime(), wanted = Date.UTC(y, m - 1, d, h, mi, sec)
+  const back = (offsetMinutes(new Date(t - 86_400_000), timeZone) - offsetMinutes(new Date(t + 86_400_000), timeZone)) * 60_000   // > 0 when the clock goes back around here
+  if (back > 0) {
+    const p = zonedParts(new Date(t - back), timeZone)
+    if (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) === wanted) return new Date(t - back)
+  }
+  return base
+}
+
 /** The instant (ISO, UTC) at which the wall clock in the account's timezone reads `hour:00` on `day`. */
 export function accountInstant(day: string, hour: number): string {
   const [y, m, d] = day.split('-').map(Number)
