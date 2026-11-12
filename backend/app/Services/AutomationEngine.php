@@ -219,7 +219,7 @@ class AutomationEngine
                 $step = $task->recurrence === 'weekly' ? 7 : 1;
                 $due = $next->due_at;
                 for ($i = 0; $due <= now() && $i < 400; $i++) {
-                    $due = $due->addDays($step);
+                    $due = $next->addDaysToDue($due, $step);
                 }
                 $next->update(['due_at' => $due]);
 

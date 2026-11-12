@@ -256,7 +256,16 @@ class WorkspaceController extends Controller
         if (($prefs['work_end'] ?? '17:00') <= ($prefs['work_start'] ?? '09:00')) {
             throw ValidationException::withMessages(['work_end' => ['Work end must follow work start.']]);
         }
-        $record->update(['preferences' => $prefs]);
+        $oldTimezone = $record->preferences['timezone'] ?? 'UTC';
+        DB::transaction(function () use ($request, $record, $prefs, $oldTimezone) {
+            // Date-only deadlines are stored as the end of their day in the account timezone, so changing the timezone moves them to the end of the
+            // SAME calendar date in the new zone (the person still means "Friday"). Timed deadlines are real instants and do not move.
+            if (($prefs['timezone'] ?? 'UTC') !== $oldTimezone) {
+                User::lockForOrdering($request->user()->id);
+                $this->recomputeDateOnlyDeadlines($request->user()->id, $oldTimezone, $prefs['timezone']);
+            }
+            $record->update(['preferences' => $prefs]);
+        });
 
         return response()->json($prefs);
     }
@@ -278,6 +287,23 @@ class WorkspaceController extends Controller
         });
 
         return response()->json(['total_tasks' => $total, 'completed_tasks' => $completed, 'completion_rate' => $total ? round($completed / $total * 100) : 0, 'overdue_tasks' => (clone $tasks)->whereNotIn('status', ['completed', 'cancelled'])->where('due_at', '<', now())->count(), 'focus_minutes' => (int) floor($sessions->sum('elapsed_seconds') / 60), 'estimated_minutes' => (clone $tasks)->sum('estimated_minutes'), 'actual_minutes' => (clone $tasks)->sum('actual_minutes'), 'days' => $days, 'today' => $today->toDateString()]);
+    }
+
+    /**
+     * Raw updates on purpose: no model events, so moving the zone is never counted as a postponement, and the scheduled sessions and reminders
+     * are untouched.
+     */
+    private function recomputeDateOnlyDeadlines(int $userId, string $from, string $to): void
+    {
+        DB::table('tasks')->where('user_id', $userId)->where('due_all_day', true)->whereNotNull('due_at')->orderBy('id')->chunkById(200, function ($rows) use ($from, $to) {
+            foreach ($rows as $row) {
+                $date = CarbonImmutable::parse($row->due_at, 'UTC')->setTimezone($from)->toDateString();
+                $due = Task::endOfDay($date, $to)->format('Y-m-d H:i:s');
+                if ($due !== CarbonImmutable::parse($row->due_at, 'UTC')->format('Y-m-d H:i:s')) {
+                    DB::table('tasks')->where('id', $row->id)->update(['due_at' => $due, 'updated_at' => now()]);
+                }
+            }
+        });
     }
 
     public function export(Request $request): JsonResponse

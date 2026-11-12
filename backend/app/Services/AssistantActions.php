@@ -547,7 +547,7 @@ class AssistantActions
                 if (! $task || ! isset($result['before']) || $task->due_at?->toIso8601String() !== $result['after']['due_at']) {
                     return $kept('changed since');
                 }
-                $task->update(['due_at' => CarbonImmutable::parse($result['before']['due_at'])]);
+                $task->update(['due_at' => CarbonImmutable::parse($result['before']['due_at']), 'due_all_day' => (bool) ($result['before']['due_all_day'] ?? false)]);
 
                 return ['done' => true];
         }
@@ -699,8 +699,8 @@ class AssistantActions
         if (! $due || ! $from || ! $task->due_at?->equalTo($from)) {
             $fail('This task changed since the suggestion was made.');
         }
-        $before = ['due_at' => $task->due_at->toIso8601String()];
-        $task->update(['due_at' => $due]);
+        $before = ['due_at' => $task->due_at->toIso8601String(), 'due_all_day' => (bool) $task->due_all_day];
+        $task->update(['due_at' => $due, 'due_all_day' => false]);
 
         return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String()]];
     }

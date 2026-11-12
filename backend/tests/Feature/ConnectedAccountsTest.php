@@ -156,6 +156,9 @@ class ConnectedAccountsTest extends TestCase
 
         $copy = $this->postJson("/api/connected/tasks/{$task->id}/copy")->assertCreated()->json();
         $this->assertSame('google_tasks:L1|t1', Task::find($copy['id'])->source_ref);
+        // A date-only import stays date-only when copied: the copy shows the date, not 23:59.
+        $this->assertTrue(Task::find($copy['id'])->due_all_day);
+        $this->assertSame('2027-01-05', Task::find($copy['id'])->dueDate('Europe/Amsterdam'));
         $this->postJson("/api/connected/tasks/{$task->id}/copy")->assertOk()->assertJsonPath('id', $copy['id']);
         $this->assertSame(1, Task::count());
         $this->assertSame(['Done already'], collect($this->getJson('/api/connected/tasks')->assertOk()->json())->pluck('title')->all());
