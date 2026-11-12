@@ -14,7 +14,7 @@ import { useText } from '../lib/i18n'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { DueChip, EmptyNote, PageHead, PriorityMark } from '../components/visual'
-import { TASKS_CHANGED, dueFor, openQuickAdd, type When } from '../lib/quickAdd'
+import { TASKS_CHANGED, dueKeepingTime, openQuickAdd, type When } from '../lib/quickAdd'
 import { RecordForm, useStatusLabel } from './ResourcePage'
 import { ConnectedTasksPanel } from './connected/ConnectedTasksPanel'
 import { useStartFocus } from '../lib/useStartFocus'
@@ -66,7 +66,7 @@ export default function TasksPage() {
   }
   /** Move a task to another day, or clear its date, in one tap; Undo puts the old date back. */
   async function reschedule(task: RecordItem, when: When) {
-    const before = task.due_at ?? null, next = dueFor(when)
+    const before = task.due_at ?? null, next = dueKeepingTime(when, before)   // the day moves, the time of day stays
     await run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: next }))
     const where = { today: t('today', 'اليوم'), tomorrow: t('tomorrow', 'غدًا'), week: t('this week', 'هذا الأسبوع'), nextweek: t('next week', 'الأسبوع القادم'), none: t('no date', 'بلا موعد') }[when]
     toast(t(`“${task.title}” moved to ${where}.`, `نُقلت «${task.title}» إلى ${where}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: before }), t('Restored.', 'أُعيد.')) })

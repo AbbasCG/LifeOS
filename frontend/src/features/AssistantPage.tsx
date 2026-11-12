@@ -191,7 +191,7 @@ export default function AssistantPage() {
           </Expandable>}
         </div>}
         {linkedProposal && <div className="linked-proposal"><p className="muted">{t('Suggested by your automations', 'مقترح من الأتمتة')}</p><p>{linkedProposal.summary}</p><ProposalCard proposal={linkedProposal} /></div>}
-        <div className="chat-log" aria-live="polite" aria-busy={busy}>
+        <div className="chat-log" role="region" tabIndex={0} aria-label={t('Conversation', 'المحادثة')} aria-live="polite" aria-busy={busy}>
           {messages.length === 0 && context.some(c => !prompts.includes(c)) && <div className="context-chips" aria-label={t('Suggested for right now', 'مقترح الآن')}>{context.filter(c => !prompts.includes(c)).map(c => <button key={c} className="chip-button" disabled={busy} onClick={() => setMessage(c)}><Sparkles size={13} />{c}</button>)}</div>}
           {messages.length === 0 && <div className="chat-empty"><span className="orb"><Sparkles size={26} /></span><h2>{t('How can I help today?', 'كيف يمكنني مساعدتك اليوم؟')}</h2><p className="muted">{t('Tap an idea or type.', 'اختر فكرة أو اكتب.')}</p></div>}
           {messages.map(m => <div key={m.id} className={`chat-turn ${m.role} reveal`}>

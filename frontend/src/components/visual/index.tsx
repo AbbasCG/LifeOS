@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, CheckSquare, ChevronD
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useAnimatedClose } from '../../lib/useAnimatedClose'
+import { formatClock, formatMediumDateTime } from '../../lib/clock'
 
 /**
  * LifeOS visual language (V20): small, reusable pieces that let a screen be read at a glance — rings and numbers
@@ -49,13 +50,13 @@ export function DueChip({ due, done = false, label }: { due?: string | null; don
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const diff = Math.round((day(d) - day(now)) / 86400000)
   const late = !done && d.getTime() < now.getTime()
-  const time = d.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = formatClock(d, { language })
   const text = late && diff < 0 ? t(`${-diff}d late`, `متأخرة ${-diff} يوم`, `${-diff} d te laat`)
     : diff === 0 ? (d.getHours() || d.getMinutes() ? `${t('Today', 'اليوم', 'Vandaag')} ${time}` : t('Today', 'اليوم', 'Vandaag'))
       : diff === 1 ? t('Tomorrow', 'غدًا', 'Morgen')
         : diff > 1 && diff < 7 ? d.toLocaleDateString(language, { weekday: 'short' })
           : d.toLocaleDateString(language, { day: 'numeric', month: 'short' })
-  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={d.toLocaleString(language)}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={due}>{text}</time></span>
+  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={formatMediumDateTime(d, { language })}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={due}>{text}</time></span>
 }
 
 /** The kind of a calendar item as an icon: meetings, focus blocks, tasks, everything else. */

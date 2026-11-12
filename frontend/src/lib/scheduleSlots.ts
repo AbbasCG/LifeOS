@@ -1,5 +1,6 @@
 import type { Availability } from './api'
 import { accountDay, accountZone, shiftDay } from './accountDay'
+import { formatClock } from './clock'
 
 /**
  * Where a task could go in the calendar: the first free stretch long enough for it on each of the next days, taken from the
@@ -26,11 +27,11 @@ export function suggestSlots(availability: Availability | null | undefined, minu
   return found
 }
 
-/** "Today 3:30 PM", "Tomorrow 9:00 AM", "Thu 9:00 AM": the day in the account's calendar and the time in its timezone. */
-export function slotWords(slot: FreeSlot, language: string, t: (en: string, ar: string) => string, now = new Date()): string {
+/** "Today 15:30", "Tomorrow 09:00", "Thu 09:00": the day in the account's calendar and the time in its timezone. */
+export function slotWords(slot: FreeSlot, language: string, t: (en: string, ar: string, nl?: string) => string, now = new Date()): string {
   const today = accountDay(now)
-  const time = new Date(slot.starts_at).toLocaleTimeString(language === 'ar' ? 'ar' : 'en', { hour: 'numeric', minute: '2-digit', timeZone: accountZone() })
-  const day = slot.day === today ? t('Today', 'اليوم') : slot.day === shiftDay(today, 1) ? t('Tomorrow', 'غدًا')
-    : new Date(`${slot.day}T12:00:00Z`).toLocaleDateString(language === 'ar' ? 'ar' : 'en', { weekday: 'short', timeZone: 'UTC' })
+  const time = formatClock(slot.starts_at, { language, timeZone: accountZone() })
+  const day = slot.day === today ? t('Today', 'اليوم', 'Vandaag') : slot.day === shiftDay(today, 1) ? t('Tomorrow', 'غدًا', 'Morgen')
+    : new Date(`${slot.day}T12:00:00Z`).toLocaleDateString(language === 'ar' ? 'ar' : language === 'nl' ? 'nl-NL' : 'en', { weekday: 'short', timeZone: 'UTC' })
   return `${day} ${time}`
 }

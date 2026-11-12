@@ -82,10 +82,14 @@ export function parseTimeInput(text: string): string | null {
 
 const KEY = 'lifeos-hour-cycle'
 export const HOUR_CYCLE_CHANGED = 'lifeos:hour-cycle'
-/** 12 or 24 hours: the person's own choice if they made one, else what their language and region use. */
-export function preferredHourCycle(language: string): HourCycle {
+/**
+ * 12 or 24 hours. LifeOS shows a 24-hour clock (08:00, 13:00, 17:45) in every language: the default is 24 and no longer
+ * follows the language's region (English used to default to AM/PM). Only an explicit choice made in the picker's own
+ * "12 h" switch (kept on this device) turns the 12-hour display on.
+ */
+export function preferredHourCycle(): HourCycle {
   try { const saved = localStorage.getItem(KEY); if (saved === '12' || saved === '24') return Number(saved) as HourCycle } catch { /* storage unavailable */ }
-  try { return new Intl.DateTimeFormat(language, { hour: 'numeric' }).resolvedOptions().hour12 ? 12 : 24 } catch { return 24 }
+  return 24
 }
 export function saveHourCycle(cycle: HourCycle) {
   try { localStorage.setItem(KEY, String(cycle)) } catch { /* kept for this visit only */ }
@@ -95,8 +99,9 @@ export function saveHourCycle(cycle: HourCycle) {
 export function formatTime(time: string, cycle: HourCycle, language: string): string {
   const m = toMinutes(time)
   if (m === null) return ''
+  if (cycle === 24) return timeOf(m)
   const date = new Date(Date.UTC(2000, 0, 1, Math.floor(m / 60), m % 60))
-  return new Intl.DateTimeFormat(language, { hour: cycle === 12 ? 'numeric' : '2-digit', minute: '2-digit', hour12: cycle === 12, timeZone: 'UTC' }).format(date)
+  return new Intl.DateTimeFormat(language === 'ar' ? 'ar-u-nu-latn' : language, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' }).format(date)
 }
 export function formatDay(day: string, language: string, opts: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' }): string {
   const p = parseDay(day)

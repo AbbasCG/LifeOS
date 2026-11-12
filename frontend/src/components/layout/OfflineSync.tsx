@@ -8,6 +8,7 @@ import { discard, OPEN_SYNC, sendAllPending, sendPending, usePending, type Pendi
 import { TASKS_CHANGED } from '../../lib/quickAdd'
 import { HABITS_CHANGED } from '../../lib/quickActions'
 import { BottomSheet } from '../visual'
+import { formatDayTime } from '../../lib/clock'
 
 const refreshLists = () => { window.dispatchEvent(new Event(TASKS_CHANGED)); window.dispatchEvent(new Event(HABITS_CHANGED)) }
 
@@ -75,7 +76,7 @@ function SyncSheet({ items, online, onClose }: { items: Pending[]; online: boole
       const [Icon, kind] = kinds[item.kind]
       return <li key={item.id} className={`state-${item.state}`}>
         <span className="sync-icon"><Icon size={16} aria-hidden="true" /></span>
-        <span className="sync-body"><strong>{item.label}</strong><small className="muted">{kind} · {new Date(item.created_at).toLocaleString(language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</small>
+        <span className="sync-body"><strong>{item.label}</strong><small className="muted">{kind} · {formatDayTime(item.created_at, { language }, { weekday: 'short' })}</small>
           {item.state === 'conflict' && <small className="sync-conflict"><AlertTriangle size={12} aria-hidden="true" />{reason(item)}</small>}
           {item.state === 'conflict' && item.kind === 'task.complete' && item.reason === 'changed' && <button type="button" className="quiet" disabled={!online || busy} onClick={() => void force(item)}>{t('Complete anyway', 'أنجزها على أي حال')}</button>}
         </span>

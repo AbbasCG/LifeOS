@@ -10,6 +10,7 @@ import { isValidZone } from '../../lib/dial'
 import type { MorningBriefing, Recommendation } from '../../lib/intelligence'
 import { RecommendationCard } from './RecommendationCard'
 import { confidenceLabel, reasonLabel, sourceLabel } from './labels'
+import { formatClock, formatDayTime } from '../../lib/clock'
 
 type Tab = 'priorities' | 'day' | 'focus' | 'watch'
 
@@ -22,7 +23,7 @@ export function IntelligenceBriefing() {
   if (!data) return <section className="panel intel-briefing"><Skeleton lines={4} /></section>
   if (!data.enabled) return null
   const zone = isValidZone(data.timezone) ? data.timezone : undefined
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone: zone })
+  const time = (iso: string) => formatClock(iso, { language, timeZone: zone })
   const day = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(language, { weekday: 'long' })
   const suggestions = data.suggestions.filter((r: Recommendation) => !gone.includes(r.id))
   const watchCount = data.overloaded.length + data.unfinished.length + data.improvements.length
@@ -47,7 +48,7 @@ export function IntelligenceBriefing() {
       </li>)}</ol> : <p className="muted">{t('No open tasks. A clear runway.', 'لا مهام مفتوحة. طريق ممهد.')}</p>)}
       {tab === 'day' && <div className="intel-cols">
         <div><h3><CalendarClock size={15} />{t('Meetings', 'الاجتماعات')}</h3>{data.meetings.length ? <ul className="intel-plain">{data.meetings.map((e, i) => <li key={i}><span dir="ltr" className="muted">{time(e.starts_at)}–{time(e.ends_at)}</span> {e.title} {e.source !== 'lifeos' && <span className="chip">{sourceLabel(e.source, t)}</span>}</li>)}</ul> : <p className="muted small">{t('No meetings left today.', 'لا اجتماعات متبقية اليوم.')}</p>}</div>
-        <div><h3><Hourglass size={15} />{t('Deadlines (48 h)', 'المواعيد (٤٨ ساعة)')}</h3>{data.deadlines.length ? <ul className="intel-plain">{data.deadlines.map(d => <li key={d.id} className={`risk-${d.risk}`}>{d.title} <span className="muted" dir="ltr">{d.due_at && new Date(d.due_at).toLocaleString(language, { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: zone })}</span>{d.reasons.includes('deadline_risk') && <span className="chip warn">{reasonLabel('deadline_risk', t)}</span>}</li>)}</ul> : <p className="muted small">{t('Nothing due in the next two days.', 'لا شيء مستحق خلال يومين.')}</p>}</div>
+        <div><h3><Hourglass size={15} />{t('Deadlines (48 h)', 'المواعيد (٤٨ ساعة)')}</h3>{data.deadlines.length ? <ul className="intel-plain">{data.deadlines.map(d => <li key={d.id} className={`risk-${d.risk}`}>{d.title} <span className="muted" dir="ltr">{d.due_at && formatDayTime(d.due_at, { language, timeZone: zone }, { weekday: 'short' })}</span>{d.reasons.includes('deadline_risk') && <span className="chip warn">{reasonLabel('deadline_risk', t)}</span>}</li>)}</ul> : <p className="muted small">{t('Nothing due in the next two days.', 'لا شيء مستحق خلال يومين.')}</p>}</div>
       </div>}
       {tab === 'focus' && <div className="intel-focus">
         <p className="capacity"><strong>{data.focus.capacity.minutes}</strong> {t('minutes of focus realistically fit today', 'دقيقة تركيز تتسع واقعياً اليوم')}

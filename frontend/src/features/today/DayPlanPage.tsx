@@ -11,6 +11,7 @@ import { minutesLabel } from '../../lib/dates'
 import { ErrorMessage, Skeleton } from '../../components/ui/Shared'
 import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { useReasonLabel } from '../../lib/labels'
+import { formatClock } from '../../lib/clock'
 
 /**
  * "Plan my day": the real time budget, explanations and three alternative schedules. Choosing one creates a pending
@@ -31,7 +32,7 @@ export default function DayPlanPage() {
   const [busy, setBusy] = useState(false), [failure, setFailure] = useState(''), [editing, setEditing] = useState(false)
   const active = selected ?? data?.recommended ?? 'balanced'
   const alt = data?.alternatives.find(a => a.key === active)
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = (iso: string) => formatClock(iso, { language })
   const bi = (v: { en: string; ar: string }) => ar ? v.ar : v.en
 
   async function choose() {

@@ -7,6 +7,7 @@ import { useToast } from '../../lib/toast'
 import { Dialog, ErrorMessage } from '../../components/ui/Shared'
 import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { zonedParts, zonedToUtc, type MovePreview, type TimelineItem } from '../../lib/timeline'
+import { formatClock } from '../../lib/clock'
 
 /**
  * Move one LifeOS event — or one occurrence of a series — with a live preview of what the new time would collide with,
@@ -21,7 +22,7 @@ export function MoveDialog({ item, timeZone, onClose, onMoved }: { item: Timelin
   const startsAt = zonedToUtc(date, from, timeZone), endsAt = zonedToUtc(date, to, timeZone)
   const valid = Boolean(date && from && to) && endsAt > startsAt
   const changed = startsAt.toISOString() !== new Date(item.starts_at).toISOString() || endsAt.toISOString() !== new Date(item.ends_at ?? item.starts_at).toISOString()
-  const clock = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone })
+  const clock = (iso: string) => formatClock(iso, { language, timeZone })
   const key = `${startsAt.toISOString()}|${endsAt.toISOString()}`
 
   useEffect(() => {

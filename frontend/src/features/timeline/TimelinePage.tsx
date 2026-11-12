@@ -15,6 +15,7 @@ import { MoveDialog } from './MoveDialog'
 import { SendToCalendar } from '../connected/SendToCalendar'
 import type { WriteData } from '../../lib/calendarWrite'
 import { addDays, type TimelineConflict, type TimelineData, type TimelineItem } from '../../lib/timeline'
+import { formatClock } from '../../lib/clock'
 
 const KIND_ICON = { event: CalendarDays, task: CheckSquare, external_task: ListChecks, focus: Timer, goal: Flag, habit: Repeat } as const
 
@@ -39,7 +40,7 @@ export default function TimelinePage() {
   const writes = useApi<WriteData>('/api/calendar-write')
   const canSend = Boolean(writes.data?.enabled && writes.data.targets.length)
   const timeZone = data?.range.timezone && isValidZone(data.range.timezone) ? data.range.timezone : undefined
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone })
+  const time = (iso: string) => formatClock(iso, { language, timeZone })
   const dayKey = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso))
   const dayTitle = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' })
   const toggle = <K extends keyof typeof filters>(key: K, value: (typeof filters)[K][number]) => setFilters(f => ({ ...f, [key]: (f[key] as (typeof value)[]).includes(value) ? (f[key] as (typeof value)[]).filter(v => v !== value) : [...(f[key] as (typeof value)[]), value] }))

@@ -14,6 +14,7 @@ import { ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { AWAY_SECONDS, clock, DEEP_MINUTES, elapsedNow, newClientId, nextPomodoroStep, overdueSeconds, phaseOf, stampSession, POMODORO, type FocusInsightsData, type FocusMode, type FocusSessionRecord, type SessionKind } from '../lib/focus'
 import { notify as notifyUser } from '../lib/quickActions'
 import { TASKS_CHANGED } from '../lib/quickAdd'
+import { formatDayTime } from '../lib/clock'
 
 const DISTRACTIONS = ['phone', 'people', 'notifications', 'thought', 'other'] as const
 type WrapUp = { sessionId: number; taskId: number; title: string; minutes: number }
@@ -201,7 +202,7 @@ export default function FocusPage() {
   const orbLabel = active ? t(`Session ${Math.round(progress * 100)}% complete, ${clock(remaining)} left`, `الجلسة مكتملة بنسبة ${Math.round(progress * 100)}٪، متبقٍ ${clock(remaining)}`) : t('Focus orb, ready', 'كرة التركيز، جاهزة')
   const history = useMemo(() => (sessions ?? []).filter(s => s.status === 'completed' || s.status === 'cancelled').slice(0, 15), [sessions])
   const reason = (r: string) => ({ phone: t('Phone', 'الهاتف'), people: t('People', 'أشخاص'), notifications: t('Notifications', 'الإشعارات'), thought: t('Wandering thought', 'تشتت ذهني'), other: t('Other', 'أخرى') } as Record<string, string>)[r] ?? r
-  const fmtTime = (iso: string) => new Date(iso).toLocaleString(language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+  const fmtTime = (iso: string) => formatDayTime(iso, { language }, { weekday: 'short' })
   const ins = insights.data
 
   return <section className="page focus-page">
@@ -313,7 +314,7 @@ export default function FocusPage() {
         </Expandable>
         <Expandable summary={<>{t('Session history', 'سجل الجلسات')}{history.length > 0 && <span className="summary-stat">{history.length}</span>}</>} icon={<History size={17} aria-hidden="true" />}>
           {sessions === null ? <Skeleton lines={3} /> : history.length === 0 ? <p className="muted">{t('Your sessions will appear here.', 'ستظهر جلساتك هنا.')}</p> :
-            <ul className="session-history">{history.map(s => <li key={s.id} className={s.status}>
+            <ul className="session-history" role="region" tabIndex={0} aria-label={t('Session history', 'سجل الجلسات')}>{history.map(s => <li key={s.id} className={s.status}>
               <div className="row"><strong>{label(s.kind, s.mode)}</strong><span className="muted small">{fmtTime(s.completed_at ?? s.created_at)}</span></div>
               <div className="metadata">
                 <span>{s.status === 'cancelled' ? t('Stopped early', 'توقفت مبكراً') : <><CheckCircle2 size={12} /> {Math.round(s.elapsed_seconds / 60)} {t('min', 'د')}</>}</span>

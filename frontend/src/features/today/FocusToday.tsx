@@ -9,6 +9,7 @@ import { useStartFocus } from '../../lib/useStartFocus'
 import { minutesLabel } from '../../lib/dates'
 import { BottomSheet, ProgressRing } from '../../components/visual'
 import { Skeleton } from '../../components/ui/Shared'
+import { formatClock } from '../../lib/clock'
 
 type FocusToday = { today_minutes: number; goal_minutes: number | null; goal_streak_days: number; streak_days: number; best_hour: number | null; best_hour_minutes: number }
 const GOALS = [30, 60, 90, 120, 180, 240]
@@ -24,7 +25,7 @@ export function FocusToday() {
   if (!stats.data) return <section className="panel focus-today"><Skeleton lines={2} /></section>
   const { today_minutes: today, goal_minutes: goal, streak_days: streak, goal_streak_days: goalStreak, best_hour: best } = stats.data
   const ar = language === 'ar'
-  const hour = best === null ? null : new Date(2027, 0, 1, best).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const hour = best === null ? null : formatClock(new Date(2027, 0, 1, best), { language })
   return <section className="panel focus-today" aria-labelledby="focus-today-title">
     <header className="row"><h2 id="focus-today-title">{t('Focus', 'التركيز')}</h2>
       <button type="button" className="icon-button" disabled={focus.busy} onClick={() => void focus.go()} aria-label={t('Start focus', 'ابدأ التركيز')}><Play size={17} /></button></header>

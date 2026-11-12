@@ -17,6 +17,7 @@ import { openHabitSheet } from '../../lib/quickActions'
 import { dueFor, dueForDay, nextWeekDay, QUICK_ADD, spokenHints, TASKS_CHANGED, type Priority, type QuickWhen } from '../../lib/quickAdd'
 
 import { lazyPart, whenIdle } from '../../lib/lazyPart'
+import { formatDayTime } from '../../lib/clock'
 
 // Loaded on demand, then fetched in the background once the page is idle so they also work offline.
 const VoiceButton = lazyPart(() => import('../../features/assistant/VoiceButton').then(m => m.VoiceButton))
@@ -50,7 +51,7 @@ export default function QuickAdd() {
   // What the typed or dictated phrase said about the time and length, shown before saving so nothing is a surprise.
   const read = readCapture(text)
   const understood = [
-    read.found.due && read.task.due_at ? new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: accountZone() }).format(new Date(read.task.due_at)) : '',
+    read.found.due && read.task.due_at ? formatDayTime(read.task.due_at, { language, timeZone: accountZone() }) : '',
     read.found.duration ? t(`${read.task.estimated_minutes} min`, `${read.task.estimated_minutes} دقيقة`) : '',
   ].filter(Boolean).join(' · ')
   function task(): Partial<RecordItem> {

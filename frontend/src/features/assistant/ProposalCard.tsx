@@ -7,6 +7,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 import { TEMPLATES_CHANGED } from '../../lib/copilot'
+import { formatClock } from '../../lib/clock'
 
 /**
  * Reviewable changes suggested by the assistant. Nothing changes until the user approves specific items.
@@ -17,7 +18,7 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [naming, setNaming] = useState(false), [templateName, setTemplateName] = useState('')
   const open = proposal.status === 'pending'
   const day = (iso: string) => new Date(iso).toLocaleDateString(language, { weekday: 'short', day: 'numeric', month: 'short' })
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const time = (iso: string) => formatClock(iso, { language })
   const range = (start: string, end: string) => `${day(start)} · ${time(start)}–${time(end)}`
   const taskKind = proposal.kind === 'goal_plan' || proposal.kind === 'triage'
   const dueLabel = (iso: string) => `${day(iso)} · ${time(iso)}`

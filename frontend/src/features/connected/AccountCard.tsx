@@ -13,6 +13,7 @@ import { useAccountStateLabel } from '../../lib/accountState'
 import { relativeTime } from '../../lib/relativeTime'
 import { isBroken, usePresetLabel, useStateLine } from './accountLine'
 import { Count } from './Count'
+import { formatClock, formatMediumDateTime } from '../../lib/clock'
 
 export type Collection = { id: string; name: string; color: string | null; primary: boolean; included: boolean }
 export type SyncRunInfo = { details?: { skipped?: number }; id: number; mode: 'full' | 'incremental'; status: 'running' | 'success' | 'partial' | 'failed' | 'rate_limited' | 'revoked'; trigger: string; started_at: string; finished_at: string | null; duration_ms: number | null; upserted: number; removed: number; moved: number; error: string | null }
@@ -68,10 +69,10 @@ export function AccountCard({ account, label, tasks, requiredScopes, busy, onSyn
 }) {
   const t = useText(), { language } = useLanguage(), uid = useId()
   const [history, setHistory] = useState(false), [more, setMore] = useState(false)
-  const full = (iso: string) => new Date(iso).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })
+  const full = (iso: string) => formatMediumDateTime(iso, { language })
   /** Compact: "3 minutes ago" while recent, the date after a week; the exact moment is in the tooltip and the machine-readable attribute. */
   const when = (iso: string | null | undefined) => { if (!iso) return t('Never', 'أبداً', 'Nooit'); const r = relativeTime(iso, language); return <time dateTime={iso} title={full(iso)}>{r && r.kind !== 'date' ? r.text : full(iso)}</time> }
-  const clock = (iso: string) => new Date(iso).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
+  const clock = (iso: string) => formatClock(iso, { language })
   const waiting = account.retry_after ? new Date(account.retry_after) : null
   const syncing = busy === `sync-${account.id}`, who = account.email ?? account.display_name ?? label
   const line = useStateLine()(account, syncing), state = line.state

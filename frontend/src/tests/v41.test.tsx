@@ -45,8 +45,8 @@ describe('which free times are suggested for a task', () => {
   it('says the day and the time in the account’s timezone', () => {
     setAccountZone('Europe/Amsterdam')
     const t = (en: string) => en
-    expect(slotWords({ day: '2027-03-09', starts_at: '2027-03-09T13:00:00Z', ends_at: '' }, 'en', t, now)).toMatch(/^Today 2:00\s?PM$/)
-    expect(slotWords({ day: '2027-03-10', starts_at: '2027-03-10T08:00:00Z', ends_at: '' }, 'en', t, now)).toMatch(/^Tomorrow 9:00\s?AM$/)
+    expect(slotWords({ day: '2027-03-09', starts_at: '2027-03-09T13:00:00Z', ends_at: '' }, 'en', t, now)).toBe('Today 14:00')
+    expect(slotWords({ day: '2027-03-10', starts_at: '2027-03-10T08:00:00Z', ends_at: '' }, 'en', t, now)).toBe('Tomorrow 09:00')
     setAccountZone(undefined)
   })
 })

@@ -147,7 +147,7 @@ export default function AnalyticsPage() {
       </section>
       <details className="panel data-table">
         <summary>{t('View daily data as a table', 'عرض البيانات اليومية كجدول')}</summary>
-        <div className="table-scroll"><table><thead><tr><th>{t('Date', 'التاريخ')}</th><th>{t('Completed', 'منجزة')}</th><th>{t('Added', 'مضافة')}</th><th>{t('Focus minutes', 'دقائق التركيز')}</th></tr></thead><tbody>{data.series.map(d => <tr key={d.date}><td>{d.date}</td><td>{d.completed}</td><td>{d.created}</td><td>{d.focus_minutes}</td></tr>)}</tbody></table></div>
+        <div className="table-scroll" role="region" tabIndex={0} aria-label={t('Daily figures table', 'جدول الأرقام اليومية')}><table><thead><tr><th>{t('Date', 'التاريخ')}</th><th>{t('Completed', 'منجزة')}</th><th>{t('Added', 'مضافة')}</th><th>{t('Focus minutes', 'دقائق التركيز')}</th></tr></thead><tbody>{data.series.map(d => <tr key={d.date}><td>{d.date}</td><td>{d.completed}</td><td>{d.created}</td><td>{d.focus_minutes}</td></tr>)}</tbody></table></div>
       </details>
       </Expandable>
     </div>}

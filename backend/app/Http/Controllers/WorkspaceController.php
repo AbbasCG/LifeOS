@@ -85,8 +85,8 @@ class WorkspaceController extends Controller
                 $open = fn ($q) => $q->whereNotIn('status', ['completed', 'cancelled']);
                 match ($request->string('due')->toString()) {
                     'overdue' => $open($query)->where('due_at', '<', now()),
-                    'today' => $query->whereBetween('due_at', [$dayStart->utc(), $dayStart->addDay()->utc()]),
-                    'week' => $open($query)->whereBetween('due_at', [$dayStart->utc(), $dayStart->addDays(7)->utc()]),
+                    'today' => $query->where('due_at', '>=', $dayStart->utc())->where('due_at', '<', $dayStart->addDay()->utc()),
+                    'week' => $open($query)->where('due_at', '>=', $dayStart->utc())->where('due_at', '<', $dayStart->addDays(7)->utc()),
                     'none' => $query->whereNull('due_at'),
                     'open' => $open($query),
                     default => null,

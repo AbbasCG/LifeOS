@@ -33,7 +33,7 @@ describe('the session time: local day, local time, midnight and clock changes', 
   const when = (iso: string, now: string, t: (e: string, a: string, n?: string) => string = en, language = 'en') => sessionWhen(iso, language, t, new Date(now), ZONE)
 
   it('shows the local time of the session in the user’s timezone, never the UTC time', () => {
-    expect(when('2026-11-12T08:00:00Z', NOW).text).toBe('Tomorrow 09:00 AM')
+    expect(when('2026-11-12T08:00:00Z', NOW).text).toBe('Tomorrow 09:00')
     expect(when('2026-11-12T08:00:00Z', NOW, nl, 'nl').text).toBe('Morgen 09:00')
     expect(when('2026-11-12T08:00:00Z', NOW, ar, 'ar').text).toBe('غدًا 09:00')
     expect(when('2026-11-11T13:30:00Z', NOW, ar, 'ar').text).toBe('اليوم 14:30')
@@ -48,7 +48,7 @@ describe('the session time: local day, local time, midnight and clock changes', 
   it('stays right across the spring change on 2026-03-29 (a 23-hour day)', () => {
     const now = '2026-03-28T23:30:00Z'   // 00:30 CET on the 29th
     expect(when('2026-03-29T22:30:00Z', now).day).toBe('tomorrow')   // 00:30 CEST on the 30th: 23 hours later
-    expect(when('2026-03-29T22:30:00Z', now).text).toBe('Tomorrow 12:30 AM')
+    expect(when('2026-03-29T22:30:00Z', now).text).toBe('Tomorrow 00:30')
     expect(when('2026-03-30T22:30:00Z', now).day).toBe('date')       // the 31st at 00:30
     expect(when('2026-03-29T00:30:00Z', now).day).toBe('today')      // 01:30 CET the same morning
   })
@@ -112,7 +112,7 @@ describe('the badge on a task row', () => {
     const { container } = render(wrap(<TasksPage />))
     await screen.findByText('Pay the invoice')
     const badge = container.querySelector('.sched-badge')!
-    expect(badge).toHaveTextContent(/^Scheduled\s*Tomorrow 09:00 AM$/)
+    expect(badge).toHaveTextContent(/^Scheduled\s*Tomorrow 09:00$/)
     expect(badge.querySelector('time')).toHaveAttribute('datetime', '2026-11-12T08:00:00Z')
     // the deadline has its own label and its own time (the 20th, 16:00), not the session's
     const meta = container.querySelector('.meta-row')!
@@ -135,7 +135,7 @@ describe('the badge on a task row', () => {
     stub({ tasks: [task({ due_at: '2026-11-11T09:00:00Z', schedule: session({ starts_at: '2026-11-13T07:00:00Z', ends_at: '2026-11-13T07:30:00Z' }) })], calendar: [] })
     const { container } = render(wrap(<TasksPage />))
     await screen.findByText('Pay the invoice')
-    expect(container.querySelector('.sched-badge time')).toHaveTextContent(/08:00 AM/)
+    expect(container.querySelector('.sched-badge time')).toHaveTextContent(/08:00/)
     expect(container.querySelector('.sched-badge')).not.toHaveTextContent(/Today/)
   })
   it('says “N sessions” for a split task', async () => {
@@ -147,7 +147,7 @@ describe('the badge on a task row', () => {
   it.each([
     ['ar', 'مجدولة', 'غدًا 09:00', 'الاستحقاق', '30 دقيقة', 'عرض في التقويم', 'إعادة الجدولة', 'rtl'],
     ['nl', 'Gepland', 'Morgen 09:00', 'Deadline', '30 min', 'Bekijk in agenda', 'Opnieuw inplannen', 'ltr'],
-    ['en', 'Scheduled', 'Tomorrow 09:00 AM', 'Due', '30 min', 'View in calendar', 'Reschedule', 'ltr'],
+    ['en', 'Scheduled', 'Tomorrow 09:00', 'Due', '30 min', 'View in calendar', 'Reschedule', 'ltr'],
   ])('is complete in %s (%s) and reads in the right direction', async (lang, scheduled, when, due, minutes, view, again, dir) => {
     localStorage.setItem('lifeos-language', lang)
     stub({ tasks: [task({ schedule: session() })], calendar: [] })
@@ -399,7 +399,7 @@ describe('the calendar', () => {
     fireEvent.click(await waitFor(() => { const el = document.querySelector('[data-session="55"]'); if (!el) throw new Error('not drawn'); return el }))
     const panel = await screen.findByRole('region', { name: 'Task session' })
     expect(within(panel).getByRole('link', { name: 'Pay the invoice' })).toHaveAttribute('href', '/tasks?task=7')
-    expect(panel).toHaveTextContent('09:00 AM – 09:30 AM'); expect(panel).toHaveTextContent('30 min')
+    expect(panel).toHaveTextContent('09:00 – 09:30'); expect(panel).toHaveTextContent('30 min')
     fireEvent.click(within(panel).getByRole('button', { name: 'Reschedule' }))
     const group = await within(panel).findByRole('group', { name: 'Reschedule' })
     fireEvent.click(within(group).getAllByRole('button')[0])
@@ -471,7 +471,7 @@ describe('Escape and focus', () => {
     fireEvent.click(within(group).getAllByRole('button')[0])
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Task session' })).toBeNull())
     await waitFor(() => expect(document.querySelector('[data-session="55"]')).toHaveFocus())
-    expect(document.querySelector('[data-session="55"]')).toHaveTextContent('2:00 PM')   // 14:00 in Amsterdam: the new time
+    expect(document.querySelector('[data-session="55"]')).toHaveTextContent('14:00')   // 14:00 in Amsterdam: the new time
   })
 
   it('when the moved session is no longer in the period shown, focus goes to the calendar heading, never to the page', async () => {

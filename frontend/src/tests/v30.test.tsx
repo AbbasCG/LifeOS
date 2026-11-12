@@ -35,20 +35,20 @@ async function openTask() {
 }
 
 describe('moving and prioritising a task in two taps', () => {
-  it('moves a task to tomorrow at 17:00 in the account’s zone, and Undo puts the old date back', async () => {
+  it('moves a task to tomorrow keeping its time of day (11:00 in the account’s zone), and Undo puts the old date back', async () => {
     const fetcher = stub()
     await openTask()
     fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }))
-    await waitFor(() => expect(patches(fetcher)).toEqual([{ due_at: '2027-03-10T16:00:00.000Z' }]))
+    await waitFor(() => expect(patches(fetcher)).toEqual([{ due_at: '2027-03-10T10:00:00.000Z' }]))
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
-    await waitFor(() => expect(patches(fetcher)).toEqual([{ due_at: '2027-03-10T16:00:00.000Z' }, { due_at: '2027-03-09T10:00:00Z' }]))
+    await waitFor(() => expect(patches(fetcher)).toEqual([{ due_at: '2027-03-10T10:00:00.000Z' }, { due_at: '2027-03-09T10:00:00Z' }]))
   })
 
   it('moves to next week (the coming Monday) and clears the date', async () => {
     const fetcher = stub()
     await openTask()
     fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
-    await waitFor(() => expect(patches(fetcher)).toEqual([{ due_at: '2027-03-15T16:00:00.000Z' }]))
+    await waitFor(() => expect(patches(fetcher)).toEqual([{ due_at: '2027-03-15T10:00:00.000Z' }]))
     fireEvent.click(screen.getByRole('button', { name: 'No date' }))
     await waitFor(() => expect(patches(fetcher).at(-1)).toEqual({ due_at: null }))
   })

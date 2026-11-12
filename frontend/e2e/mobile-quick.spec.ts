@@ -10,7 +10,7 @@ async function call(page: Page, method: string, path: string, body?: unknown) {
   }, [method, path, body] as const)
 }
 const dayIn = (at: Date | string, zone: string) => new Date(at).toLocaleDateString('en-CA', { timeZone: zone })
-const clock = (at: string, zone: string) => new Date(at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', timeZone: zone })
+const clock = (at: string, zone: string) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone })
 
 test('a task moves to tomorrow and changes priority in two taps each, with Undo', async ({ page, setLanguage }) => {
   await setLanguage('en')
@@ -27,11 +27,11 @@ test('a task moves to tomorrow and changes priority in two taps each, with Undo'
     const row = page.locator('.task-item', { hasText: title })
     await expect(row).toBeVisible()
 
-    // Move to tomorrow: tap the task (1), tap "Tomorrow" (2). 17:00 on the account's tomorrow.
+    // Move to tomorrow: tap the task (1), tap "Tomorrow" (2). The account's tomorrow, at the SAME time of day the task already had (a quick choice moves the date, never the time).
     await row.locator('.task-body').click()
     await row.getByRole('button', { name: 'Tomorrow', exact: true }).click()
     await expect.poll(async () => (await read()).due_at ? dayIn((await read()).due_at!, zone) : null).toBe(dayIn(new Date(Date.now() + 86_400_000), zone))
-    expect(clock((await read()).due_at!, zone)).toBe('05:00 PM')
+    expect(clock((await read()).due_at!, zone)).toBe(clock(inDays, zone))
 
     // Undo puts the date back.
     await page.getByRole('button', { name: 'Undo' }).click()
