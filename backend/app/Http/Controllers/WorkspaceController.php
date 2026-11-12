@@ -174,7 +174,7 @@ class WorkspaceController extends Controller
     private function save(ResourceRequest $request, string $resource, ?int $id): WorkspaceResource
     {
         return DB::transaction(function () use ($request, $resource, $id) {
-            User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            User::lockForOrdering($request->user()->id);
             $model = $this->model($resource);
             $record = $id ? $this->owned($request, $resource, $id) : new $model;
             $data = $request->validated();

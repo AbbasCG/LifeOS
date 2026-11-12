@@ -7,14 +7,16 @@ use App\Models\CalendarEvent;
 use App\Models\CalendarEventException;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\CalendarBooking;
 use App\Services\CalendarService;
 use App\Services\TaskScheduleException;
 use App\Services\TaskScheduler;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -23,7 +25,7 @@ class CalendarController extends Controller
     /** How long a client's Idempotency-Key is remembered. */
     private const IDEMPOTENCY_SECONDS = 600;
 
-    public function __construct(private CalendarService $calendar, private TaskScheduler $scheduler) {}
+    public function __construct(private CalendarService $calendar, private TaskScheduler $scheduler, private CalendarBooking $booking) {}
 
     /**
      * Expanded occurrences (single, recurring and external) for a window of at most 62 days.
@@ -50,10 +52,13 @@ class CalendarController extends Controller
         if ($this->scheduler->isActiveSession($event)) {
             return $this->createSession($request, $event, $key, false);
         }
-        $this->guardConflicts($request, $event, null);
-        $event->save();
 
-        return (new WorkspaceResource($event->fresh()))->response()->setStatusCode(201);
+        return $this->booking->run($request->user(), [], function () use ($request, $event) {
+            $this->guardConflicts($request, $event, null);
+            $event->save();
+
+            return (new WorkspaceResource($event->fresh()))->response()->setStatusCode(201);
+        });
     }
 
     /**
@@ -78,10 +83,10 @@ class CalendarController extends Controller
     public function moveTaskSession(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
-        $data = $request->validate(['starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:now'], 'session_id' => ['nullable', 'integer'], 'confirm_fixed' => ['sometimes', 'boolean']]);
+        $data = $request->validate(['starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:now'], 'session_id' => ['nullable', 'integer'], 'confirm_fixed' => ['sometimes', 'boolean'], 'expected_starts_at' => ['sometimes', 'date']]);
 
-        return DB::transaction(function () use ($request, $user, $id, $data) {
-            $task = Task::where('user_id', $user->id)->whereKey($id)->lockForUpdate()->firstOrFail();
+        return $this->booking->run($user, [$id], function (Collection $tasks) use ($request, $user, $id, $data) {
+            $task = $tasks->get($id);
             $this->assertOpen($task);
             $sessions = $this->scheduler->activeSessionsQuery($user->id, $task->id)->get();
             if ($sessions->isEmpty()) {
@@ -95,6 +100,8 @@ class CalendarController extends Controller
                 throw new TaskScheduleException('task_has_several_sessions', 'This task has several sessions. Say which one to move with session_id.', 409, ['sessions' => $sessions->map(fn (CalendarEvent $s) => $this->scheduler->sessionPayload($s))->all()]);
             }
             $event ??= $sessions->first();
+            $event = CalendarEvent::where('user_id', $user->id)->whereKey($event->id)->lockForUpdate()->firstOrFail();
+            $this->assertExpectedStart($event, $data['expected_starts_at'] ?? null);
             $moved = $this->applyUpdate($request, $event, ['starts_at' => $data['starts_at'], 'ends_at' => $data['ends_at']]);
 
             return (new WorkspaceResource($moved))->additional(['schedule' => $this->scheduler->scheduleOf($task)])->response();
@@ -103,13 +110,40 @@ class CalendarController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $event = CalendarEvent::where('user_id', $request->user()->id)->findOrFail($id);
+        $user = $request->user();
+        $probe = CalendarEvent::where('user_id', $user->id)->findOrFail($id);
         $data = $this->validated($request, false);
-        if (($data['scope'] ?? 'series') === 'occurrence') {
-            return $this->updateOccurrence($request, $event, $data);
-        }
 
-        return DB::transaction(fn () => (new WorkspaceResource($this->applyUpdate($request, $event, $data)))->response());
+        // Task rows are locked before the event row; the event is read again under the locks, so the checks below see what is committed now.
+        return $this->booking->run($user, [$probe->task_id, $data['task_id'] ?? null], function () use ($request, $user, $id, $probe, $data) {
+            $event = CalendarEvent::where('user_id', $user->id)->whereKey($id)->lockForUpdate()->first();
+            if (! $event) {
+                throw (new ModelNotFoundException)->setModel(CalendarEvent::class, [$id]);
+            }
+            if ($event->task_id !== $probe->task_id) {
+                throw new TaskScheduleException('event_changed', 'This event was changed in the meantime. Reload and try again.', 409, ['current' => $this->scheduler->sessionPayload($event)]);
+            }
+            if (($data['scope'] ?? 'series') === 'occurrence') {
+                return $this->updateOccurrence($request, $event, $data);
+            }
+            $this->assertExpectedStart($event, $data['expected_starts_at'] ?? null);
+
+            return (new WorkspaceResource($this->applyUpdate($request, $event, $data)))->response();
+        });
+    }
+
+    /**
+     * Optimistic concurrency for two open tabs: a client may send the start time it last saw (`expected_starts_at`); when the event has been
+     * moved since, the change is refused with 409 event_changed and the current times. Without the field nothing is checked. For scope=series (and
+     * single events) it is compared with the event's own start, for scope=occurrence with that occurrence's current start.
+     *
+     * @throws TaskScheduleException event_changed (409)
+     */
+    private function assertExpectedStart(CalendarEvent $event, ?string $expected): void
+    {
+        if ($expected !== null && ! $event->starts_at->equalTo(CarbonImmutable::parse($expected)->utc())) {
+            throw new TaskScheduleException('event_changed', 'This event was moved in the meantime. Reload to see its current time.', 409, ['current' => $this->scheduler->sessionPayload($event)]);
+        }
     }
 
     /**
@@ -124,9 +158,13 @@ class CalendarController extends Controller
         $this->fill($event, $data, $request->user());
         // Linking an event to a task, or turning an old/recurring one into a future single event of it, adds a session to that task.
         if ($this->scheduler->isActiveSession($event) && (int) $event->task_id !== (int) $sessionOf) {
-            $this->scheduler->guardNewSession($request->user(), $event->task_id, $event->id);
+            $this->assertOpen($this->scheduler->guardNewSession($request->user(), $event->task_id, $event->id));
         }
         $timeChanged = ! $event->starts_at->equalTo($before['start']) || $event->isDirty('ends_at');
+        // Same rule as PUT /tasks/{id}/schedule: the future session of a completed or cancelled task is not moved (renaming, kind and deleting still work).
+        if ($timeChanged && $sessionOf !== null) {
+            $this->assertOpen(Task::where('user_id', $request->user()->id)->findOrFail($sessionOf));
+        }
         if ($timeChanged && $event->getOriginal('kind') === 'fixed' && $event->kind === 'fixed' && ! $request->boolean('confirm_fixed')) {
             throw ValidationException::withMessages(['fixed' => ['This is a fixed commitment. Confirm before changing its time.']]);
         }
@@ -144,16 +182,17 @@ class CalendarController extends Controller
     }
 
     /**
-     * Create an event that is an active session of its task, atomically: the task row is locked, then a replayed Idempotency-Key returns the
+     * Create an event that is an active session of its task, atomically: the user row and the task row are locked, then a replayed Idempotency-Key returns the
      * event it created the first time (200), otherwise the one-session-per-task rule and the calendar conflicts are checked and the event saved (201).
      */
     private function createSession(Request $request, CalendarEvent $event, ?string $idempotencyKey, bool $withSchedule): JsonResponse
     {
         $user = $request->user();
-        [$saved, $replayed, $schedule] = DB::transaction(function () use ($request, $user, $event, $idempotencyKey, $withSchedule) {
-            $task = Task::where('user_id', $user->id)->whereKey($event->task_id)->lockForUpdate()->firstOrFail();
+        [$saved, $replayed, $schedule] = $this->booking->run($user, [$event->task_id], function (Collection $tasks) use ($request, $user, $event, $idempotencyKey, $withSchedule) {
+            $task = $tasks->get((int) $event->task_id);
             if ($withSchedule) {
-                $this->assertOpen($task);
+                // The title comes from the task as it is under the lock, not from the read that only served the early 404.
+                $event->title = mb_substr($task->title, 0, 200);
             }
             $cacheKey = $idempotencyKey ? 'event-idempotency:'.$user->id.':'.$task->id.':'.hash('sha256', $idempotencyKey) : null;
             if ($cacheKey && ($firstId = Cache::get($cacheKey)) && ($first = CalendarEvent::where('user_id', $user->id)->where('task_id', $task->id)->find($firstId))) {
@@ -165,6 +204,7 @@ class CalendarController extends Controller
             if ($same) {
                 return [$same, true, $this->scheduler->scheduleOf($task)];
             }
+            $this->assertOpen($task);
             $this->scheduler->assertCanAdd($task, $active);
             $this->guardConflicts($request, $event, null);
             $event->save();
@@ -211,17 +251,26 @@ class CalendarController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $event = CalendarEvent::where('user_id', $request->user()->id)->findOrFail($id);
+        $user = $request->user();
+        $probe = CalendarEvent::where('user_id', $user->id)->findOrFail($id);
         $data = $request->validate(['scope' => 'sometimes|in:series,occurrence', 'occurrence_start' => 'required_if:scope,occurrence|date']);
-        if (($data['scope'] ?? 'series') === 'occurrence') {
-            $original = $this->originalStart($event, $data['occurrence_start']);
-            CalendarEventException::updateOrCreate(['calendar_event_id' => $event->id, 'original_start' => $original], ['cancelled' => true]);
 
-            return response()->json(['message' => 'Occurrence deleted.']);
-        }
-        $event->delete();
+        // Deleting frees time, so it can never create an overlap; it still goes through the same lock so it cannot interleave with a move of the same event.
+        return $this->booking->run($user, [$probe->task_id], function () use ($user, $id, $data) {
+            $event = CalendarEvent::where('user_id', $user->id)->whereKey($id)->lockForUpdate()->first();
+            if (! $event) {
+                return response()->json(['message' => 'Deleted.']);
+            }
+            if (($data['scope'] ?? 'series') === 'occurrence') {
+                $original = $this->originalStart($event, $data['occurrence_start']);
+                CalendarEventException::updateOrCreate(['calendar_event_id' => $event->id, 'original_start' => $original], ['cancelled' => true]);
 
-        return response()->json(['message' => 'Deleted.']);
+                return response()->json(['message' => 'Occurrence deleted.']);
+            }
+            $event->delete();
+
+            return response()->json(['message' => 'Deleted.']);
+        });
     }
 
     /**
@@ -242,13 +291,16 @@ class CalendarController extends Controller
         if ($end <= $start) {
             throw ValidationException::withMessages(['ends_at' => ['End must follow start.']]);
         }
+        if (isset($data['expected_starts_at']) && ! CarbonImmutable::parse($data['expected_starts_at'])->utc()->equalTo($currentStart)) {
+            throw new TaskScheduleException('event_changed', 'This occurrence was moved in the meantime. Reload to see its current time.', 409, ['current' => ['id' => $event->id, 'starts_at' => TaskScheduler::iso($currentStart), 'ends_at' => TaskScheduler::iso($currentEnd), 'task_id' => $event->task_id, 'occurrence_start' => TaskScheduler::iso($original)]]);
+        }
         $kind = $data['kind'] ?? $existing?->kind ?? $event->kind;
         $timeChanged = ! $start->equalTo($currentStart) || ! $end->equalTo($currentEnd);
         if ($timeChanged && $kind === 'fixed' && ($existing?->kind ?? $event->kind) === 'fixed' && ! $request->boolean('confirm_fixed')) {
             throw ValidationException::withMessages(['fixed' => ['This is a fixed commitment. Confirm before changing its time.']]);
         }
         if ($timeChanged) {
-            $this->rejectConflict($this->calendar->conflicts($request->user(), $start, $end, $event->id, $original)->first());
+            $this->booking->assertFree($request->user(), $start, $end, $event->id, $original);
         }
         $exception = CalendarEventException::updateOrCreate(['calendar_event_id' => $event->id, 'original_start' => $original], [
             'cancelled' => false,
@@ -283,27 +335,12 @@ class CalendarController extends Controller
     private function guardConflicts(Request $request, CalendarEvent $event, ?int $ignoreEventId): void
     {
         if (! $event->isRecurring()) {
-            $this->rejectConflict($this->calendar->conflicts($request->user(), $event->starts_at, $event->ends_at, $ignoreEventId)->first());
+            $this->booking->assertFree($request->user(), $event->starts_at, $event->ends_at, $ignoreEventId);
 
             return;
         }
-        if ($request->boolean('ignore_conflicts')) {
-            return;
-        }
-        $clashes = $this->calendar->seriesConflicts($request->user(), $event);
-        if ($clashes) {
-            $lines = collect($clashes)->map(fn (array $c) => "{$c['date']}: “{$c['title']}”")->implode('; ');
-            throw ValidationException::withMessages(['recurrence_conflicts' => ["This series overlaps existing events: {$lines}. Save anyway or choose another time."]]);
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>|null  $conflict
-     */
-    private function rejectConflict(?array $conflict): void
-    {
-        if ($conflict) {
-            throw ValidationException::withMessages(['starts_at' => ["This time conflicts with “{$conflict['title']}” ({$conflict['starts_at']->toIso8601String()} – {$conflict['ends_at']->toIso8601String()}). Choose another time."]]);
+        if (! $request->boolean('ignore_conflicts')) {
+            $this->booking->assertSeriesFree($request->user(), $event);
         }
     }
 
@@ -398,6 +435,7 @@ class CalendarController extends Controller
             'occurrence_start' => ['required_if:scope,occurrence', 'date'],
             'confirm_fixed' => ['sometimes', 'boolean'],
             'ignore_conflicts' => ['sometimes', 'boolean'],
+            'expected_starts_at' => ['sometimes', 'date'],
         ]);
     }
 }

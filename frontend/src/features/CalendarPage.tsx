@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { useSearchParams } from 'react-router'
+import { useLocation, useSearchParams } from 'react-router'
 import { ChevronLeft, ChevronRight, Plus, GripVertical, Lock, AlertTriangle, MousePointerClick, X, Eye, EyeOff, Repeat, Globe, CalendarDays, CalendarRange, Columns3, List } from 'lucide-react'
 import { KindIcon } from '../components/visual'
-import { api, type Availability, type CalendarOccurrence, type RecordItem } from '../lib/api'
+import { api, ApiError, type Availability, type CalendarOccurrence, type RecordItem } from '../lib/api'
 import { useCalendar } from '../lib/useCalendar'
-import { CALENDAR_CHANGED, durationWords, isolate, scheduleOf } from '../lib/taskSchedule'
+import { CALENDAR_CHANGED, durationWords, isolate, notifyScheduleChanged, scheduleOf } from '../lib/taskSchedule'
 import { TASKS_CHANGED } from '../lib/quickAdd'
 import { useTaskScheduling } from '../lib/useTaskScheduling'
 import EventForm from './EventForm'
@@ -18,13 +18,16 @@ import { minutesLabel } from '../lib/dates'
 import { useStatusLabel } from './ResourcePage'
 import { Empty, ErrorMessage } from '../components/ui/Shared'
 import { DateTimeField } from '../components/ui/DateTimePicker'
-import { atMinutes, findConflict, layoutLanes, minutesInto, movePreview, overlappingIds, resizePreview, snap } from '../lib/calendar'
+import { atMinutes, blockBox, findConflict, HOUR_PX, layoutLanes, minutesInto, movePreview, overlappingIds, resizePreview, snap } from '../lib/calendar'
+import { refusalOf } from '../lib/calendarConflict'
+import { ScheduleConflictDialog } from '../components/ui/ScheduleConflictDialog'
+import type { ScheduleConflict, Slot } from '../lib/scheduleConflict'
 import { sourceName } from '../lib/sources'
 import { useCalendarZone } from '../lib/useCalendarZone'
 import type { ZoneShift } from '../lib/zoneShift'
 import { formatClock } from '../lib/clock'
 
-const HOUR = 52
+const HOUR = HOUR_PX
 /** "Amsterdam (GMT+1)" for a timezone id; the browser's own zone when none is given. */
 function zoneLabel(zone: string | undefined, language: string) {
   const name = zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -32,7 +35,7 @@ function zoneLabel(zone: string | undefined, language: string) {
   return `${name.split('/').pop()!.replace(/_/g, ' ')}${short ? ` (${short})` : ''}`
 }
 type Drag = { item: CalendarOccurrence; mode: 'move' | 'resize'; locked: boolean; pointerId: number; startX: number; startY: number; origStart: Date; origEnd: Date; origDay: Date; moved: boolean }
-type Preview = { id: string; start: Date; end: Date; dayIndex: number; conflict?: CalendarOccurrence }
+type Preview = { id: string; start: Date; end: Date; conflict?: CalendarOccurrence }
 
 /** An occurrence as drawn: its times shifted into the calendar's zone, with the real ones kept for the server. */
 type ViewOccurrence = CalendarOccurrence & { real_times?: { starts_at: string; ends_at: string } }
@@ -50,13 +53,13 @@ export default function CalendarPage() {
   const zoneView = useCalendarZone(), zs = zoneView.shift
   const [now, setNow] = useState(() => new Date()), nowView = zs.viewDate(now), todayKey = localDate(nowView)
   // /calendar?date=YYYY-MM-DD&session=ID opens on that day and focuses that session ("View in calendar" from a task).
-  const [params] = useSearchParams(), wantedSession = Number(params.get('session')) || null
-  const [date, setDate] = useState(() => /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : todayKey), [view, setViewState] = useState(() => { try { const saved = localStorage.getItem('lifeos-calendar-view'); if (saved && ['day', 'week', 'month', 'agenda'].includes(saved)) return saved } catch { /* storage unavailable */ } return window.innerWidth < 700 ? 'agenda' : 'week' })
+  const [params] = useSearchParams(), wantedSession = Number(params.get('session')) || null, wantedDate = /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : null, visit = useLocation().key
+  const [date, setDate] = useState(() => wantedDate ?? todayKey), [view, setViewState] = useState(() => { try { const saved = localStorage.getItem('lifeos-calendar-view'); if (saved && ['day', 'week', 'month', 'agenda'].includes(saved)) return saved } catch { /* storage unavailable */ } return window.innerWidth < 700 ? 'agenda' : 'week' })
   // The chosen view is remembered on this device; phones start with the agenda.
   const setView = (next: string) => { setViewState(next); try { localStorage.setItem('lifeos-calendar-view', next) } catch { /* storage unavailable */ } }
   const swipe = useRef<{ x: number; y: number } | null>(null)
   const [editing, setEditing] = useState<Partial<CalendarOccurrence> | null>(null)
-  const [, setBusy] = useState(false), [showFreeWanted, setShowFree] = useState(true)
+  const [showFreeWanted, setShowFree] = useState(true)
   // Free time is worked out by the server per day of the account's timezone, so it is only drawn in that zone.
   const showFree = showFreeWanted && !(zoneView.differs && zoneView.mode === 'device')
   const [preview, setPreview] = useState<Preview | null>(null), [placing, setPlacing] = useState<RecordItem | null>(null), [dropHint, setDropHint] = useState<{ dayIndex: number; minutes: number } | null>(null)
@@ -69,7 +72,10 @@ export default function CalendarPage() {
   const rangeLabel = `${start.toLocaleDateString(language, { day: 'numeric', month: 'short' })} – ${lastDay.toLocaleDateString(language, { day: 'numeric', month: 'short' })}`
   const raw = useCalendar(zs.realDate(start), zs.realDate(end))
   // Items arrive as real instants; the grid works on shifted ones (see lib/zoneShift) and the originals ride along.
-  const items = useMemo(() => raw.items.map(i => shiftItem(i, zs)), [raw.items, zs])
+  // A block being saved is drawn at its new time on top of what was read from the server (a read that lands meanwhile cannot undo it);
+  // a refusal simply drops the overlay, so the block is exactly where the server has it.
+  const [pending, setPending] = useState<Record<string, Slot>>({})
+  const items = useMemo(() => raw.items.map(i => shiftItem(pending[i.id] ? { ...i, ...pending[i.id] } : i, zs)), [raw.items, pending, zs])
   const data = { ...raw, items, setItems: (list: ViewOccurrence[]) => raw.setItems(list.map(i => realItem(i, zs))) }
   const tasks = useRecords('tasks', 'per_page=50&due=open&sort=priority')
   const days = Array.from({ length: Math.round((end.getTime() - start.getTime()) / 86400000) }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return d })
@@ -81,7 +87,10 @@ export default function CalendarPage() {
   const overlaps = overlappingIds(data.items), placingLength = placing ? durationWords(placing.estimated_minutes ?? 30, t) : ''
 
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(id) }, [])
-  useEffect(() => { if (timed && scroller.current) scroller.current.scrollTop = 7 * HOUR }, [timed])
+  useEffect(() => { if (timed && scroller.current) scroller.current.scrollTop = 7 * HOUR - 10 }, [timed])
+  // A link to another day from inside the page (the conflict dialog's "view the conflicting item") moves the calendar there.
+  const linkedDate = useRef(wantedDate)
+  useEffect(() => { if (wantedDate && wantedDate !== linkedDate.current) setDate(wantedDate); linkedDate.current = wantedDate }, [wantedDate, visit])
 
   // A new period or view is announced by its heading, so keyboard and screen-reader users hear where they landed.
   const period = `${view}|${date}`, shownPeriod = useRef(period)
@@ -99,7 +108,6 @@ export default function CalendarPage() {
     if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) shift((dx < 0 ? 1 : -1) * (ar ? -1 : 1))
   }
   function eventsOn(day: Date) { const next = new Date(day); next.setDate(next.getDate() + 1); return data.items.filter(i => new Date(i.starts_at!) < next && new Date(i.ends_at!) > day) }
-  function refresh() { data.reload(); availability.reload() }
   // Bookings made elsewhere (the task list, a dialog here): the calendar itself reloads in useCalendar; the free time and the tray follow.
   const reloadAvailability = availability.reload, reloadTasks = tasks.reload
   useEffect(() => {
@@ -107,7 +115,10 @@ export default function CalendarPage() {
     window.addEventListener(CALENDAR_CHANGED, onCalendar); window.addEventListener(TASKS_CHANGED, onTasks)
     return () => { window.removeEventListener(CALENDAR_CHANGED, onCalendar); window.removeEventListener(TASKS_CHANGED, onTasks) }
   }, [reloadAvailability, reloadTasks])
-  const scheduling = useTaskScheduling()
+  // "Choose another time" after a refused booking: back to placing mode for that task, focus on its "Place" button.
+  const focusPlace = useRef<number | null>(null)
+  const scheduling = useTaskScheduling({ onChooseTime: taskId => { const task = tasks.items.find(i => i.id === taskId); if (task) { focusPlace.current = taskId; setPlacing(task) } } })
+  useEffect(() => { if (placing && focusPlace.current === placing.id) { focusPlace.current = null; document.querySelector<HTMLElement>(`[data-place="${placing.id}"]`)?.focus() } }, [placing])
   // After a session was moved from its dialog the dialog closes and the calendar redraws: focus goes to the moved session once it is
   // drawn at its new time, or to the heading when it is not on this period (or the redraw does not bring it).
   const rangeFrom = zs.realDate(start).getTime(), rangeTo = zs.realDate(end).getTime()
@@ -123,32 +134,67 @@ export default function CalendarPage() {
     return () => window.clearTimeout(id)
   }, [moved, raw.items, rangeFrom, rangeTo])
   // Bring the wanted session into focus once it is on screen (once per link).
-  const focusedSession = useRef<number | null>(null)
+  const focusedSession = useRef<string | null>(null)
   useEffect(() => {
-    if (!wantedSession || focusedSession.current === wantedSession || data.loading) return
+    const link = `${wantedSession}|${visit}`
+    if (!wantedSession || focusedSession.current === link || data.loading) return
     const target = document.querySelector<HTMLElement>(`[data-session="${wantedSession}"]`)
     if (!target) return
-    focusedSession.current = wantedSession
+    focusedSession.current = link
     target.scrollIntoView?.({ block: 'center' }); target.focus({ preventScroll: true })
-  }, [wantedSession, data.loading, data.items, view])
-  async function save(fn: () => Promise<unknown>, success?: string) {
-    setBusy(true)
-    try { await fn(); data.setError(''); if (success) toast(success); refresh(); return true } catch (e) { toast((e as Error).message, 'error'); refresh(); return false } finally { setBusy(false) }
-  }
+  }, [wantedSession, visit, data.loading, data.items, view])
   const time = (value: string | Date) => formatClock(value, { language })
+  const viewClock = (iso: string) => time(zs.viewDate(new Date(iso)))
 
-  /** Persist a moved/resized block optimistically, with undo. */
-  async function commit(item: CalendarOccurrence, nextStart: Date, nextEnd: Date) {
-    if (!item.editable || !item.event_id) { toast(t('This event is synced from another calendar and is read-only here.', 'هذا الموعد متزامن من تقويم آخر وهو للقراءة فقط هنا.'), 'info'); return }
-    const conflict = findConflict(data.items, item.id, nextStart, nextEnd)
-    if (conflict) { toast(t(`That time overlaps “${conflict.title}”. The block was not moved.`, `هذا الوقت يتداخل مع «${conflict.title}». لم يتم نقل الفترة.`), 'error'); return }
-    const scope = item.recurring ? { scope: 'occurrence', occurrence_start: item.occurrence_start } : {}
-    const original = realItem(item, zs), before = { ...scope, starts_at: original.starts_at, ends_at: original.ends_at }
-    data.setItems(data.items.map(i => i.id === item.id ? { ...i, starts_at: nextStart.toISOString(), ends_at: nextEnd.toISOString() } : i))
-    const ok = await save(() => api(`/api/events/${item.event_id}`, 'PATCH', { ...scope, starts_at: zs.realDate(nextStart).toISOString(), ends_at: zs.realDate(nextEnd).toISOString() }))
-    const message = item.recurring ? t(`Only this “${item.title}” moved to ${time(nextStart)} – ${time(nextEnd)}. The series is unchanged.`, `نُقل هذا الموعد «${item.title}» فقط إلى ${time(nextStart)} – ${time(nextEnd)}. السلسلة كما هي.`) : t(`“${item.title}” now ${time(nextStart)} – ${time(nextEnd)}.`, `«${item.title}» الآن ${time(nextStart)} – ${time(nextEnd)}.`)
-    if (ok) toast(message, 'success', { label: t('Undo', 'تراجع'), onClick: () => void save(() => api(`/api/events/${item.event_id}`, 'PATCH', before), t('Change undone.', 'تم التراجع عن التغيير.')) })
+  // Moving or resizing a block, in one place (pointer, keyboard, undo and "use the suggested time" all end here).
+  // The block is drawn at the new time at once; when the server says no, it goes back to exactly where it was, and the reason is shown:
+  // a taken time opens the same conflict dialog as the task pages, a dropped connection offers "Try again" (the request sets absolute times,
+  // so repeating it is safe), anything else is a message. Nothing is left half-moved.
+  const rawItems = useRef(raw.items)
+  useEffect(() => { rawItems.current = raw.items }, [raw.items])
+  const moving = useRef(new Set<string>()), queued = useRef(new Map<string, Slot>()), [refusal, setRefusal] = useState<{ conflict: ScheduleConflict; id: string } | null>(null)
+  async function put(id: string, slot: Slot, undo = false, from?: Slot): Promise<boolean> {
+    const current = rawItems.current.find(i => i.id === id)
+    if (!current) { toast(t('That block is no longer in the calendar.', 'هذه الفترة لم تعد في التقويم.'), 'error'); data.reload(); return false }
+    if (!current.editable || !current.event_id) { toast(t('This event is synced from another calendar and is read-only here.', 'هذا الموعد متزامن من تقويم آخر وهو للقراءة فقط هنا.'), 'info'); return false }
+      // One request per block at a time. A further nudge while one is being saved is drawn at once and sent when that one has been saved
+    // (only the latest is kept); if the first is refused, the block stays at what the server has and the rest is dropped.
+    setPending(p => ({ ...p, [id]: slot }))
+    if (moving.current.has(id)) { queued.current.set(id, slot); return false }
+    const scope = current.recurring ? { scope: 'occurrence', occurrence_start: current.occurrence_start } : {}
+    const before: Slot = from ?? { starts_at: current.starts_at, ends_at: current.ends_at }
+    moving.current.add(id)
+    let saved = false
+    try {
+      await api(`/api/events/${current.event_id}`, 'PATCH', { ...scope, ...slot })
+      data.setError('')
+      notifyScheduleChanged()
+      const range = `${viewClock(slot.starts_at)} – ${viewClock(slot.ends_at)}`
+      if (undo) toast(t('Change undone.', 'تم التراجع عن التغيير.'), 'success')
+      else toast(current.recurring ? t(`Only this “${current.title}” moved to ${range}. The series is unchanged.`, `نُقل هذا الموعد «${current.title}» فقط إلى ${range}. السلسلة كما هي.`) : t(`“${current.title}” now ${range}.`, `«${current.title}» الآن ${range}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void put(id, before, true) })
+      saved = true
+      raw.setItems(list => list.map(i => i.id === id ? { ...i, ...slot } : i))
+      return true
+    } catch (e) {
+      queued.current.delete(id)
+      data.reload()
+      const conflict = refusalOf(e, slot, rawItems.current, current.event_id)
+      if (conflict) setRefusal({ conflict, id })
+      else toast((e as Error).message, 'error', e instanceof ApiError && e.status === 0 ? { label: t('Try again', 'حاول مجدداً'), onClick: () => void put(id, slot, undo) } : undefined)
+      return false
+    } finally {
+      moving.current.delete(id)
+      const next = queued.current.get(id); queued.current.delete(id)
+      if (next && saved) void put(id, next, false, slot)
+      else setPending(p => Object.fromEntries(Object.entries(p).filter(([key]) => key !== id)))
+    }
   }
+  /** A block dragged, resized or nudged to a new time (in the drawn zone). */
+  function commit(item: CalendarOccurrence, nextStart: Date, nextEnd: Date) {
+    if (!item.editable || !item.event_id) { toast(t('This event is synced from another calendar and is read-only here.', 'هذا الموعد متزامن من تقويم آخر وهو للقراءة فقط هنا.'), 'info'); return }
+    void put(item.id, { starts_at: zs.realDate(nextStart).toISOString(), ends_at: zs.realDate(nextEnd).toISOString() })
+  }
+  const blockOf = (id: string) => [...document.querySelectorAll<HTMLElement>('[data-occurrence]')].find(el => el.dataset.occurrence === id)
 
   function dayIndexAt(clientX: number, fallback: number) {
     const index = columns.current.findIndex(col => { if (!col) return false; const r = col.getBoundingClientRect(); return clientX >= r.left && clientX <= r.right })
@@ -171,7 +217,7 @@ export default function CalendarPage() {
     const origIndex = days.findIndex(day => localDate(day) === localDate(d.origDay))
     const dayIndex = d.mode === 'move' ? dayIndexAt(e.clientX, origIndex) : origIndex
     const next = d.mode === 'move' ? movePreview(d.origStart, d.origEnd, d.origDay, days[dayIndex], delta) : resizePreview(d.origStart, d.origEnd, d.origDay, delta)
-    const p = { id: d.item.id, ...next, dayIndex, conflict: findConflict(data.items, d.item.id, next.start, next.end) }
+    const p = { id: d.item.id, ...next, conflict: findConflict(data.items, d.item.id, next.start, next.end) }
     previewRef.current = p
     setPreview(p)
   }
@@ -226,10 +272,9 @@ export default function CalendarPage() {
   }
   function createTaskBlock(task: RecordItem, s: Date) {
     const length = Math.max(15, task.estimated_minutes || 30), e = new Date(s.getTime() + length * 60000)
-    const conflict = findConflict(data.items, undefined, s, e)
-    if (conflict) { toast(t(`That time overlaps “${conflict.title}”. Pick a free slot.`, `هذا الوقت يتداخل مع «${conflict.title}». اختر وقتاً متاحاً.`), 'error'); return }
     setPlacing(null)
-    // Through the schedule endpoint: one request, one idempotency key, and a task that is already booked is refused rather than booked twice.
+    // Through the schedule endpoint: one request, one idempotency key, a task that is already booked is refused rather than booked twice, and a
+    // taken time opens the conflict dialog (the server decides; nothing is drawn before it answers, so there is nothing to roll back).
     void scheduling.schedule(task, { starts_at: zs.realDate(s).toISOString(), ends_at: zs.realDate(e).toISOString() }, t(`Time blocked for “${task.title}”.`, `حُجز وقت لـ«${isolate(task.title)}».`))
   }
   function pointerMinutes(e: { clientY: number; currentTarget: HTMLElement }) { return snap((e.clientY - e.currentTarget.getBoundingClientRect().top) / HOUR * 60) }
@@ -245,6 +290,7 @@ export default function CalendarPage() {
     if (placing) { createTaskBlock(placing, s); return }
     setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString(), kind: 'flexible' })
   }
+  const ghostBox = (day: Date, p: Preview) => { const b = blockBox(day, p.start, p.end); return { top: b.top, height: Math.max(22, b.height) } }
   const freeFor = (day: Date) => availability.data?.days.find(d => d.date === localDate(day))
 
   return <section className="page calendar-page">
@@ -271,6 +317,7 @@ export default function CalendarPage() {
     <ErrorMessage error={data.error || tasks.error} />
     {overlaps.size > 0 && <p className="conflict-chip" role="status"><AlertTriangle size={15} aria-hidden="true" />{t(`${overlaps.size} overlapping`, `${overlaps.size} متداخلة`)}</p>}
     {placing && <div className="banner placing" role="status"><MousePointerClick size={18} /><p>{t(`Tap a time slot to schedule “${placing.title}” (${placingLength}).`, `اضغط على وقت لجدولة «${isolate(placing.title)}» (${placingLength}).`)}</p><button className="icon-button" aria-label={t('Cancel placing', 'إلغاء الجدولة')} onClick={() => setPlacing(null)}><X size={16} /></button></div>}
+    {timed && showFree && <p className="cal-legend"><i aria-hidden="true" />{t('Shaded: free time inside your working hours. Weekends, nights and past time are not shaded.', 'المظلل: وقت متاح ضمن ساعات عملك. عطلات نهاية الأسبوع والليل والوقت الماضي غير مظللة.')}</p>}
     <div className={`calendar-layout ${timed ? 'with-tray' : ''}`} onTouchStart={e => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }} onTouchEnd={e => swipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}>
       {timed ? <div className={`time-grid ${view} ${preview ? 'dragging' : ''} ${placing ? 'placing' : ''}`} style={{ ['--days' as string]: days.length }}>
         <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === todayKey ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
@@ -283,25 +330,25 @@ export default function CalendarPage() {
               onDragLeave={() => setDropHint(null)}
               onDrop={e => dropOnDay(e, day, pointerMinutes(e))}>
               {showFree && free?.slots.map(slot => { const top = minutesInto(day, zs.viewDate(new Date(slot.starts_at))) / 60 * HOUR, height = slot.minutes / 60 * HOUR; return <div key={slot.starts_at} className="free-band" style={{ top, height }} aria-hidden="true">{height >= 26 && <span>{t(`Free ${minutesLabel(slot.minutes, false)}`, `متاح ${minutesLabel(slot.minutes, true)}`)}</span>}</div> })}
-              {Array.from({ length: 24 }, (_, h) => { const hh = `${String(h).padStart(2, '0')}:00`; return <button key={h} className="slot" style={{ top: h * HOUR, height: HOUR }} aria-label={placing ? t(`Schedule at ${hh}`, `جدولة الساعة ${isolate(hh)}`) : t(`Add event at ${hh}`, `إضافة موعد الساعة ${isolate(hh)}`)} onClick={() => slotClick(day, h)} /> })}
+              {Array.from({ length: 24 }, (_, h) => { const hh = `${String(h).padStart(2, '0')}:00`; return <button key={h} className="slot" tabIndex={placing ? 0 : -1} style={{ top: h * HOUR, height: HOUR }} aria-label={placing ? t(`Schedule at ${hh}`, `جدولة الساعة ${isolate(hh)}`) : t(`Add event at ${hh}`, `إضافة موعد الساعة ${isolate(hh)}`)} onClick={() => slotClick(day, h)} /> })}
               {dropHint?.dayIndex === dayIndex && <div className="drop-hint" style={{ top: dropHint.minutes / 60 * HOUR }}><span>{time(atMinutes(day, dropHint.minutes))}</span></div>}
               {layoutLanes(eventsOn(day)).map(({ item, lane, lanes }) => {
                 const s = new Date(item.starts_at!), en = new Date(item.ends_at!)
-                const dayStart = day.getTime(), dayEnd = dayStart + 86400000
-                const top = (Math.max(s.getTime(), dayStart) - dayStart) / 3600000 * HOUR
-                const height = Math.max(22, (Math.min(en.getTime(), dayEnd) - Math.max(s.getTime(), dayStart)) / 3600000 * HOUR - 2)
+                const { top, height, continues, runsOn } = blockBox(day, s, en)
                 const flexible = item.kind !== 'fixed' && item.editable, active = preview?.id === item.id, external = item.source !== 'lifeos'
                 return <div key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined}
-                  className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
+                  title={`${item.title}, ${time(s)} – ${time(en)}`} data-occurrence={item.id}
+                  className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${height < 22 ? 'tiny' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
                   style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
                   onClick={() => { if (!suppressClick.current) setEditing(item) }} onKeyDown={e => onEventKey(e, item, day)}>
                   {item.recurring && <Repeat size={10} className="recurring-mark" aria-label={t('Repeats', 'متكرر')} />}{external && <Globe size={10} className="recurring-mark" aria-label={t('External calendar', 'تقويم خارجي')} />}{flexible ? <span className="grip" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'move', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}><GripVertical size={13} /></span> : !external && <Lock size={11} className="lock" aria-hidden="true" />}
                   <strong><KindIcon kind={item.kind} source={item.source} size={11} />{item.title}</strong><span className="sr-only">, </span><small><bdi dir="ltr">{time(s)} – {time(en)}</bdi></small>{!flexible && <span className="sr-only">, {t('fixed', 'ثابت')}</span>}
-                  {flexible && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
+                   {continues && <span className="sr-only">, {t('continues from the day before', 'تستمر من اليوم السابق')}</span>}{runsOn && <span className="sr-only">, {t('continues the next day', 'تستمر إلى اليوم التالي')}</span>}
+                  {flexible && !runsOn && <span className="resize-handle" aria-hidden="true" onPointerDown={e => beginDrag(e, item, 'resize', dayIndex)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} />}
                 </div>
               })}
-              {preview && preview.dayIndex === dayIndex && <div className={`drag-ghost ${preview.conflict ? 'bad' : ''}`} style={{ top: minutesInto(day, preview.start) / 60 * HOUR, height: Math.max(22, (preview.end.getTime() - preview.start.getTime()) / 3600000 * HOUR - 2) }} aria-live="polite">
+              {preview && preview.start < new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1) && preview.end > day && <div className={`drag-ghost ${preview.conflict ? 'bad' : ''}`} style={{ ...ghostBox(day, preview) }} aria-live="polite">
                 <strong><bdi dir="ltr">{time(preview.start)} – {time(preview.end)}</bdi></strong><small>{preview.conflict ? t(`Overlaps “${preview.conflict.title}”`, `يتداخل مع «${preview.conflict.title}»`) : minutesLabel(Math.round((preview.end.getTime() - preview.start.getTime()) / 60000), ar)}</small>
               </div>}
               {isToday && <div className="now-line" style={{ top: (nowView.getHours() * 60 + nowView.getMinutes()) / 60 * HOUR }} aria-hidden="true" />}
@@ -338,10 +385,14 @@ export default function CalendarPage() {
         <h2 title={t('Drag a task onto the calendar, or tap “Place” and then a time slot.', 'اسحب مهمة إلى التقويم، أو اضغط «جدولة» ثم اختر وقتاً.')}>{t('Unscheduled', 'غير مجدولة')} <span className="tray-count">{unscheduled.length}</span></h2>
         {!unscheduled.length ? <p className="muted empty-small">{t('Everything open has a time. Nice.', 'كل المهام المفتوحة لها وقت. رائع.')}</p> : <ul>{unscheduled.slice(0, 20).map(task => <li key={task.id} draggable className={`tray-task priority-edge-${task.priority} ${placing?.id === task.id ? 'selected' : ''}`} onDragStart={e => { e.dataTransfer.setData('text/plain', `task:${task.id}`); e.dataTransfer.effectAllowed = 'copyMove' }} onDragEnd={() => setDropHint(null)}>
           <GripVertical size={14} aria-hidden="true" /><span><strong>{task.title}</strong><small className="muted">{label(task.priority || 'medium')} · {durationWords(task.estimated_minutes ?? 30, t)}</small></span>
-          <button className="chip-button small" aria-pressed={placing?.id === task.id} onClick={() => setPlacing(placing?.id === task.id ? null : task)}>{placing?.id === task.id ? t('Cancel', 'إلغاء') : t('Place', 'جدولة')}</button>
+          <button className="chip-button small" data-place={task.id} aria-pressed={placing?.id === task.id} onClick={() => setPlacing(placing?.id === task.id ? null : task)}>{placing?.id === task.id ? t('Cancel', 'إلغاء') : t('Place', 'جدولة')}</button>
         </li>)}</ul>}
       </aside>}
     </div>
-    {editing && <EventForm item={editing} tasks={tasks.items} shift={zs} onSaved={refresh} onMoved={(id, startsAt) => setMoved({ id, startsAt })} onClose={() => setEditing(null)} />}
+    {scheduling.conflictDialog}
+    {refusal && <ScheduleConflictDialog conflict={refusal.conflict} onClose={() => setRefusal(null)}
+      onChoose={() => blockOf(refusal.id)?.focus()}
+      onUseSuggestion={slot => { const id = refusal.id; setRefusal(null); void put(id, slot) }} />}
+    {editing && <EventForm item={editing} tasks={tasks.items} known={raw.items} shift={zs} onSaved={notifyScheduleChanged} onMoved={(id, startsAt) => setMoved({ id, startsAt })} onClose={() => setEditing(null)} />}
   </section>
 }

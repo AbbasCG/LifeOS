@@ -46,7 +46,7 @@ a.ring-stat:hover { background: color-mix(in srgb, var(--color-primary) 6%, tran
 .prio-high { color: var(--tone-high); background: color-mix(in srgb, var(--tone-high) 14%, transparent); }
 .prio-medium { color: var(--tone-medium); background: color-mix(in srgb, var(--tone-medium) 12%, transparent); }
 .prio-low { color: var(--tone-low); background: color-mix(in srgb, var(--tone-low) 13%, transparent); }
-.due { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
+.due { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); flex-wrap: wrap; max-width: 100%; }
 .due.today { color: var(--color-primary); }
 .due.late { color: var(--tone-urgent); }
 .kind-icon { flex-shrink: 0; }
@@ -497,7 +497,7 @@ p.quick-support svg { flex-shrink: 0; margin-top: 2px; color: var(--color-primar
 
 /* Task scheduling: a calm badge for the calendar session (apart from the deadline and the estimated length), its actions, and the "already scheduled" notice. */
 .sched-badge { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; max-width: 100%; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 650; line-height: 1.25; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent); }
-.sched-badge time::before, .sched-count::before { content: "\00b7"; margin-inline-end: 0.35em; }
+.sched-count::before { content: "\00b7"; margin-inline-end: 0.35em; }
 .sched-count { white-space: nowrap; }
 .due-label { font-weight: 650; margin-inline-end: 2px; }
 .sched-duration { white-space: nowrap; }
@@ -640,7 +640,11 @@ a.filter-chip { text-decoration: none; color: var(--color-text); }
 /* === task edit dialog: deadline vs scheduled session === */
 .rf-session { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-border); border-radius: 16px; min-width: 0; }
 .rf-session-time { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; }
-.rf-session-edit { display: grid; gap: 8px; }
+.rf-session-edit { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 8px; }
+.sc-body { margin: 0 0 8px; line-height: 1.6; }
+.sc-list { display: grid; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; font-size: 14px; }
+.sc-suggest { margin-bottom: 12px; white-space: normal; max-width: 100%; }
+.sc-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .rf-custom:empty { display: none; }
 .rf-custom { font-weight: 700; color: var(--color-text); }
 @media (forced-colors: active) { .choice[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; } }

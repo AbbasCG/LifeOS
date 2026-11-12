@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useInRouterContext } from 'react-router'
-import { CalendarCheck, CalendarClock, CalendarDays, Timer, X } from 'lucide-react'
+import { AlertTriangle, CalendarCheck, CalendarClock, CalendarDays, Flag, Timer, X } from 'lucide-react'
 import type { Availability, CalendarOccurrence, RecordItem, TaskSchedule } from '../../lib/api'
 import { accountDay } from '../../lib/accountDay'
 import { slotWords, suggestSlots, type FreeSlot } from '../../lib/scheduleSlots'
-import { calendarLink, durationWords, isSplit, scheduleOf, sessionCount, sessionFull, sessionsWord, sessionWhen, useClock } from '../../lib/taskSchedule'
+import { calendarLink, durationWords, isSplit, scheduleOf, sessionCount, sessionFull, sessionRange, sessionsWord, sessionWhen, useClock } from '../../lib/taskSchedule'
 import { useTaskScheduling, type Conflict, type Slot } from '../../lib/useTaskScheduling'
 import { useApi } from '../../lib/useApi'
 import { useText } from '../../lib/i18n'
@@ -17,15 +17,30 @@ function AppLink({ to, className, children }: { to: string; className?: string; 
   return useInRouterContext() ? <Link to={to} className={className}>{children}</Link> : <a href={to} className={className}>{children}</a>
 }
 
-/** "Scheduled · Tomorrow 09:00": the calm badge for a task that has a session in the calendar. Not shown for other tasks. */
+/**
+ * «مجدولة: اليوم 09:00 – 09:30»: when the task is booked in the calendar (the session, start to end, 24-hour, in the account's
+ * zone). "Today" and "tomorrow" are the account's real days. This is the execution time; the deadline is `DueLine`, the length is `Duration`.
+ */
 export function ScheduleBadge({ schedule }: { schedule: TaskSchedule }) {
   const t = useText(), { language } = useLanguage(), now = useClock()
   const when = sessionWhen(schedule.starts_at, language, t, now), n = sessionCount(schedule)
   return <span className="sched-badge" title={sessionFull(schedule.starts_at, schedule.ends_at, language)}>
     <CalendarCheck size={12} aria-hidden="true" />
-    <span>{t('Scheduled', 'مجدولة', 'Gepland')}</span>{' '}
-    <bdi><time dateTime={schedule.starts_at}>{when.text}</time></bdi>
+    <span>{t('Scheduled', 'مجدولة', 'Gepland')}:</span>{' '}
+    <bdi><time dateTime={schedule.starts_at}>{when.dayText} {sessionRange(schedule.starts_at, schedule.ends_at, language)}</time></bdi>
     {isSplit(schedule) && n > 1 && <span className="sched-count">{sessionsWord(n, t)}</span>}
+  </span>
+}
+
+/** «الاستحقاق: اليوم 17:00»: the deadline, never presented as the time the work happens. Shown only when there is one. */
+export function DueLine({ due, done = false }: { due?: string | null; done?: boolean }) {
+  const t = useText(), { language } = useLanguage(), now = useClock()
+  if (!due || Number.isNaN(Date.parse(due))) return null
+  const when = sessionWhen(due, language, t, now), late = !done && Date.parse(due) < now.getTime()
+  return <span className={`due ${late ? 'late' : when.day === 'today' ? 'today' : ''}`}>
+    {late ? <AlertTriangle size={12} aria-hidden="true" /> : <Flag size={12} aria-hidden="true" />}
+    <span className="due-label">{t('Due', 'الاستحقاق', 'Deadline')}:</span>
+    <bdi><time dateTime={due}>{when.text}</time></bdi>{late && <span className="sr-only"> {t('(overdue)', '(متأخرة)', '(te laat)')}</span>}
   </span>
 }
 
@@ -53,7 +68,7 @@ export function SlotChoices({ task, label, busy, onPick, focusFirst = false, onC
   if (!free.data) return null
   // Escape closes only these choices: preventDefault stops a dialog around them from taking it as its own "cancel".
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && onCancel) { e.preventDefault(); e.stopPropagation(); onCancel() } }
-  return <div ref={box} className="task-quick" role="group" aria-label={label} aria-busy={busy} onKeyDown={onKey}>
+  return <div ref={box} className="task-quick" data-sched-chips="" role="group" aria-label={label} aria-busy={busy} onKeyDown={onKey}>
     <span className="muted small">{label}</span>
     {slots.length === 0
       ? <span className="muted small">{t('No free time in the next week.', 'لا وقت متاح في الأسبوع القادم.', 'Geen vrije tijd in de komende week.')}</span>
@@ -121,7 +136,7 @@ export function ScheduleControls({ task, scheduling, choosing, setChoosing }: { 
   if (!schedule) return <SlotChoices task={task} label={t('Schedule', 'جدولة', 'Inplannen')} busy={busy} onPick={slot => void scheduling.schedule(task, slot)} />
   const close = () => { restore.current = true; setChoosing(false) }
   return <>
-    <div className="task-quick sched-actions" role="group" aria-label={t('Calendar session', 'جلسة التقويم', 'Agendasessie')} aria-busy={busy}>
+    <div className="task-quick sched-actions" data-sched-chips="" role="group" aria-label={t('Calendar session', 'جلسة التقويم', 'Agendasessie')} aria-busy={busy}>
       <span className="muted small">{isSplit(schedule) && sessionCount(schedule) > 1 ? `${sessionsWord(sessionCount(schedule), t)} · ` : ''}<bdi>{sessionFull(schedule.starts_at, schedule.ends_at, language)}</bdi></span>
       <AppLink to={calendarLink(schedule.starts_at, schedule.session_id)} className="filter-chip"><CalendarDays size={14} aria-hidden="true" />{t('View in calendar', 'عرض في التقويم', 'Bekijk in agenda')}</AppLink>
       <button ref={trigger} type="button" className="filter-chip" aria-expanded={choosing} aria-disabled={busy || undefined} aria-busy={busy} onClick={() => { if (!busy) { if (choosing) close(); else setChoosing(true) } }}><CalendarClock size={14} aria-hidden="true" />{t('Reschedule', 'إعادة الجدولة', 'Opnieuw inplannen')}</button>
@@ -150,8 +165,10 @@ export function ScheduledNotice({ task, conflict, onReschedule, onDismiss }: { t
  * long, a link to the task, and "Reschedule", which moves this very session to another free time (it never adds one).
  */
 export function TaskSessionPanel({ taskId, eventId, title, startsAt, endsAt, zone, canMove, onMoved }: { taskId: number; eventId: number; title: string; startsAt: string; endsAt: string; zone: string; canMove: boolean; onMoved: (slot: Slot) => void }) {
-  const t = useText(), { language } = useLanguage(), scheduling = useTaskScheduling()
-  const [choosing, setChoosing] = useState(false), trigger = useRef<HTMLButtonElement>(null)
+  const [choosing, setChoosing] = useState(false), trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLElement>(null)
+  const t = useText(), { language } = useLanguage()
+  // A taken time opens the conflict dialog; "Choose another time" puts focus back on the time choices (they stay open).
+  const scheduling = useTaskScheduling({ onChooseTime: () => { setChoosing(true); (panel.current?.querySelector<HTMLElement>('[data-sched-chips] button') ?? trigger.current)?.focus() } })
   const minutes = Math.max(15, Math.round((Date.parse(endsAt) - Date.parse(startsAt)) / 60000)), busy = scheduling.pending === taskId
   const restore = useRef(false)
   useEffect(() => { if (!choosing && restore.current) { restore.current = false; trigger.current?.focus() } }, [choosing])
@@ -160,7 +177,7 @@ export function TaskSessionPanel({ taskId, eventId, title, startsAt, endsAt, zon
     const outcome = await scheduling.reschedule({ id: taskId, title }, slot, { sessionId: eventId, from: { starts_at: startsAt, ends_at: endsAt } })
     if (outcome === 'moved') onMoved(slot)
   }
-  return <section className="full sched-panel" aria-label={t('Task session', 'جلسة المهمة', 'Taaksessie')}>
+  return <section ref={panel} className="full sched-panel" aria-label={t('Task session', 'جلسة المهمة', 'Taaksessie')}>
     <p className="sched-panel-title"><CalendarCheck size={15} aria-hidden="true" /><strong>{t('Scheduled task session', 'جلسة مهمة مجدولة', 'Ingeplande taaksessie')}</strong></p>
     <dl>
       <dt>{t('Task', 'المهمة', 'Taak')}</dt><dd><bdi><AppLink to={`/tasks?task=${taskId}`}>{title}</AppLink></bdi></dd>
@@ -169,5 +186,6 @@ export function TaskSessionPanel({ taskId, eventId, title, startsAt, endsAt, zon
     </dl>
     {canMove && <button ref={trigger} type="button" className="filter-chip" aria-expanded={choosing} aria-disabled={busy || undefined} aria-busy={busy} onClick={() => { if (!busy) { if (choosing) close(); else setChoosing(true) } }}><CalendarClock size={14} aria-hidden="true" />{t('Reschedule', 'إعادة الجدولة', 'Opnieuw inplannen')}</button>}
     {choosing && <SlotChoices task={{ id: taskId, estimated_minutes: minutes }} label={t('Reschedule', 'إعادة الجدولة', 'Opnieuw inplannen')} busy={busy} focusFirst onCancel={close} onPick={slot => void move(slot)} />}
+    {scheduling.conflictDialog}
   </section>
 }

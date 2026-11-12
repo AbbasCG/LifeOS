@@ -44,9 +44,13 @@ async function scrollsBy(page: Page, el: Locator) {
   await el.evaluate(e => { (e as HTMLElement).tabIndex = Math.max((e as HTMLElement).tabIndex, -1); (e as HTMLElement).focus({ preventScroll: true }) })
   await page.keyboard.press('PageDown')
   await expect.poll(() => el.evaluate(e => e.scrollTop)).toBeGreaterThan(0)
-  const afterPageDown = await el.evaluate(e => e.scrollTop)
+  // Scrolling is smooth: wait until PageDown has come to rest before pressing End (a key pressed mid-animation is overridden, and the
+  // position read mid-animation is not a fixed point to compare with).
+  let last = -1
+  await expect.poll(async () => { const now = await el.evaluate(e => e.scrollTop); const rested = now === last; last = now; return rested }, { intervals: [120] }).toBe(true)
   await page.keyboard.press('End')
-  await expect.poll(() => el.evaluate(e => e.scrollTop)).toBeGreaterThan(afterPageDown)
+  // End goes to the very bottom (which PageDown may already have reached when the content is only a little taller than the box).
+  await expect.poll(() => el.evaluate(e => Math.ceil(e.scrollTop) >= e.scrollHeight - e.clientHeight - 1)).toBe(true)
 }
 
 for (const [language, theme] of [['en', 'light'], ['ar', 'dark']] as const) {

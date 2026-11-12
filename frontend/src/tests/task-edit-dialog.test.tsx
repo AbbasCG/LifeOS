@@ -18,19 +18,20 @@ afterAll(() => { if (BROWSER_TZ === undefined) delete process.env.TZ; else proce
 // "Now" is Wednesday 2026-11-11 11:00 in Amsterdam (10:00 UTC).
 const NOW = '2026-11-11T10:00:00Z'
 const wrap = (children: ReactNode) => <ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider>{children}</ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>
-type Call = { method: string; url: string; body?: Record<string, unknown> }
+type Call = { method: string; url: string; body?: Record<string, unknown>; key?: string }
 const free: Availability = { work_start: '09:00', work_end: '17:00', days: [{ date: '2026-11-13', work_day: true, free_minutes: 480, slots: [{ starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T16:00:00Z', minutes: 480 }] }] }
 const session = (over: Record<string, unknown> = {}) => ({ session_id: 55, starts_at: '2026-11-12T08:00:00Z', ends_at: '2026-11-12T08:30:00Z', sessions: 1, split: false, ...over })
 const task = (over: Record<string, unknown> = {}) => ({ id: 7, title: 'Pay the invoice', status: 'todo', priority: 'high', due_at: '2026-11-20T08:30:00Z', estimated_minutes: 30, schedule: null, ...over })
 
 type Reply = { status: number; body: unknown }
-function server(opts: { put?: () => Reply | Promise<Reply>; patch?: () => Reply | Promise<Reply> } = {}) {
+function server(opts: { put?: () => Reply | Promise<Reply>; post?: () => Reply | Promise<Reply>; patch?: () => Reply | Promise<Reply> } = {}) {
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method || 'GET'
-    calls.push({ method, url: String(url), body: init?.body ? JSON.parse(init.body as string) : undefined })
+    calls.push({ method, url: String(url), body: init?.body ? JSON.parse(init.body as string) : undefined, key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
     const reply = (r: Reply) => new Response(JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } })
     if (method === 'PUT' && /\/api\/tasks\/\d+\/schedule$/.test(String(url))) return reply(await (opts.put?.() ?? { status: 200, body: { data: { id: 55 }, schedule: session({ starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T08:30:00Z' }) } }))
+    if (method === 'POST' && /\/api\/tasks\/\d+\/schedule$/.test(String(url))) return reply(await (opts.post?.() ?? { status: 201, body: { data: { id: 91, task_id: 7 }, schedule: session({ session_id: 91, starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T08:30:00Z' }) } }))
     if (method === 'PATCH') return reply(await (opts.patch?.() ?? { status: 200, body: { data: { id: 7 } } }))
     if (/\/api\/availability/.test(String(url))) return reply({ status: 200, body: free })
     return reply({ status: 200, body: { data: [], meta: { last_page: 1 } } })
@@ -179,17 +180,28 @@ describe('saving', () => {
   })
 })
 
-describe('the scheduled session, apart from the deadline', () => {
+const conflictBody = (over: Record<string, unknown> = {}) => ({ message: 'The given data was invalid.', errors: { starts_at: ['That time overlaps another item.'] }, conflict: { code: 'schedule_conflict', requested: { starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T08:30:00Z' },
+  conflicts: [{ id: 3, event_id: 3, task_id: 8, title: 'Write report', kind: 'task_session', source: 'lifeos', starts_at: '2026-11-13T07:45:00Z', ends_at: '2026-11-13T08:15:00Z', overlap_minutes: 15 }], suggestion: { starts_at: '2026-11-13T08:15:00Z', ends_at: '2026-11-13T08:45:00Z' }, ...over } })
+const suggestedTime = async () => fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])   // fills start and end: 13 Nov 09:00 to 09:30
+const putCalls = (calls: Call[]) => calls.filter(c => c.method === 'PUT')
+const postCalls = (calls: Call[]) => calls.filter(c => c.method === 'POST')
+const formError = () => document.querySelector('p.error')
+const saveButton = () => screen.getByRole('button', { name: 'Save' })
+
+describe('the scheduled execution time, apart from the deadline and the estimate', () => {
   const booked = (over: Record<string, unknown> = {}) => task({ schedule: session(), due_at: '2026-11-20T15:00:00Z', ...over })
-  it('is not shown for a task without a session', () => {
-    server(); open(task()); expect(screen.queryByText('Scheduled session time')).toBeNull()
+  it('is shown for an unscheduled task too, saying it is not scheduled yet', () => {
+    server(); open(task())
+    const block = screen.getByRole('region', { name: 'Scheduled execution time' })
+    expect(block).toHaveTextContent('Not scheduled yet'); expect(within(block).queryByRole('link')).toBeNull()
   })
   it('shows the session time in the account zone, a calendar link, and says that the deadline alone does not move it', () => {
     server(); open(booked())
-    const block = screen.getByRole('region', { name: 'Scheduled session time' })
-    expect(block.textContent).toMatch(/09:00|9:00/)   // 08:00Z is 09:00 in Amsterdam
+    const block = screen.getByRole('region', { name: 'Scheduled execution time' })
+    expect(block.textContent).toMatch(/09:00/)   // 08:00Z is 09:00 in Amsterdam
     expect(within(block).getByRole('link', { name: 'View in calendar' })).toHaveAttribute('href', '/calendar?date=2026-11-12&session=55')
     expect(within(block).getByText(/does not move the session/)).toBeInTheDocument()
+    expect(block).toHaveTextContent(/remove the session, use the calendar or Undo/)
   })
   it('warns calmly when the deadline is before the session ends, and stops when it is later', () => {
     server(); open(booked({ due_at: '2026-11-12T08:00:00Z' }))
@@ -199,61 +211,128 @@ describe('the scheduled session, apart from the deadline', () => {
     fireEvent.click(tile('This week'))
     expect(screen.queryByText('The scheduled session is after the deadline.')).toBeNull()
   })
-  it('Reschedule moves the existing session with PUT (never a POST), once, then refreshes tasks and calendar and says so politely', async () => {
-    const calls = server(); open(booked())
+  it('changing only the deadline never touches the session: one PATCH, no PUT, no POST', async () => {
+    const calls = server(); const { onClose } = open(booked())
+    fireEvent.click(tile('Tomorrow')); fireEvent.click(saveButton())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(patchBody(calls)).toHaveLength(1); expect(putCalls(calls)).toHaveLength(0); expect(postCalls(calls)).toHaveLength(0)
+  })
+  it('a scheduled task: the new start and end are saved with Save as ONE PUT on the same session (then the task fields), refreshes once, success only after both', async () => {
+    const calls = server(); const { onSave, onClose } = open(booked())
     const tasks = vi.fn(), cal = vi.fn()
     window.addEventListener(TASKS_CHANGED, tasks); window.addEventListener(CALENDAR_CHANGED, cal)
-    const trigger = screen.getByRole('button', { name: 'Reschedule' })
-    fireEvent.click(trigger); expect(trigger).toHaveAttribute('aria-expanded', 'true')
-    const slot = await screen.findAllByRole('button', { name: /Suggested times/ })
-    fireEvent.click(slot[0]); fireEvent.click(slot[0])
-    await waitFor(() => expect(calls.filter(c => c.method === 'PUT')).toHaveLength(1))
-    const put = calls.find(c => c.method === 'PUT')!
-    expect(put.url).toMatch(/\/api\/tasks\/7\/schedule$/); expect(put.body).toMatchObject({ session_id: 55 })
-    expect(calls.some(c => c.method === 'POST')).toBe(false)
-    await waitFor(() => expect(cal).toHaveBeenCalledTimes(1)); expect(tasks).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('group', { name: 'Reschedule the session' })).toBeNull()
-    await waitFor(() => expect(trigger).toHaveFocus())   // focus returns to the button that opened the editor
-    expect(document.body.textContent).toContain('Session moved.')
-    expect(screen.getByRole('region', { name: 'Scheduled session time' }).textContent).toMatch(/13/)   // now on the 13th
+    await suggestedTime()
+    const save = saveButton(); fireEvent.click(save); fireEvent.click(save)   // a double click
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(putCalls(calls)).toHaveLength(1); expect(postCalls(calls)).toHaveLength(0); expect(patchBody(calls)).toHaveLength(1)
+    expect(putCalls(calls)[0].body).toEqual({ session_id: 55, starts_at: '2026-11-13T08:00:00.000Z', ends_at: '2026-11-13T08:30:00.000Z' })
+    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-20T15:00:00.000Z' })   // the deadline is unchanged by moving the session
+    expect(onSave).toHaveBeenCalledTimes(1); expect(tasks).toHaveBeenCalledTimes(1); expect(cal).toHaveBeenCalledTimes(1)
+    expect(document.body.textContent).toContain('Changes saved.')
     window.removeEventListener(TASKS_CHANGED, tasks); window.removeEventListener(CALENDAR_CHANGED, cal)
   })
-  it('an overlap (422 on starts_at) is shown in the dialog, no success is announced and the session time is unchanged', async () => {
-    const calls = server({ put: () => ({ status: 422, body: { message: 'The given data was invalid.', errors: { starts_at: ['That time overlaps “Standup”.'] } } }) })
-    open(booked())
-    const cal = vi.fn(); window.addEventListener(CALENDAR_CHANGED, cal)
-    fireEvent.click(screen.getByRole('button', { name: 'Reschedule' }))
-    fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])
-    expect(await screen.findByRole('alert')).toHaveTextContent('That time overlaps “Standup”.')
-    expect(document.body.textContent).not.toContain('Session moved.')
-    expect(calls.filter(c => c.method === 'PUT')).toHaveLength(1); expect(cal).not.toHaveBeenCalled()
-    window.removeEventListener(CALENDAR_CHANGED, cal)
+  it('an unscheduled task: filling the time books ONE new session with POST and an Idempotency-Key (never PUT)', async () => {
+    const calls = server(); const { onClose } = open(task())
+    await suggestedTime(); fireEvent.click(saveButton())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(postCalls(calls)).toHaveLength(1); expect(putCalls(calls)).toHaveLength(0)
+    expect(postCalls(calls)[0].key).toMatch(/^[0-9a-f-]{36}$/)
+    expect(postCalls(calls)[0].body).toEqual({ starts_at: '2026-11-13T08:00:00.000Z', ends_at: '2026-11-13T08:30:00.000Z' })
   })
-  it('a permission error shows the server’s own message', async () => {
-    server({ put: () => ({ status: 403, body: { message: 'You may not change this calendar.' } }) })
-    open(booked())
-    fireEvent.click(screen.getByRole('button', { name: 'Reschedule' }))
-    fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])
-    expect(await screen.findByRole('alert')).toHaveTextContent('You may not change this calendar.')
+  it('a retry after a dropped connection reuses the Idempotency-Key (so it cannot book twice)', async () => {
+    let n = 0; const calls: Call[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method || 'GET'
+      calls.push({ method, url: String(url), key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
+      const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+      if (method === 'POST' && /schedule$/.test(String(url))) { if (n++ === 0) throw new TypeError('Failed to fetch'); return json(201, { data: { id: 91 }, schedule: session({ session_id: 91 }) }) }
+      if (/availability/.test(String(url))) return json(200, free)
+      if (method === 'PATCH') return json(200, { data: { id: 7 } })
+      return json(200, { data: [], meta: { last_page: 1 } })
+    }))
+    const { onClose } = open(task())
+    await suggestedTime(); fireEvent.click(saveButton())
+    await waitFor(() => expect(formError()).toHaveTextContent('Could not reach LifeOS'))
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const posts = postCalls(calls); expect(posts).toHaveLength(2); expect(posts[0].key).toBe(posts[1].key); expect(posts[0].key).toBeTruthy()
   })
-  it('closing the editor clears an earlier error, but a failed move keeps it open with the error', async () => {
-    server({ put: () => ({ status: 422, body: { message: 'x', errors: { starts_at: ['Overlap.'] } } }) })
-    open(booked())
-    const trigger = screen.getByRole('button', { name: 'Reschedule' })
-    fireEvent.click(trigger)
-    fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])
-    expect(await screen.findByRole('alert')).toHaveTextContent('Overlap.')
-    fireEvent.click(within(screen.getByRole('group', { name: 'Reschedule the session' })).getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('alert')).toBeNull()
-    await waitFor(() => expect(trigger).toHaveFocus())
+  it('a failed session save is not a success: no task save, no message, the dialog stays open with the error', async () => {
+    const calls = server({ put: () => ({ status: 500, body: { message: 'Server error.' } }) }); const { onSave, onClose } = open(booked())
+    await suggestedTime(); fireEvent.click(saveButton())
+    await waitFor(() => expect(formError()).toHaveTextContent('Server error.'))
+    expect(patchBody(calls)).toHaveLength(0); expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toContain('Changes saved.'); expect(document.body.textContent).not.toContain('moved to')
   })
-  it('speaks Arabic and Dutch', () => {
+  it('the session saved but the task fields failed: it says exactly that, nothing is marked saved, and a retry does not move the session again', async () => {
+    const calls = server({ patch: () => ({ status: 500, body: { message: 'Could not save.' } }) }); const { onSave, onClose } = open(booked())
+    await suggestedTime(); fireEvent.click(saveButton())
+    await waitFor(() => expect(formError()).toHaveTextContent(/The scheduled time was saved, but the other changes were not: Could not save\./))
+    expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled(); expect(document.body.textContent).not.toContain('Changes saved.')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(patchBody(calls)).toHaveLength(2))
+    expect(putCalls(calls)).toHaveLength(1)   // the fields already show the saved time: untouched, so nothing is sent for it
+  })
+  describe('a taken time', () => {
+    it('keeps the dialog open, saves nothing, and opens the conflict dialog with the sentence, the 24-hour times and the overlap', async () => {
+      const calls = server({ put: () => ({ status: 422, body: conflictBody() }) }); const { onSave, onClose } = open(booked())
+      const cal = vi.fn(); window.addEventListener(CALENDAR_CHANGED, cal)
+      await suggestedTime(); fireEvent.click(saveButton())
+      const dialog = await screen.findByRole('alertdialog')
+      expect(within(dialog).getByRole('heading')).toHaveTextContent('This time is already booked for another task.')
+      expect(dialog).toHaveTextContent("You can't schedule this task from 09:00 to 09:30, because you already have another task from 08:45 to 09:15.")
+      expect(dialog).toHaveTextContent('Write report'); expect(dialog).toHaveTextContent('15 min overlap')
+      expect(within(dialog).getByRole('link', { name: 'View the conflicting item' })).toHaveAttribute('href', '/calendar?date=2026-11-13&session=3')
+      expect(patchBody(calls)).toHaveLength(0); expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled()
+      expect(document.body.textContent).not.toContain('Changes saved.')
+      expect(cal).toHaveBeenCalled()   // the task is read again, so the row shows the real state
+      window.removeEventListener(CALENDAR_CHANGED, cal)
+    })
+    it('"Choose another time" closes it and puts focus on the start field', async () => {
+      server({ put: () => ({ status: 422, body: conflictBody() }) }); open(booked())
+      await suggestedTime(); fireEvent.click(saveButton())
+      fireEvent.click(await screen.findByRole('button', { name: 'Choose another time' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      await waitFor(() => expect(document.activeElement).toBe(document.querySelector('.rf-session-edit .dtp-trigger')))
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    })
+    it('Escape closes only the conflict dialog; focus goes back to Save; the edit dialog stays', async () => {
+      server({ put: () => ({ status: 422, body: conflictBody() }) }); const { onClose } = open(booked())
+      await suggestedTime(); saveButton().focus(); fireEvent.click(saveButton())
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent(dialog, new Event('cancel', { cancelable: true }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(onClose).not.toHaveBeenCalled(); await waitFor(() => expect(saveButton()).toHaveFocus())
+    })
+    it('the first free time is applied once through the same path: one more PUT with the suggested slot, then the task fields, then closed', async () => {
+      let n = 0
+      const calls = server({ put: () => (n++ === 0 ? { status: 422, body: conflictBody() } : { status: 200, body: { data: { id: 55 }, schedule: session({ starts_at: '2026-11-13T08:15:00Z', ends_at: '2026-11-13T08:45:00Z' }) } }) })
+      const { onClose } = open(booked())
+      await suggestedTime(); fireEvent.click(saveButton())
+      const button = await screen.findByRole('button', { name: /Suggest the first free time: 09:15–09:45/ })
+      fireEvent.click(button); fireEvent.click(button)
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+      expect(putCalls(calls)).toHaveLength(2)
+      expect(putCalls(calls)[1].body).toEqual({ session_id: 55, starts_at: '2026-11-13T08:15:00Z', ends_at: '2026-11-13T08:45:00Z' })
+      expect(patchBody(calls)).toHaveLength(1)
+    })
+    it('hides the suggestion button when the server has none', async () => {
+      server({ put: () => ({ status: 422, body: conflictBody({ suggestion: null }) }) }); open(booked())
+      await suggestedTime(); fireEvent.click(saveButton())
+      await screen.findByRole('alertdialog'); expect(screen.queryByRole('button', { name: /Suggest the first free time/ })).toBeNull()
+    })
+  })
+  it('speaks Arabic and Dutch, and keeps the deadline, the scheduled time and the estimate apart', () => {
     localStorage.setItem('lifeos-language', 'ar'); server(); open(booked({ due_at: '2026-11-12T08:00:00Z' }))
-    expect(screen.getByText('موعد الجلسة المجدولة')).toBeInTheDocument()
+    expect(screen.getByText('موعد التنفيذ المجدول')).toBeInTheDocument()
     expect(screen.getByText('الجلسة المجدولة بعد الموعد النهائي.')).toBeInTheDocument()
     expect(screen.getByText('الموعد النهائي (الاستحقاق)')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'إعادة الجدولة' })).toBeInTheDocument()
+    expect(screen.getAllByText('المدة المتوقعة (دقائق)').length).toBeGreaterThan(0)
     cleanup(); localStorage.setItem('lifeos-language', 'nl'); server(); open(booked())
-    expect(screen.getByText('Tijd van de ingeplande sessie')).toBeInTheDocument()
+    expect(screen.getByText('Geplande uitvoeringstijd')).toBeInTheDocument()
+    expect(screen.getByText('Deadline (uiterste datum)')).toBeInTheDocument()
+    expect(screen.getAllByText('Geschatte duur (minuten)').length).toBeGreaterThan(0)
+    cleanup(); localStorage.setItem('lifeos-language', 'en'); server(); open(booked())
+    expect(screen.getByText('Scheduled execution time')).toBeInTheDocument(); expect(screen.getByText('Deadline (due)')).toBeInTheDocument(); expect(screen.getAllByText('Estimate (minutes)').length).toBeGreaterThan(0)
   })
 })

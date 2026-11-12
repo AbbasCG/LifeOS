@@ -23,27 +23,58 @@ export function layoutLanes<T extends Timed>(items: T[]): Lane<T>[] {
 
 export const SNAP_MINUTES = 15
 export const DAY_MINUTES = 24 * 60
+/** Pixels per hour of the time grid, and the 2px left between a block's bottom edge and the next hour line so back-to-back blocks stay apart. */
+export const HOUR_PX = 52
+export const BLOCK_GAP = 2
 
 export function snap(minutes: number, step = SNAP_MINUTES) { return Math.round(minutes / step) * step }
 
-/** Minutes since local midnight of `day`. */
-export function minutesInto(day: Date, instant: Date) { return Math.round((instant.getTime() - new Date(day).setHours(0, 0, 0, 0)) / 60000) }
+/**
+ * Minutes from local midnight of `day` to `instant`, read on the wall clock. The grid is a wall-clock grid (its 24 labels are
+ * 00:00 to 23:00 on every day), so 10:00 is always 600, also on the 23- and 25-hour days when the clocks change. Below 0 is the
+ * day before, above 1440 the day after (a block that crosses midnight).
+ */
+export function minutesInto(day: Date, instant: Date) {
+  const wall = Date.UTC(instant.getFullYear(), instant.getMonth(), instant.getDate(), instant.getHours(), instant.getMinutes(), instant.getSeconds())
+  return Math.round((wall - Date.UTC(day.getFullYear(), day.getMonth(), day.getDate())) / 60000)
+}
 
 export function atMinutes(day: Date, minutes: number) { const d = new Date(day); d.setHours(0, 0, 0, 0); d.setMinutes(minutes); return d }
 
-/** New start/end when a block is dragged to `day` and shifted by `delta` minutes; it stays inside that day. */
+/** The block's duration in minutes, in real elapsed time (what the server stores). */
+const lengthOf = (start: Date, end: Date) => Math.round((end.getTime() - start.getTime()) / 60000)
+
+/** Height in pixels of a block that lasts `minutes`: proportional to the length, less the 2px gap. 15 minutes is 11px, an hour 50px. */
+export function blockHeight(minutes: number) { return Math.max(1, minutes / 60 * HOUR_PX - BLOCK_GAP) }
+
+/**
+ * Where a block sits in the column of `day` (wall clock, clipped to that day), plus whether it continues from the day before or
+ * into the next one. The height is the length of the visible part: nothing is rounded up to a minimum.
+ */
+export function blockBox(day: Date, start: Date, end: Date) {
+  const from = minutesInto(day, start), to = minutesInto(day, end)
+  const top = Math.max(0, Math.min(DAY_MINUTES, from)), bottom = Math.max(0, Math.min(DAY_MINUTES, to))
+  return { top: top / 60 * HOUR_PX, height: blockHeight(bottom - top), continues: from < 0, runsOn: to > DAY_MINUTES }
+}
+
+/**
+ * New start/end when a block is dragged from the column of `origDay` to the column of `day` and shifted by `delta` minutes.
+ * A block inside one day stays inside the day it lands on; a block that crosses midnight is not clamped (it would have to
+ * change length) and moves by the same wall-clock amount. The length is kept in real time.
+ */
 export function movePreview(origStart: Date, origEnd: Date, origDay: Date, day: Date, delta: number) {
-  const duration = Math.round((origEnd.getTime() - origStart.getTime()) / 60000)
-  const startMinutes = Math.max(0, Math.min(DAY_MINUTES - duration, minutesInto(origDay, origStart) + snap(delta)))
+  const duration = lengthOf(origStart, origEnd), from = minutesInto(origDay, origStart), to = minutesInto(origDay, origEnd)
+  const crosses = from < 0 || to > DAY_MINUTES
+  const startMinutes = crosses ? from + snap(delta) : Math.max(0, Math.min(DAY_MINUTES - duration, from + snap(delta)))
   const start = atMinutes(day, startMinutes)
   return { start, end: new Date(start.getTime() + duration * 60000) }
 }
 
-/** New end when the bottom edge is dragged by `delta` minutes (minimum one snap step, maximum end of day). */
+/** New end when the bottom edge is dragged by `delta` minutes (minimum one snap step, maximum end of day; a block that already runs past midnight may go on). */
 export function resizePreview(origStart: Date, origEnd: Date, day: Date, delta: number) {
-  const endMinutes = minutesInto(day, origEnd) + snap(delta)
+  const to = minutesInto(day, origEnd), endMinutes = to + snap(delta)
   const min = minutesInto(day, origStart) + SNAP_MINUTES
-  return { start: origStart, end: atMinutes(day, Math.max(min, Math.min(DAY_MINUTES, endMinutes))) }
+  return { start: origStart, end: atMinutes(day, Math.max(min, to > DAY_MINUTES ? endMinutes : Math.min(DAY_MINUTES, endMinutes))) }
 }
 
 /** First other event overlapping [start, end). Touching edges do not conflict. */

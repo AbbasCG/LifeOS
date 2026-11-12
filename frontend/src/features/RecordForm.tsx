@@ -5,7 +5,9 @@ import { useRecords } from '../lib/hooks'
 import { accountDay } from '../lib/accountDay'
 import { DEFAULT_DEADLINE_TIME, TASKS_CHANGED, deadlineField, deadlineInstant, deriveWhen, whenField, type When } from '../lib/quickAdd'
 import { CALENDAR_CHANGED } from '../lib/taskSchedule'
-import { TaskSessionBlock } from './tasks/TaskSessionBlock'
+import { ScheduledTimeSection } from './tasks/TaskSessionBlock'
+import { useSessionFields } from './tasks/sessionFields'
+import { useTaskScheduling } from '../lib/useTaskScheduling'
 import { DateTimeField } from '../components/ui/DateTimePicker'
 import { ChoiceGroup, PickerField, type ChoiceOption } from '../components/ui/Choice'
 import { BottomSheet, SheetCancel } from '../components/visual'
@@ -51,12 +53,15 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const [pick, setPick] = useState<Record<string, string>>({ project_id: String(item.project_id || ''), goal_id: String(item.goal_id || ''), category_id: String(item.category_id || ''), task_id: String(item.task_id || '') })
   const [kind, setKind] = useState(String(item.kind || 'fixed')), [area, setArea] = useState(String(item.area || ''))
   const formId = `record-form-${resource}`
+  // The scheduled start/end of an existing task are saved by the same Save button, through the one scheduling path (PUT when it has a session, POST when not).
+  const session = useSessionFields(item, Number(minutes) || 30)
+  const scheduling = useTaskScheduling({ onChanged: change => session.saved(change.schedule), onChooseTime: () => document.getElementById(session.startId)?.focus() })
   // Unsaved work = any posted field or subtask that differs from what the form opened with (hidden inputs carry the choice buttons' values).
   const opened = useRef<string | null>(null)
   const snapshot = useCallback(() => {
     const form = document.getElementById(formId) as HTMLFormElement | null
-    return form ? JSON.stringify([[...new FormData(form)].map(([k, v]) => [k, String(v)]), subtasks]) : null
-  }, [formId, subtasks])
+    return form ? JSON.stringify([[...new FormData(form)].map(([k, v]) => [k, String(v)]), subtasks, session.signature]) : null
+  }, [formId, subtasks, session.signature])
   useEffect(() => { opened.current ??= snapshot() })
   const dirty = useCallback(() => { const now = snapshot(); return opened.current !== null && now !== null && now !== opened.current }, [snapshot])
 
@@ -69,12 +74,30 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
     for (const key of ['project_id', 'goal_id', 'category_id', 'task_id']) if (key in data) data[key] = data[key] ? Number(data[key]) : null
     if (resource === 'tasks') { data.subtasks = subtasks; data.tags = String(data.tags || '').split(',').map(s => s.trim()).filter(Boolean); data.recurrence = data.recurrence || null }
     if (resource === 'projects' || resource === 'goals') data.milestones = subtasks
-    try { await api(`/api/${resource}${item.id ? `/${item.id}` : ''}`, item.id ? 'PATCH' : 'POST', data); toast(item.id ? t('Changes saved.', 'تم حفظ التغييرات.') : t('Created.', 'تم الإنشاء.')); onSave()
+    let sessionSaved = false
+    try {
+      if (resource === 'tasks' && item.id) {
+        const plan = session.plan()
+        if (plan && 'error' in plan) { setError(plan.error); return }
+        if (plan) {
+          // The session first: when its time is taken (or it fails) nothing else is saved and the dialog stays open.
+          const outcome = await scheduling.place({ id: item.id, title: String(data.title || item.title || ''), schedule: session.current }, plan.slot, {
+            silent: true, onError: setError,
+            onSuggestion: slot => { session.fill(slot); window.setTimeout(() => (document.getElementById(formId) as HTMLFormElement | null)?.requestSubmit(), 0) },
+          })
+          if (outcome !== 'created' && outcome !== 'moved') return
+          sessionSaved = true
+        }
+      }
+      try { await api(`/api/${resource}${item.id ? `/${item.id}` : ''}`, item.id ? 'PATCH' : 'POST', data) }
+      catch (err) { if (sessionSaved) { window.dispatchEvent(new Event(TASKS_CHANGED)); window.dispatchEvent(new Event(CALENDAR_CHANGED)) }
+        setError(sessionSaved ? `${t('The scheduled time was saved, but the other changes were not', 'حُفظ موعد التنفيذ، لكن لم تُحفظ بقية التغييرات', 'De geplande tijd is opgeslagen, maar de overige wijzigingen niet')}: ${(err as Error).message}` : (err as Error).message); return }
+      toast(item.id ? t('Changes saved.', 'تم حفظ التغييرات.') : t('Created.', 'تم الإنشاء.')); onSave()
       // The task lists, Today and the calendar read the server again (the calendar shows a task's session and free time), without polling.
       if (resource === 'tasks') window.dispatchEvent(new Event(TASKS_CHANGED))
       if (resource === 'tasks' || resource === 'events') window.dispatchEvent(new Event(CALENDAR_CHANGED))
-      onClose() }
-    catch (err) { setError((err as Error).message) } finally { saving.current = false; setBusy(false) }
+      onClose()
+    } finally { saving.current = false; setBusy(false) }
   }
 
   const icon = (Icon: typeof Sun) => <Icon size={20} aria-hidden="true" />
@@ -105,12 +128,12 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
       <small className="rf-custom" aria-hidden="true">{customText}</small>
       <span className="sr-only" role="status">{customText && customNote === customText ? customNote : ''}</span>
       <small id={helperId} className="muted">{t(`Choosing a day keeps the time; with no time yet it starts at ${DEFAULT_DEADLINE_TIME} (or the next half hour if that has passed today).`, `اختيار اليوم يُبقي الوقت كما هو؛ وإن لم يكن هناك وقت يبدأ عند ${DEFAULT_DEADLINE_TIME} (أو أقرب نصف ساعة إن كانت الساعة 17:00 قد مضت اليوم).`, `Een dag kiezen behoudt de tijd; zonder tijd begint het om ${DEFAULT_DEADLINE_TIME} (of het volgende halve uur als dat vandaag voorbij is).`)}</small></div>
-    {item.id && <TaskSessionBlock task={item as RecordItem} due={due} />}
+    {item.id && <ScheduledTimeSection task={item as RecordItem} fields={session} due={due} busy={busy} />}
     <div className="field-block"><span className="field-title">{t('Priority', 'الأولوية')}</span><ChoiceGroup label={t('Priority', 'الأولوية')} variant="tiles" columns={4} name="priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
     <div className="field-block"><span className="field-title">{t('Status', 'الحالة')}</span><ChoiceGroup label={t('Status', 'الحالة')} name="status" value={status} onChange={setStatus} options={STATUSES.map(s => ({ value: s, label: label(s) }))} /></div>
-    <div className="field-block"><span className="field-title">{t('Estimate (minutes)', 'المدة المقدرة (دقائق)')}</span>
+    <div className="field-block"><span className="field-title">{t('Estimate (minutes)', 'المدة المتوقعة (دقائق)')}</span>
       <ChoiceGroup label={t('Duration', 'المدة')} value={MINUTES.map(String).includes(minutes) ? minutes : ''} onChange={setMinutes} options={MINUTES.map(m => ({ value: String(m), label: m >= 60 && m % 60 === 0 ? `${m / 60}${t('h', 'س')}` : `${m}${t('m', 'د')}` }))} />
-      <input type="number" name="estimated_minutes" inputMode="numeric" min="5" max="10080" value={minutes} aria-label={t('Estimate (minutes)', 'المدة المقدرة (دقائق)')} onChange={e => setMinutes(e.target.value)} /></div>
+      <input type="number" name="estimated_minutes" inputMode="numeric" min="5" max="10080" value={minutes} aria-label={t('Estimate (minutes)', 'المدة المتوقعة (دقائق)')} onChange={e => setMinutes(e.target.value)} /></div>
     <div className="field-block"><span className="field-title">{t('Repeat', 'التكرار')}</span><ChoiceGroup label={t('Repeat', 'التكرار')} variant="tiles" columns={3} name="recurrence" value={recurrence} onChange={setRecurrence} options={[{ value: '', label: t('Does not repeat', 'بلا تكرار'), icon: icon(X) }, { value: 'daily', label: t('Daily', 'يومياً'), icon: icon(Repeat) }, { value: 'weekly', label: t('Weekly', 'أسبوعياً'), icon: icon(CalendarDays) }]} /></div>
     <div className="field-block rf-organize">
       <PickerField label={t('Project', 'المشروع')} name="project_id" icon={<FolderKanban size={18} />} value={pick.project_id} onChange={setPicked('project_id')} options={asOptions(projects.items)} loading={wantsLists && projects.loading} />
@@ -157,5 +180,6 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
       <label className="full rf-title-field">{t('Title', 'العنوان')}<input data-autofocus name="title" className="rf-title" defaultValue={item.title} required maxLength={200} autoComplete="off" enterKeyHint="done" /></label>
       {resource === 'tasks' ? tasksFields : otherFields}
     </form>
+    {scheduling.conflictDialog}
   </BottomSheet>
 }

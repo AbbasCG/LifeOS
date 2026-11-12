@@ -107,28 +107,28 @@ beforeEach(() => { cleanup(); localStorage.clear(); localStorage.setItem('lifeos
 afterEach(() => { vi.useRealTimers(); setAccountZone(undefined) })
 
 describe('the badge on a task row', () => {
-  it('shows “Scheduled · Tomorrow 09:00” for a scheduled task, with the length and the deadline apart from it', async () => {
+  it('shows “Scheduled: Tomorrow 09:00 – 09:30” for a scheduled task, with the length and the deadline apart from it', async () => {
     stub({ tasks: [task({ schedule: session() })], calendar: [] })
     const { container } = render(wrap(<TasksPage />))
     await screen.findByText('Pay the invoice')
     const badge = container.querySelector('.sched-badge')!
-    expect(badge).toHaveTextContent(/^Scheduled\s*Tomorrow 09:00$/)
+    expect(badge).toHaveTextContent(/^Scheduled:\s*Tomorrow 09:00 – 09:30$/)
     expect(badge.querySelector('time')).toHaveAttribute('datetime', '2026-11-12T08:00:00Z')
     // the deadline has its own label and its own time (the 20th, 16:00), not the session's
     const meta = container.querySelector('.meta-row')!
     const due = meta.querySelector('.due')!
-    expect(due).toHaveTextContent(/^Due/); expect(due.querySelector('time')).toHaveAttribute('datetime', '2026-11-20T15:00:00Z')
+    expect(due).toHaveTextContent(/^Due:\s*Fri, Nov 20 16:00$/); expect(due.querySelector('time')).toHaveAttribute('datetime', '2026-11-20T15:00:00Z')
     expect(badge).not.toContainElement(due as HTMLElement)
     // the estimated length is separate and says what it is
     const duration = meta.querySelector('.sched-duration')!
     expect(duration).toHaveTextContent('Estimated time: 30 min'); expect(badge).not.toContainElement(duration as HTMLElement)
   })
-  it('shows no badge, no “Due” label and a Schedule action for an unscheduled task', async () => {
+  it('shows no badge, only the “Due:” line and a Schedule action for an unscheduled task', async () => {
     stub({ tasks: [task()], calendar: [] })
     const { container } = render(wrap(<TasksPage />))
     fireEvent.click(await screen.findByText('Pay the invoice'))
     expect(container.querySelector('.sched-badge')).toBeNull()
-    expect(container.querySelector('.due-label')).toBeNull()
+    expect(container.querySelector('.due-label')).toHaveTextContent('Due:')
     expect(await screen.findByRole('group', { name: 'Schedule' })).toBeInTheDocument()
   })
   it('uses the session time, not the deadline, even when the deadline is earlier than the session', async () => {
@@ -145,16 +145,16 @@ describe('the badge on a task row', () => {
     expect(container.querySelector('.sched-badge')).toHaveTextContent('3 sessions')
   })
   it.each([
-    ['ar', 'مجدولة', 'غدًا 09:00', 'الاستحقاق', '30 دقيقة', 'عرض في التقويم', 'إعادة الجدولة', 'rtl'],
-    ['nl', 'Gepland', 'Morgen 09:00', 'Deadline', '30 min', 'Bekijk in agenda', 'Opnieuw inplannen', 'ltr'],
-    ['en', 'Scheduled', 'Tomorrow 09:00', 'Due', '30 min', 'View in calendar', 'Reschedule', 'ltr'],
+    ['ar', 'مجدولة', 'غدًا 09:00 – 09:30', 'الاستحقاق', '30 دقيقة', 'عرض في التقويم', 'إعادة الجدولة', 'rtl'],
+    ['nl', 'Gepland', 'Morgen 09:00 – 09:30', 'Deadline', '30 min', 'Bekijk in agenda', 'Opnieuw inplannen', 'ltr'],
+    ['en', 'Scheduled', 'Tomorrow 09:00 – 09:30', 'Due', '30 min', 'View in calendar', 'Reschedule', 'ltr'],
   ])('is complete in %s (%s) and reads in the right direction', async (lang, scheduled, when, due, minutes, view, again, dir) => {
     localStorage.setItem('lifeos-language', lang)
     stub({ tasks: [task({ schedule: session() })], calendar: [] })
     const { container } = render(wrap(<TasksPage />))
     await screen.findByText('Pay the invoice')
     expect(document.documentElement.dir).toBe(dir)
-    expect(container.querySelector('.sched-badge')).toHaveTextContent(`${scheduled} ${when}`)
+    expect(container.querySelector('.sched-badge')).toHaveTextContent(`${scheduled}: ${when}`)
     expect(container.querySelector('.due-label')).toHaveTextContent(due)
     expect(container.querySelector('.sched-duration')).toHaveTextContent(minutes)
     fireEvent.click(container.querySelector('.task-body')!)
@@ -407,6 +407,21 @@ describe('the calendar', () => {
     expect(calls(f, 'PUT')[0][0]).toMatch(/\/api\/tasks\/7\/schedule$/)
     expect(JSON.parse(calls(f, 'PUT')[0][1]!.body as string).session_id).toBe(55)
     expect(calls(f, 'POST')).toHaveLength(0)
+  })
+
+  it('a taken time in the session panel opens the conflict dialog (never silence), and “Choose another time” refocuses the choices', async () => {
+    const conflict = { message: 'x', errors: { starts_at: ['overlap'] }, conflict: { code: 'schedule_conflict', requested: { starts_at: '2026-11-11T13:00:00Z', ends_at: '2026-11-11T13:30:00Z' },
+      conflicts: [{ id: 3, event_id: 3, task_id: 8, title: 'Write report', kind: 'task_session', source: 'lifeos', starts_at: '2026-11-11T12:45:00Z', ends_at: '2026-11-11T13:15:00Z', overlap_minutes: 15 }], suggestion: null } }
+    const f = stub({ tasks: [task({ schedule: session() })], calendar: [occurrence()], put: () => ({ status: 422, body: conflict }) })
+    render(wrap(<CalendarPage />, weekOf))
+    fireEvent.click(await waitFor(() => { const el = document.querySelector('[data-session="55"]'); if (!el) throw new Error('not drawn'); return el }))
+    const panel = await screen.findByRole('region', { name: 'Task session' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reschedule' }))
+    fireEvent.click(within(await within(panel).findByRole('group', { name: 'Reschedule' })).getAllByRole('button')[0])
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('15 min overlap'); expect(calls(f, 'PUT')).toHaveLength(1)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Choose another time' }))
+    await waitFor(() => expect(document.activeElement?.closest('[data-sched-chips]')).not.toBeNull())
   })
 
   it('placing an unscheduled task goes through the schedule endpoint and a 409 is a plain message, not a success', async () => {

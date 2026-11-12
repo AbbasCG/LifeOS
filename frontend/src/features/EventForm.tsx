@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Repeat, Trash2, AlertTriangle, Lock, ExternalLink } from 'lucide-react'
 import { api, ApiError, type CalendarOccurrence, type RecordItem, type Recurrence } from '../lib/api'
 import { localInput } from '../lib/hooks'
@@ -9,6 +9,9 @@ import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage } from '../components/ui/Shared'
 import { DateTimeField } from '../components/ui/DateTimePicker'
 import { sourceName } from '../lib/sources'
+import { ScheduleConflictDialog } from '../components/ui/ScheduleConflictDialog'
+import { refusalOf } from '../lib/calendarConflict'
+import type { ScheduleConflict } from '../lib/scheduleConflict'
 import { makeShift, type ZoneShift } from '../lib/zoneShift'
 import { isAlreadyScheduled } from '../lib/taskSchedule'
 import { TaskSessionPanel } from './tasks/ScheduleParts'
@@ -20,7 +23,7 @@ const REMINDERS = [null, 0, 5, 10, 15, 30, 60, 120, 1440]
 
 /** `shift` says which timezone the times are drawn in (see lib/zoneShift): the form shows and edits them there. */
 const NO_SHIFT = makeShift(undefined)
-export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMoved, onClose }: { item: Draft; tasks: RecordItem[]; shift?: ZoneShift; onSaved: () => void; onMoved?: (eventId: number, startsAt: string) => void; onClose: () => void }) {
+export default function EventForm({ item, tasks, known = [], shift = NO_SHIFT, onSaved, onMoved, onClose }: { item: Draft; tasks: RecordItem[]; known?: CalendarOccurrence[]; shift?: ZoneShift; onSaved: () => void; onMoved?: (eventId: number, startsAt: string) => void; onClose: () => void }) {
   const t = useText(), { language } = useLanguage(), toast = useToast()
   const isNew = !item.event_id, external = item.source && item.source !== 'lifeos'
   const [scope, setScope] = useState<Scope>(item.recurring ? 'occurrence' : 'series')
@@ -31,6 +34,8 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMo
   const [endMode, setEndMode] = useState<'never' | 'until' | 'count'>(item.recurrence?.until ? 'until' : item.recurrence?.count ? 'count' : 'never')
   const [confirmFixed, setConfirmFixed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [conflicts, setConflicts] = useState('')
   const [series, setSeries] = useState<{ starts_at: string; ends_at: string } | null>(null)
+  // The time is taken: the same dialog as the task pages. The form stays open and unchanged underneath.
+  const [refused, setRefused] = useState<ScheduleConflict | null>(null), form = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     if (!item.recurring || !item.event_id) return
@@ -50,11 +55,12 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMo
   const timesChanged = !isNew && (new Date(start).getTime() !== new Date(item.starts_at!).getTime() || new Date(end).getTime() !== new Date(item.ends_at!).getTime())
   const fixedLocked = !isNew && item.kind === 'fixed' && kind === 'fixed' && timesChanged
 
-  function payload(ignoreConflicts: boolean) {
-    let s = shift.realDate(new Date(start)), e = shift.realDate(new Date(end))
+  function payload(ignoreConflicts: boolean, times?: { start: string; end: string }) {
+    const from = times?.start ?? start, to = times?.end ?? end
+    let s = shift.realDate(new Date(from)), e = shift.realDate(new Date(to))
     if (editingSeries && series && item.occurrence_start) {
       // Apply the change made to this occurrence to the whole series by the same offset.
-      const shiftStart = new Date(start).getTime() - new Date(item.starts_at!).getTime(), shiftEnd = new Date(end).getTime() - new Date(item.ends_at!).getTime()
+      const shiftStart = new Date(from).getTime() - new Date(item.starts_at!).getTime(), shiftEnd = new Date(to).getTime() - new Date(item.ends_at!).getTime()
       s = new Date(new Date(series.starts_at).getTime() + shiftStart); e = new Date(new Date(series.ends_at).getTime() + shiftEnd)
     }
     const body: Record<string, unknown> = { title, description: description || null, kind, starts_at: s.toISOString(), ends_at: e.toISOString(), task_id: taskId ? Number(taskId) : null, remind_minutes: remind === '' ? null : Number(remind) }
@@ -65,14 +71,17 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMo
     if (isNew) body.timezone = shift.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
     return body
   }
-  async function submit(e: FormEvent | null, ignoreConflicts = false) {
+  async function submit(e: FormEvent | null, ignoreConflicts = false, times?: { start: string; end: string }) {
     e?.preventDefault(); setBusy(true); setError(''); setConflicts('')
+    const body = payload(ignoreConflicts, times)
     try {
-      await api(isNew ? '/api/events' : `/api/events/${item.event_id}`, isNew ? 'POST' : 'PATCH', payload(ignoreConflicts))
+      await api(isNew ? '/api/events' : `/api/events/${item.event_id}`, isNew ? 'POST' : 'PATCH', body)
       toast(isNew ? t('Event created.', 'تم إنشاء الموعد.') : scope === 'occurrence' && item.recurring ? t('This occurrence was updated.', 'تم تحديث هذا الموعد فقط.') : t('Event updated.', 'تم تحديث الموعد.'))
       onSaved(); onClose()
     } catch (err) {
-      if (err instanceof ApiError && err.errors.recurrence_conflicts) setConflicts(err.errors.recurrence_conflicts[0])
+      const refusal = err instanceof ApiError && err.errors.recurrence_conflicts ? null : refusalOf(err, { starts_at: String(body.starts_at), ends_at: String(body.ends_at) }, known, item.event_id)
+      if (refusal) setRefused(refusal)
+      else if (err instanceof ApiError && err.errors.recurrence_conflicts) setConflicts(err.errors.recurrence_conflicts[0])
       else if (isAlreadyScheduled(err)) setError(t('This task is already scheduled.', 'هذه المهمة مجدولة بالفعل.', 'Deze taak is al ingepland.'))
       else setError((err as Error).message)
     } finally { setBusy(false) }
@@ -88,7 +97,7 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMo
   const setFreq = (freq: string) => setRule(freq ? { freq: freq as Recurrence['freq'], interval: rule?.interval ?? 1, by_weekday: freq === 'weekly' ? rule?.by_weekday ?? [new Date(start || Date.now()).getDay()] : undefined, count: rule?.count, until: rule?.until } : null)
 
   return <Dialog title={isNew ? t('New event', 'موعد جديد') : t('Edit event', 'تعديل الموعد')} onClose={onClose}>
-    <form className="form-grid event-form" onSubmit={e => void submit(e)}>
+    <form ref={form} className="form-grid event-form" onSubmit={e => void submit(e)}>
       <ErrorMessage error={error} />
       {!isNew && item.recurring && <fieldset className="full scope-picker"><legend><Repeat size={14} /> {t('This event repeats', 'هذا موعد متكرر')} · {describeRecurrence(item.recurrence, language, t)}</legend>
         <div className="segmented" role="radiogroup" aria-label={t('Apply changes to', 'تطبيق التغييرات على')}>
@@ -125,5 +134,8 @@ export default function EventForm({ item, tasks, shift = NO_SHIFT, onSaved, onMo
         <span className="toolbar"><button type="button" className="quiet" onClick={onClose}>{t('Cancel', 'إلغاء')}</button><button className="primary" disabled={busy || (fixedLocked && !confirmFixed)}>{busy ? t('Saving…', 'جارٍ الحفظ…') : t('Save', 'حفظ')}</button></span>
       </footer>
     </form>
+    {refused && <ScheduleConflictDialog conflict={refused} onClose={() => setRefused(null)}
+      onChoose={() => form.current?.querySelector<HTMLElement>('.dtp-trigger')?.focus()}
+      onUseSuggestion={slot => { setRefused(null); const next = { start: localInput(shift.toView(slot.starts_at)), end: localInput(shift.toView(slot.ends_at)) }; setStart(next.start); setEnd(next.end); void submit(null, false, next) }} />}
   </Dialog>
 }

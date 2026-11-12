@@ -235,14 +235,27 @@ class CalendarService
                 return false;
             }
 
-            return $o['starts_at'] < $end && $o['ends_at'] > $start;
+            return self::overlaps($o, $start, $end);
         })->values();
+    }
+
+    /**
+     * The one overlap rule of the calendar: half-open intervals [start, end), so a block that ends exactly when another starts does not overlap it.
+     * Conflict checks, series checks and the suggested free slot all use it.
+     *
+     * @param  array<string, mixed>  $occurrence
+     */
+    public static function overlaps(array $occurrence, CarbonImmutable $start, CarbonImmutable $end): bool
+    {
+        return $occurrence['starts_at'] < $end && $occurrence['ends_at'] > $start;
     }
 
     /**
      * Conflicts for every occurrence of a (possibly unsaved) series within the next $days days.
      *
-     * @return list<array{date: string, title: string, starts_at: string}>
+     * `mine` is the clashing occurrence of the series, `clash` the existing item it overlaps.
+     *
+     * @return list<array{date: string, title: string, starts_at: string, mine: array<string, mixed>, clash: array<string, mixed>}>
      */
     public function seriesConflicts(User $user, CalendarEvent $event, int $days = 90, int $limit = 5): array
     {
@@ -251,9 +264,9 @@ class CalendarService
         $existing = $this->occurrences($user, $from, $to)->filter(fn (array $o) => ! $event->exists || ($o['event_id'] ?? null) !== $event->id);
         $found = [];
         foreach ($this->expand($event, $from, $to, $event->exists ? null : collect()) as $mine) {
-            $clash = $existing->first(fn (array $o) => $o['starts_at'] < $mine['ends_at'] && $o['ends_at'] > $mine['starts_at']);
+            $clash = $existing->first(fn (array $o) => self::overlaps($o, $mine['starts_at'], $mine['ends_at']));
             if ($clash) {
-                $found[] = ['date' => $mine['starts_at']->setTimezone($event->timezone ?: 'UTC')->toDateString(), 'title' => $clash['title'], 'starts_at' => $clash['starts_at']->toIso8601String()];
+                $found[] = ['date' => $mine['starts_at']->setTimezone($event->timezone ?: 'UTC')->toDateString(), 'title' => $clash['title'], 'starts_at' => $clash['starts_at']->toIso8601String(), 'mine' => $mine, 'clash' => $clash];
                 if (count($found) >= $limit) {
                     break;
                 }
