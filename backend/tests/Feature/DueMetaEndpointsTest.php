@@ -59,6 +59,8 @@ class DueMetaEndpointsTest extends TestCase
                 $seen['t'] = true;
             }
         }
+        // Both rows must be present; their order depends on how equal-ranked rows come back from the database.
+        ksort($seen);
         $this->assertSame(['d' => true, 't' => true], $seen);
     }
 
