@@ -18,6 +18,7 @@ import { Skeleton } from '../../components/ui/Shared'
 import { RecommendationCard } from '../intelligence/RecommendationCard'
 import type { Recommendation } from '../../lib/intelligence'
 import { formatClock } from '../../lib/clock'
+import { accountDay, accountInstant } from '../../lib/accountDay'
 
 type Task = Briefing['focus'][number]
 type Event = TodayData['timeline'][number]
@@ -104,7 +105,7 @@ export function TodayStrip({ today }: { today: TodayData | null }) {
   const zone = today.timezone && isValidZone(today.timezone) ? today.timezone : undefined
   const time = (iso: string | number) => formatClock(iso, { language, timeZone: zone })
   const events = today.timeline.filter(e => !e.all_day)
-  const dayStart = today.day_start ? Date.parse(today.day_start) : new Date().setHours(0, 0, 0, 0)
+  const dayStart = today.day_start ? Date.parse(today.day_start) : Date.parse(accountInstant(accountDay(), 0))
   // Show from the earliest of 08:00 / first item to the latest of 20:00 / last item, in whole hours.
   const hour = 3_600_000
   const from = Math.min(dayStart + 8 * hour, ...events.map(e => Date.parse(e.starts_at)))

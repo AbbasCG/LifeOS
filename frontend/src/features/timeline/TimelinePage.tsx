@@ -1,3 +1,4 @@
+import { isAllDay } from '../../lib/dueDate'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { m, AnimatePresence } from 'motion/react'
@@ -71,7 +72,7 @@ export default function TimelinePage() {
     const done = item.status === 'completed'
     return <m.li key={item.id} layout="position" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}
       className={`tl-item kind-${item.kind} src-${item.source} ${item.conflict ? 'has-conflict' : ''} ${done ? 'done' : ''} ${compact ? 'compact' : ''}`}>
-      <time dir="ltr">{item.all_day ? t('All day', 'طوال اليوم') : <>{time(item.starts_at)}{item.ends_at && !compact ? `–${time(item.ends_at)}` : ''}</>}</time>
+      <time dir="ltr">{item.all_day || (item.kind === 'task' && isAllDay({ due_at: item.starts_at })) ? t('All day', 'طوال اليوم') : <>{time(item.starts_at)}{item.ends_at && !compact ? `–${time(item.ends_at)}` : ''}</>}</time>
       <span className="tl-bar" aria-hidden="true" />
       <div className="tl-main">
         <div className="tl-title"><Icon size={14} aria-hidden="true" /><strong>{item.title}</strong>{done && <Check size={14} className="ok" aria-label={t('Done', 'منجز')} />}</div>

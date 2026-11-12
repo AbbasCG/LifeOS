@@ -3,6 +3,7 @@ import { Link, useInRouterContext } from 'react-router'
 import { AlertTriangle, CalendarCheck, CalendarClock, CalendarDays, Flag, Timer, X } from 'lucide-react'
 import type { Availability, CalendarOccurrence, RecordItem, TaskSchedule } from '../../lib/api'
 import { accountDay } from '../../lib/accountDay'
+import { isAllDay } from '../../lib/dueDate'
 import { slotWords, suggestSlots, type FreeSlot } from '../../lib/scheduleSlots'
 import { calendarLink, durationWords, isSplit, scheduleOf, sessionCount, sessionFull, sessionRange, sessionsWord, sessionWhen, useClock } from '../../lib/taskSchedule'
 import { useTaskScheduling, type Conflict, type Slot } from '../../lib/useTaskScheduling'
@@ -33,14 +34,15 @@ export function ScheduleBadge({ schedule }: { schedule: TaskSchedule }) {
 }
 
 /** «الاستحقاق: اليوم 17:00»: the deadline, never presented as the time the work happens. Shown only when there is one. */
-export function DueLine({ due, done = false }: { due?: string | null; done?: boolean }) {
+export function DueLine({ due, allDay, done = false }: { due?: string | null; allDay?: boolean; done?: boolean }) {
   const t = useText(), { language } = useLanguage(), now = useClock()
   if (!due || Number.isNaN(Date.parse(due))) return null
-  const when = sessionWhen(due, language, t, now), late = !done && Date.parse(due) < now.getTime()
+  // A date-only deadline shows the day alone ("Due: Fri 14 Nov"); it is late only once that day has ended (its due_at is the end of the day).
+  const when = sessionWhen(due, language, t, now), late = !done && Date.parse(due) < now.getTime(), text = isAllDay({ due_at: due, due_all_day: allDay }) ? when.dayText : when.text
   return <span className={`due ${late ? 'late' : when.day === 'today' ? 'today' : ''}`}>
     {late ? <AlertTriangle size={12} aria-hidden="true" /> : <Flag size={12} aria-hidden="true" />}
     <span className="due-label">{t('Due', 'الاستحقاق', 'Deadline')}:</span>
-    <bdi><time dateTime={due}>{when.text}</time></bdi>{late && <span className="sr-only"> {t('(overdue)', '(متأخرة)', '(te laat)')}</span>}
+    <bdi><time dateTime={due}>{text}</time></bdi>{late && <span className="sr-only"> {t('(overdue)', '(متأخرة)', '(te laat)')}</span>}
   </span>
 }
 

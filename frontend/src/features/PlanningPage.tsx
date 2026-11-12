@@ -198,7 +198,8 @@ function BlockEditor({ initial, tasks, isNew, onClose, onSave }: { initial: Part
   const [taskId, setTaskId] = useState(String(initial.task_id ?? tasks[0]?.id ?? '')), [start, setStart] = useState(startDefault), [minutes, setMinutes] = useState(duration)
   const options = [15, 25, 30, 45, 60, 75, 90, 120, 150, 180, 240]
   return <Dialog title={isNew ? t('Add a focus block', 'إضافة فترة تركيز') : t('Change block time', 'تغيير وقت الفترة')} onClose={onClose}>
-    <form className="form-grid" onSubmit={e => { e.preventDefault(); const s = new Date(deadlineInstant(start) ?? start); const task = tasks.find(x => x.id === Number(taskId)); onSave({ task_id: Number(taskId), title: initial.title || task?.title, priority: initial.priority || task?.priority, starts_at: s.toISOString(), ends_at: new Date(s.getTime() + minutes * 60000).toISOString() }) }}>
+    <form className="form-grid" onSubmit={e => { e.preventDefault(); const s = new Date(initial.starts_at && start === startDefault ? initial.starts_at : deadlineInstant(start) ?? start);   // untouched: the saved instant, not its reading in a repeated hour
+ const task = tasks.find(x => x.id === Number(taskId)); onSave({ task_id: Number(taskId), title: initial.title || task?.title, priority: initial.priority || task?.priority, starts_at: s.toISOString(), ends_at: new Date(s.getTime() + minutes * 60000).toISOString() }) }}>
       {isNew && <label className="full">{t('Task', 'المهمة')}<select value={taskId} onChange={e => setTaskId(e.target.value)} required>{initial.task_id && !tasks.some(x => x.id === initial.task_id) && <option value={initial.task_id}>{initial.title}</option>}{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}
       <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required value={start} onChange={setStart} /></label>
       <ZoneNote />

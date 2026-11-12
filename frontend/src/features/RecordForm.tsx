@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, CalendarDays, CalendarX, ChevronDown, Equal, Flag, 
 import { api, type RecordItem } from '../lib/api'
 import { useRecords } from '../lib/hooks'
 import { accountDay } from '../lib/accountDay'
+import { draftOf, duePayload } from '../lib/dueDate'
 import { DEFAULT_DEADLINE_TIME, TASKS_CHANGED, deadlineField, deadlineInstant, deriveWhen, whenField, type When } from '../lib/quickAdd'
 import { CALENDAR_CHANGED } from '../lib/taskSchedule'
 import { ScheduledTimeSection } from './tasks/TaskSessionBlock'
@@ -48,7 +49,8 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const [priority, setPriority] = useState(String(item.priority || 'medium'))
   const [minutes, setMinutes] = useState(String(item.estimated_minutes || 30))
   const [recurrence, setRecurrence] = useState(String(item.recurrence || (resource === 'habits' ? 'daily' : '')))
-  const [due, setDue] = useState(fieldOf(item.due_at))
+  const [openedDue] = useState(() => draftOf(item))
+  const [due, setDue] = useState(openedDue.field), [noTime, setNoTime] = useState(openedDue.noTime)
   // The tile just tapped and the field it produced: "This week" on a Saturday or Sunday lands on tomorrow or today, and the tile that was tapped stays the one checked until the field changes.
   const [lastTile, setLastTile] = useState<{ tile: string; field: string } | null>(null)
   const [customNote, setCustomNote] = useState('')
@@ -72,7 +74,13 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
     if (saving.current) return   // a second click or Enter while the first save is still running sends nothing
     saving.current = true; setBusy(true); setError('')
     const data: Record<string, unknown> = Object.fromEntries(new FormData(e.currentTarget))
-    for (const key of ['due_at', 'remind_at', 'starts_at', 'ends_at']) if (key in data) data[key] = data[key] ? deadlineInstant(String(data[key])) : null
+    // A field left as it opened keeps its saved instant (the repeated autumn hour would otherwise come back as its first reading).
+    for (const key of ['due_at', 'remind_at', 'starts_at', 'ends_at']) if (key in data) {
+      const field = String(data[key] ?? ''), original = item[key] as string | null | undefined
+      data[key] = !field ? null : original && field === deadlineField(original) ? original : deadlineInstant(field)
+    }
+    // A task's deadline: only when it changed, and `due_date` for a deadline with no time.
+    if (resource === 'tasks') { delete data.due_at; delete data.due_date; Object.assign(data, duePayload({ field: due, noTime }, item.id ? openedDue : null)) }
     for (const key of ['project_id', 'goal_id', 'category_id', 'task_id']) if (key in data) data[key] = data[key] ? Number(data[key]) : null
     if (resource === 'tasks') { data.subtasks = subtasks; data.tags = String(data.tags || '').split(',').map(s => s.trim()).filter(Boolean); data.recurrence = data.recurrence || null }
     if (resource === 'projects' || resource === 'goals') data.milestones = subtasks
@@ -126,12 +134,15 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
     <div className="field-block"><span className="field-title">{t('When', 'متى')}</span>
       <ChoiceGroup<string> label={t('When', 'متى')} variant="tiles" columns={4} value={chosenWhen} onChange={w => { const next = whenField(w as When, due); setDue(next); setLastTile(w === 'none' ? null : { tile: w, field: next }) }} options={whenOptions} />
       <div role="group" aria-label={t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')} aria-describedby={typedTimesShifted() ? `${helperId} ${zoneId}` : helperId}>
-        <label className="rf-deadline">{t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')}<DateTimeField kind="datetime" name="due_at" value={due} onChange={setDue} /></label></div>
+        <label className="rf-deadline">{t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')}{noTime
+          ? <DateTimeField kind="date" name="due_date" value={due.slice(0, 10)} onChange={d => setDue(d ? `${d}T${due.slice(11, 16) || DEFAULT_DEADLINE_TIME}` : '')} />
+          : <DateTimeField kind="datetime" name="due_at" value={due} onChange={setDue} />}</label>
+        <label className="inline rf-notime"><input type="checkbox" checked={noTime} onChange={e => setNoTime(e.target.checked)} />{t('No specific time', 'بدون وقت محدد', 'Geen vaste tijd')}</label></div>
       <ZoneNote id={zoneId} />
       <small className="rf-custom" aria-hidden="true">{customText}</small>
       <span className="sr-only" role="status">{customText && customNote === customText ? customNote : ''}</span>
-      <small id={helperId} className="muted">{t(`Choosing a day keeps the time; with no time yet it starts at ${DEFAULT_DEADLINE_TIME} (or the next half hour if that has passed today).`, `اختيار اليوم يُبقي الوقت كما هو؛ وإن لم يكن هناك وقت يبدأ عند ${DEFAULT_DEADLINE_TIME} (أو أقرب نصف ساعة إن كانت الساعة 17:00 قد مضت اليوم).`, `Een dag kiezen behoudt de tijd; zonder tijd begint het om ${DEFAULT_DEADLINE_TIME} (of het volgende halve uur als dat vandaag voorbij is).`)}</small></div>
-    {item.id && <ScheduledTimeSection task={item as RecordItem} fields={session} due={due} busy={busy} />}
+      <small id={helperId} className="muted">{noTime ? t('Due any time that day. It counts as overdue only after the day ends.', 'مستحقة في أي وقت من ذلك اليوم، وتُعدّ متأخرة بعد انتهاء اليوم فقط.', 'Op elk moment die dag. Pas te laat als de dag voorbij is.') : t(`Choosing a day keeps the time; with no time yet it starts at ${DEFAULT_DEADLINE_TIME} (or the next half hour if that has passed today).`, `اختيار اليوم يُبقي الوقت كما هو؛ وإن لم يكن هناك وقت يبدأ عند ${DEFAULT_DEADLINE_TIME} (أو أقرب نصف ساعة إن كانت الساعة 17:00 قد مضت اليوم).`, `Een dag kiezen behoudt de tijd; zonder tijd begint het om ${DEFAULT_DEADLINE_TIME} (of het volgende halve uur als dat vandaag voorbij is).`)}</small></div>
+    {item.id && <ScheduledTimeSection task={item as RecordItem} fields={session} due={noTime && due ? `${due.slice(0, 10)}T23:59` : due} busy={busy} />}
     <div className="field-block"><span className="field-title">{t('Priority', 'الأولوية')}</span><ChoiceGroup label={t('Priority', 'الأولوية')} variant="tiles" columns={4} name="priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
     <div className="field-block"><span className="field-title">{t('Status', 'الحالة')}</span><ChoiceGroup label={t('Status', 'الحالة')} name="status" value={status} onChange={setStatus} options={STATUSES.map(s => ({ value: s, label: label(s) }))} /></div>
     <div className="field-block"><span className="field-title">{t('Estimate (minutes)', 'المدة المتوقعة (دقائق)')}</span>

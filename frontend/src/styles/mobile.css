@@ -99,6 +99,8 @@ img, svg, video, canvas { max-width: 100%; }
 .record-form > label, .record-form .rf-more-body > label, .record-form .rf-deadline { display: grid; gap: 6px; font-size: 13px; font-weight: 700; color: var(--color-text-muted); min-width: 0; }
 .record-form .rf-title { min-height: 60px; padding-inline: 16px; border-radius: 18px; font-size: 18px; font-weight: 600; color: var(--color-text); }
 .record-form .rf-deadline { margin-top: 2px; }
+.record-form .rf-notime { display: flex; align-items: center; gap: 10px; min-block-size: 44px; font-size: 14px; font-weight: 500; color: var(--color-text); }
+.record-form .rf-notime input { inline-size: 20px; block-size: 20px; flex: none; margin: 0; }
 .record-form textarea { min-height: 96px; }
 .rf-organize { gap: 8px; }
 .rf-more { border: 1px solid var(--hairline-strong, var(--color-border)); border-radius: 16px; background: var(--surface-raised, transparent); }

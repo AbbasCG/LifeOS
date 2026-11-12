@@ -173,11 +173,11 @@ describe.each(['UTC', 'America/New_York'])('browser in %s, account in Amsterdam:
     expect(sessionStart()).toBe('2026-11-12T09:00')
     expect(screen.getByText('Execution end').closest('label')!.querySelector<HTMLElement>('.dtp-trigger')!.dataset.value).toBe('2026-11-12T09:30')
   })
-  it('saving without touching anything sends the same deadline instant, and no session request', async () => {
+  it('saving without touching anything sends no deadline at all, and no session request', async () => {
     const calls = server(); open(task({ due_at: '2026-11-20T16:00:00Z', schedule: session() }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
-    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-20T16:00:00.000Z' })
+    expect(patchBody(calls)[0]).not.toHaveProperty('due_at'); expect(patchBody(calls)[0]).not.toHaveProperty('due_date')
     expect(calls.filter(c => /schedule$/.test(c.url))).toHaveLength(0)
   })
   it('a tile keeps the typed time and posts it as account time (Today 17:00 is 16:00Z)', async () => {
@@ -273,7 +273,7 @@ describe('the scheduled execution time, apart from the deadline and the estimate
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
     expect(putCalls(calls)).toHaveLength(1); expect(postCalls(calls)).toHaveLength(0); expect(patchBody(calls)).toHaveLength(1)
     expect(putCalls(calls)[0].body).toEqual({ session_id: 55, starts_at: '2026-11-13T08:00:00.000Z', ends_at: '2026-11-13T08:30:00.000Z' })
-    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-20T15:00:00.000Z' })   // the deadline is unchanged by moving the session
+    expect(patchBody(calls)[0]).not.toHaveProperty('due_at')   // the deadline is unchanged by moving the session
     expect(onSave).toHaveBeenCalledTimes(1); expect(tasks).toHaveBeenCalledTimes(1); expect(cal).toHaveBeenCalledTimes(1)
     expect(document.body.textContent).toContain('Changes saved.')
     window.removeEventListener(TASKS_CHANGED, tasks); window.removeEventListener(CALENDAR_CHANGED, cal)
