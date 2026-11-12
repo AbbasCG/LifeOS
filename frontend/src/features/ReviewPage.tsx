@@ -11,7 +11,8 @@ import { useToast } from '../lib/toast'
 import { addDays, minutesLabel, mondayOf } from '../lib/dates'
 import { useReasonLabel } from '../lib/labels'
 import { localDate } from '../lib/hooks'
-import { weekdayOf } from '../lib/accountDay'
+import { accountZone, weekdayOf } from '../lib/accountDay'
+import { formatDue } from '../lib/dueDate'
 import { useStatusLabel } from './ResourcePage'
 import { PlannedActualBars } from './PlanningPage'
 import { EmptyState, ErrorMessage, Skeleton } from '../components/ui/Shared'
@@ -95,7 +96,7 @@ function ReviewWorkflow({ week, setWeek, data, reload }: { week: string; setWeek
       {data.unfinished.length === 0 ? <EmptyState icon={<CircleCheckBig size={26} />} title={t('Nothing left behind', 'لا شيء متأخر')}>{t('Every task due this week is done.', 'كل المهام المستحقة هذا الأسبوع منجزة.')}</EmptyState> : <ul className="decision-list">{data.unfinished.map(task => {
         const value = local.decisions[task.id]
         return <li key={task.id} className={value ? `decided-${value}` : ''}>
-          <div><strong>{task.title}</strong><div className="metadata"><span className={`badge priority-${task.priority}`}>{label(task.priority)}</span>{task.due_at && <time className={task.overdue ? 'overdue-text' : ''}>{new Date(task.due_at).toLocaleDateString(language)}</time>}<span>{label(task.status)}</span></div></div>
+          <div><strong>{task.title}</strong><div className="metadata"><span className={`badge priority-${task.priority}`}>{label(task.priority)}</span>{task.due_at && <time className={task.overdue ? 'overdue-text' : ''}>{formatDue(task, { language, timeZone: accountZone() }, { day: 'numeric', month: 'short', year: 'numeric' })}</time>}<span>{label(task.status)}</span></div></div>
           <div className="segmented small" role="radiogroup" aria-label={task.title}>
             {([['done', <Check key="i" size={14} />, t('Done', 'منجزة')], ['carry', <ArrowRightLeft key="i" size={14} />, t('Carry over', 'ترحيل')], ['drop', <X key="i" size={14} />, t('Drop', 'إلغاء')]] as [ReviewDecision, ReactNode, string][]).map(([key, icon, name]) => <button key={key} role="radio" aria-checked={value === key} disabled={completed} className={value === key ? 'active' : ''} onClick={() => decide(task.id, key)}>{icon}{name}</button>)}
           </div>

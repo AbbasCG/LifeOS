@@ -10,7 +10,7 @@ export type SessionPlan = { slot: Slot } | { error: string } | null
 
 /**
  * The state of the «موعد التنفيذ المجدول» fields (start and end of the calendar session), kept by the edit dialog so its main Save
- * can send them. Both fields are browser-local wall times, exactly like the deadline. The end follows the start (same length: the
+ * can send them. Both fields are wall times in the ACCOUNT's timezone, exactly like the deadline (see deadlineField). The end follows the start (same length: the
  * session's own, else the estimate) until the user sets the end by hand.
  */
 export function useSessionFields(task: Partial<RecordItem>, estimate: number) {

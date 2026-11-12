@@ -114,6 +114,19 @@ class CopilotUndoTest extends TestCase
         $this->assertTrue($late->fresh()->due_at->equalTo($late->due_at));
     }
 
+    public function test_rescheduling_a_date_only_task_gives_it_a_time_and_undo_restores_the_date_only_deadline(): void
+    {
+        $late = Task::factory()->create(['user_id' => $this->user->id, 'title' => 'Tax filing', 'status' => 'todo', 'due_at' => Task::endOfDay(now()->subDay()->toDateString(), 'Europe/Amsterdam'), 'due_all_day' => true]);
+        $actions = [['id' => 'a1', 'type' => 'reschedule_task', 'title' => 'Tax filing', 'task_id' => $late->id, 'from_due_at' => $late->due_at->toIso8601String(), 'due_at' => now()->addDays(2)->utc()->toIso8601String()]];
+        $proposal = AssistantProposal::create(['user_id' => $this->user->id, 'kind' => 'triage', 'provider' => 'local', 'status' => 'pending', 'summary' => 'Plan', 'explanation' => [], 'actions' => $actions, 'expires_at' => now()->addHour()]);
+        $this->postJson("/api/assistant/proposals/{$proposal->id}/apply", ['action_ids' => ['a1']])->assertOk();
+        $this->assertFalse($late->fresh()->due_all_day, 'an explicit time clears the flag');
+
+        $this->undo($proposal->id)->assertOk();
+        $this->assertTrue($late->fresh()->due_all_day);
+        $this->assertTrue($late->fresh()->due_at->equalTo($late->due_at));
+    }
+
     public function test_undo_window_legacy_proposals_and_other_users(): void
     {
         $proposal = $this->scheduled();

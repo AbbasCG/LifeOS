@@ -306,10 +306,14 @@ class IntegrationController extends Controller
         if ($existing) {
             return response()->json($existing);
         }
+        // A date-only due is rebuilt from its calendar date in the account's CURRENT timezone (the stored instant may predate a zone change).
+        $tz = $user->timezone();
+        $dateOnly = (bool) ($external->due_at && $external->due_is_date);
+        $due = $dateOnly ? Task::endOfDay($external->due_at->setTimezone($tz)->toDateString(), $tz) : $external->due_at;
         $label = $this->providers->get($external->account->provider)?->label() ?? $external->account->provider;
         $task = Task::create([
             'user_id' => $user->id, 'title' => mb_substr($external->title, 0, 200), 'status' => 'todo', 'priority' => $external->priority ?? 'medium',
-            'estimated_minutes' => 30, 'due_at' => $external->due_at, 'source_ref' => $ref, 'tags' => [mb_strtolower(str_replace(' ', '-', $label))],
+            'estimated_minutes' => 30, 'due_at' => $due, 'due_all_day' => $dateOnly, 'source_ref' => $ref, 'tags' => [mb_strtolower(str_replace(' ', '-', $label))],
             'notes' => $external->url ? "Copied from {$label}: {$external->url}" : "Copied from {$label}.",
         ]);
         $this->audit->log($user, 'connected_task_copied', $request, ['provider' => $external->account->provider]);

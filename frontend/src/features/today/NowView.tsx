@@ -18,6 +18,7 @@ import { Skeleton } from '../../components/ui/Shared'
 import { RecommendationCard } from '../intelligence/RecommendationCard'
 import type { Recommendation } from '../../lib/intelligence'
 import { formatClock } from '../../lib/clock'
+import { accountDay, accountInstant } from '../../lib/accountDay'
 
 type Task = Briefing['focus'][number]
 type Event = TodayData['timeline'][number]
@@ -64,7 +65,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
       </> : task ? <>
         <p className="now-eyebrow">{t('Do now', 'ابدأ الآن')}</p>
         <h2 id="now-title" className="now-title">{task.title}</h2>
-        <div className="meta-row"><PriorityMark priority={task.priority} labelled /><DueChip due={task.due_at} /><span><Timer size={13} aria-hidden="true" />{durationWords(task.estimated_minutes, t)}</span></div>
+        <div className="meta-row"><PriorityMark priority={task.priority} labelled /><DueChip due={task.due_at} allDay={task.due_all_day} /><span><Timer size={13} aria-hidden="true" />{durationWords(task.estimated_minutes, t)}</span></div>
         <div className="now-actions">
           <button className="cta" disabled={focus.busy} onClick={() => void focus.go(task.id)}><Play size={20} />{t('Start focus', 'ابدأ التركيز')}</button>
           <button className="quiet" disabled={completing} onClick={() => void complete(task)} aria-label={t(`Mark “${task.title}” done`, `إنجاز «${task.title}»`)}><Check size={18} />{t('Done', 'تم')}</button>
@@ -104,7 +105,7 @@ export function TodayStrip({ today }: { today: TodayData | null }) {
   const zone = today.timezone && isValidZone(today.timezone) ? today.timezone : undefined
   const time = (iso: string | number) => formatClock(iso, { language, timeZone: zone })
   const events = today.timeline.filter(e => !e.all_day)
-  const dayStart = today.day_start ? Date.parse(today.day_start) : new Date().setHours(0, 0, 0, 0)
+  const dayStart = today.day_start ? Date.parse(today.day_start) : Date.parse(accountInstant(accountDay(), 0))
   // Show from the earliest of 08:00 / first item to the latest of 20:00 / last item, in whole hours.
   const hour = 3_600_000
   const from = Math.min(dayStart + 8 * hour, ...events.map(e => Date.parse(e.starts_at)))
@@ -151,7 +152,7 @@ export function TopThree({ briefing, onChange }: { briefing: Briefing | null; on
     {items.length === 0 ? <EmptyNote icon={CheckCircle2} text={t('No open tasks.', 'لا مهام مفتوحة.')} action={<button className="quiet" onClick={openQuickAdd}><Plus size={16} />{t('Add', 'أضف')}</button>} />
       : <ul className="task-list compact"><AnimatePresence initial={false}>{items.map(task => <m.li key={task.id} layout exit={{ opacity: 0, height: 0 }} className={`task-item ${done.includes(task.id) ? 'is-done' : ''}`}>
         <button type="button" className="tick" disabled={busy === task.id || done.includes(task.id)} onClick={() => void complete(task)} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><Check size={16} /></button>
-        <div className="task-body"><strong>{task.title}</strong><div className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} /><span><Timer size={12} aria-hidden="true" />{durationWords(task.estimated_minutes, t)}</span></div></div>
+        <div className="task-body"><strong>{task.title}</strong><div className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} allDay={task.due_all_day} /><span><Timer size={12} aria-hidden="true" />{durationWords(task.estimated_minutes, t)}</span></div></div>
         <button type="button" className="icon-button play" disabled={focus.busy} onClick={() => void focus.go(task.id)} aria-label={t(`Focus on “${task.title}”`, `ركّز على «${task.title}»`)}><Play size={17} /></button>
       </m.li>)}</AnimatePresence></ul>}
   </section>

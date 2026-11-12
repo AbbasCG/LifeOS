@@ -107,6 +107,20 @@ class AutomationTest extends TestCase
         $this->assertSame(1, AutomationRun::count());
     }
 
+    public function test_next_occurrence_of_a_date_only_task_stays_date_only_on_end_of_day(): void
+    {
+        UserSetting::where('user_id', $this->user->id)->update(['preferences' => ['timezone' => 'Europe/Amsterdam']]);
+        $this->rule(['trigger' => 'recurring_task_due', 'action' => 'create_next_occurrence', 'conditions' => ['grace_hours' => 12]]);
+        // Due Sat 2027-01-02 (end of day, Amsterdam); today is Mon 2027-01-04, so the catch-up loop must skip to a future end of day.
+        $missed = Task::create(['user_id' => $this->user->id, 'title' => 'Water plants', 'recurrence' => 'daily', 'status' => 'todo', 'due_at' => Task::endOfDay('2027-01-02', 'Europe/Amsterdam'), 'due_all_day' => true]);
+
+        $this->artisan('lifeos:automations')->assertSuccessful();
+
+        $next = Task::where('title', 'Water plants')->where('id', '!=', $missed->id)->sole();
+        $this->assertTrue($next->due_all_day);
+        $this->assertSame('2027-01-04T22:59:00Z', $next->due_at->utc()->format('Y-m-d\TH:i:s\Z'));
+    }
+
     public function test_weekly_review_completion_drafts_next_week_plan_without_accepting_it(): void
     {
         $this->rule(['trigger' => 'weekly_review_completed', 'action' => 'offer_next_week_plan']);

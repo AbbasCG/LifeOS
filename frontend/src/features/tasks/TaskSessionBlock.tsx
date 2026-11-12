@@ -9,6 +9,7 @@ import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { SlotChoices } from './ScheduleParts'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
+import { ZoneNote } from '../../components/ui/ZoneNote'
 
 function CalendarLink({ to, children }: { to: string; children: ReactNode }) {
   return useInRouterContext() ? <Link to={to} className="filter-chip">{children}</Link> : <a href={to} className="filter-chip">{children}</a>
@@ -32,6 +33,7 @@ export function ScheduledTimeSection({ task, fields, due, busy }: { task: Record
         <label>{t('Execution start', 'بداية التنفيذ', 'Start uitvoering')}<DateTimeField kind="datetime" id={fields.startId} value={fields.start} onChange={fields.changeStart} /></label>
         <label>{t('Execution end', 'نهاية التنفيذ', 'Einde uitvoering')}<DateTimeField kind="datetime" value={fields.end} onChange={fields.changeEnd} /></label>
       </div>
+      <ZoneNote />
       <small className="muted">{t('Saved with the Save button. The end follows the start by the estimated time. Changing only the deadline does not move the session. To remove the session, use the calendar or Undo.', 'تُحفظ بزر «حفظ». تتبع النهاية البداية بحسب المدة المتوقعة. تغيير الموعد النهائي وحده لا ينقل الجلسة. لإزالة الجلسة استخدم التقويم أو «تراجع».', 'Wordt opgeslagen met Opslaan. Het einde volgt de start met de geschatte duur. Alleen de deadline wijzigen verplaatst de sessie niet. Om de sessie te verwijderen: gebruik de agenda of Ongedaan maken.')}</small>
       <SlotChoices task={{ id: task.id, estimated_minutes: Math.max(15, Math.round((Date.parse(deadlineInstant(fields.end) ?? '') - Date.parse(deadlineInstant(fields.start) ?? '')) / 60000) || task.estimated_minutes || 30) }} label={t('Suggested times', 'أوقات مقترحة', 'Voorgestelde tijden')} busy={busy} onPick={slot => { if (!busy) fields.fill(slot) }} />
     </>}

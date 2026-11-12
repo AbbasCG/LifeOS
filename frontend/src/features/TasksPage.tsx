@@ -4,6 +4,7 @@ import { AnimatePresence, m } from 'motion/react'
 import { Bell, CalendarClock, CalendarPlus, Check, CheckSquare, ChevronDown, Columns3, List, ListChecks, Pencil, Play, Plus, Search, SlidersHorizontal, Trash2, type LucideIcon } from 'lucide-react'
 import { api, type Availability, type RecordItem } from '../lib/api'
 import { accountDay } from '../lib/accountDay'
+import { groupOf, type Group, moveDue, restoreDue } from '../lib/dueDate'
 import { suggestSlots } from '../lib/scheduleSlots'
 import { scheduleOf } from '../lib/taskSchedule'
 import { useTaskScheduling, type Change, type Conflict } from '../lib/useTaskScheduling'
@@ -14,7 +15,7 @@ import { useText } from '../lib/i18n'
 import { useToast } from '../lib/toast'
 import { Dialog, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { DueChip, EmptyNote, PageHead, PriorityMark } from '../components/visual'
-import { TASKS_CHANGED, dueKeepingTime, openQuickAdd, type When } from '../lib/quickAdd'
+import { TASKS_CHANGED, openQuickAdd, type When } from '../lib/quickAdd'
 import { RecordForm, useStatusLabel } from './ResourcePage'
 import { ConnectedTasksPanel } from './connected/ConnectedTasksPanel'
 import { useStartFocus } from '../lib/useStartFocus'
@@ -22,18 +23,9 @@ import { completeTaskOrQueue } from '../lib/offline'
 import { swipeTone, swipeWords, useSwipeActions, type SwipeAction, type SwipeSides } from '../lib/swipeActions'
 
 type Filter = 'open' | 'overdue' | 'today' | 'week' | 'done'
-type Group = 'now' | 'next' | 'later'
 const STATUSES = ['inbox', 'todo', 'in_progress', 'completed', 'cancelled']
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
-/** Now: late, due today or started. Next: due this week, or urgent/high without a date. Later: everything else. */
-function groupOf(task: RecordItem, now = Date.now()): Group {
-  const due = task.due_at ? Date.parse(task.due_at) : null
-  const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999)
-  if (task.status === 'in_progress' || (due !== null && due <= endOfToday.getTime())) return 'now'
-  if ((due !== null && due <= now + 7 * 86400000) || (due === null && (task.priority === 'urgent' || task.priority === 'high'))) return 'next'
-  return 'later'
-}
 
 /**
  * Tasks (V20): tap and do. Tasks are grouped into Now, Next and Later; one tap completes (with undo), one tap starts
@@ -66,10 +58,10 @@ export default function TasksPage() {
   }
   /** Move a task to another day, or clear its date, in one tap; Undo puts the old date back. */
   async function reschedule(task: RecordItem, when: When) {
-    const before = task.due_at ?? null, next = dueKeepingTime(when, before)   // the day moves, the time of day stays
-    await run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: next }))
+    const before = restoreDue(task), next = moveDue(when, task)   // the day moves; the time of day stays, and a deadline with no time stays without one
+    await run(() => api(`/api/tasks/${task.id}`, 'PATCH', next))
     const where = { today: t('today', 'اليوم'), tomorrow: t('tomorrow', 'غدًا'), week: t('this week', 'هذا الأسبوع'), nextweek: t('next week', 'الأسبوع القادم'), none: t('no date', 'بلا موعد') }[when]
-    toast(t(`“${task.title}” moved to ${where}.`, `نُقلت «${task.title}» إلى ${where}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', { due_at: before }), t('Restored.', 'أُعيد.')) })
+    toast(t(`“${task.title}” moved to ${where}.`, `نُقلت «${task.title}» إلى ${where}.`), 'success', { label: t('Undo', 'تراجع'), onClick: () => void run(() => api(`/api/tasks/${task.id}`, 'PATCH', before), t('Restored.', 'أُعيد.')) })
   }
   async function setTaskPriority(task: RecordItem, next: string) {
     if (task.priority === next) return
@@ -213,7 +205,7 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, o
       <button type="button" className="tick" disabled={done} onClick={onComplete} aria-label={t(`Complete “${task.title}”`, `إنجاز «${task.title}»`)}><CheckIcon /></button>
       <button ref={bodyButton} type="button" className="task-body text-button" aria-expanded={expanded} onClick={onToggle}>
         <strong>{task.title}</strong>
-        <span className="meta-row"><PriorityMark priority={task.priority} /><DueLine due={task.due_at} done={done} />{schedule && <ScheduleBadge schedule={schedule} />}{task.estimated_minutes ? <Duration minutes={task.estimated_minutes} /> : null}{subtasks.length > 0 && <span><ListChecks size={12} aria-hidden="true" />{subtasks.filter(s => s.completed).length}/{subtasks.length}</span>}{typeof task.remind_at === 'string' && <span title={t('Reminder', 'تذكير')}><Bell size={12} aria-hidden="true" /></span>}{task.status === 'in_progress' && <span className="chip">{statusLabel('in_progress')}</span>}</span>
+        <span className="meta-row"><PriorityMark priority={task.priority} /><DueLine due={task.due_at} allDay={task.due_all_day} done={done} />{schedule && <ScheduleBadge schedule={schedule} />}{task.estimated_minutes ? <Duration minutes={task.estimated_minutes} /> : null}{subtasks.length > 0 && <span><ListChecks size={12} aria-hidden="true" />{subtasks.filter(s => s.completed).length}/{subtasks.length}</span>}{typeof task.remind_at === 'string' && <span title={t('Reminder', 'تذكير')}><Bell size={12} aria-hidden="true" /></span>}{task.status === 'in_progress' && <span className="chip">{statusLabel('in_progress')}</span>}</span>
       </button>
       {!done && <button type="button" className="icon-button play" onClick={onFocus} aria-label={t(`Focus on “${task.title}”`, `ركّز على «${task.title}»`)}><Play size={17} /></button>}
       <ChevronDown size={16} className={`task-chev ${expanded ? 'open' : ''}`} aria-hidden="true" />
@@ -250,7 +242,7 @@ function Board({ items, label, onMove, onEdit }: { items: RecordItem[]; label: (
     <h3>{label(s)} <span className="muted">{items.filter(i => i.status === s).length}</span></h3>
     {items.filter(i => i.status === s).map(task => <article key={task.id} className="board-card" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', String(task.id)); setDragging(task.id) }} onDragEnd={() => setDragging(null)}>
       <button className="text-button" onClick={() => onEdit(task)}><strong>{task.title}</strong></button>
-      <span className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} done={s === 'completed'} /></span>
+      <span className="meta-row"><PriorityMark priority={task.priority} /><DueChip due={task.due_at} allDay={task.due_all_day} done={s === 'completed'} /></span>
     </article>)}
   </section>)}</div>
 }

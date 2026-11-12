@@ -566,7 +566,7 @@ class AssistantService
      */
     private function taskSummary(Task $task, array $reasons = []): array
     {
-        return ['id' => $task->id, 'title' => $task->title, 'priority' => $task->priority, 'estimated_minutes' => $task->estimated_minutes, 'due_at' => $task->due_at?->toIso8601String(), 'reasons' => $reasons];
+        return ['id' => $task->id, 'title' => $task->title, 'priority' => $task->priority, 'estimated_minutes' => $task->estimated_minutes, 'due_at' => $task->due_at?->toIso8601String(), ...$task->dueMetaForOwner(), 'reasons' => $reasons];
     }
 
     /**
@@ -601,7 +601,7 @@ class AssistantService
             return ['message' => $ar ? 'لا توجد مهام متأخرة. أحسنت!' : 'Nothing is overdue. Nicely done!'];
         }
         $tz = $user->timezone();
-        $lines = $tasks->map(fn (Task $task) => '• '.$task->title.' — '.$task->due_at->setTimezone($tz)->format('Y-m-d H:i'))->implode("\n");
+        $lines = $tasks->map(fn (Task $task) => '• '.$task->title.' — '.$task->due_at->setTimezone($tz)->format($task->due_all_day ? 'Y-m-d' : 'Y-m-d H:i'))->implode("\n");
         $message = $ar
             ? "لديك {$tasks->count()} مهمة متأخرة:\n{$lines}\n\nلكل مهمة: أنجزها الآن إن كانت قصيرة، أو حدّد موعداً جديداً واقعياً، أو ألغها إن لم تعد مهمة."
             : "You have {$tasks->count()} overdue task(s):\n{$lines}\n\nFor each one: do it now if it’s small, give it a realistic new date, or cancel it if it no longer matters.";

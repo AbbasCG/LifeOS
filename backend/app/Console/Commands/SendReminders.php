@@ -64,7 +64,7 @@ class SendReminders extends Command
         }
         foreach ((clone $open)->whereNotNull('due_at')->where('due_at', '<=', now()->addHour())->where('due_at', '>=', now()->subDays(7))->cursor() as $task) {
             $overdue = $task->due_at->isPast();
-            $notifier->send($user, 'deadlines', 'task:'.$task->id.':'.$task->due_at->timestamp, ($overdue ? ($ar ? 'مهمة متأخرة: ' : 'Overdue: ') : ($ar ? 'موعد المهمة: ' : 'Task due: ')).$task->title, ['link' => '/tasks?task='.$task->id, 'kind' => $overdue ? 'overdue' : 'due']);
+            $notifier->send($user, 'deadlines', 'task:'.$task->id.':'.($task->due_all_day ? 'd'.$task->dueDate($user->timezone()) : $task->due_at->timestamp), ($overdue ? ($ar ? 'مهمة متأخرة: ' : 'Overdue: ') : $this->dueLabel($task, $user, $ar)).$task->title, ['link' => '/tasks?task='.$task->id, 'kind' => $overdue ? 'overdue' : 'due']);
         }
 
         // Habits with a reminder time: once a day (daily) or once a week (weekly), until done for that day or week.
@@ -94,5 +94,22 @@ class SendReminders extends Command
         if ($now->dayOfWeek === $reviewDay && $time >= '17:00') {
             $notifier->send($user, 'review', 'weekly:'.$user->id.':'.$now->toDateString(), $ar ? 'راجع أسبوعك وخطط للأسبوع القادم' : 'Review your week and plan the next', ['link' => '/review']);
         }
+    }
+
+    /**
+     * The prefix of a "due soon" notification. A date-only deadline says "today" or the date and never a time; a timed one is unchanged.
+     */
+    private function dueLabel(Task $task, User $user, bool $ar): string
+    {
+        if (! $task->due_all_day) {
+            return $ar ? 'موعد المهمة: ' : 'Task due: ';
+        }
+        $tz = $user->timezone();
+        $date = $task->dueDate($tz);
+        if ($date === CarbonImmutable::now($tz)->toDateString()) {
+            return $ar ? 'مهمة مستحقة اليوم: ' : 'Due today: ';
+        }
+
+        return ($ar ? 'مهمة مستحقة في ' : 'Due on ').$date.': ';
     }
 }

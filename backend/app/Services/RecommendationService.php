@@ -210,6 +210,9 @@ class RecommendationService
         $now = CarbonImmutable::now($tz);
         $time = fn (?string $iso) => $iso ? CarbonImmutable::parse($iso)->setTimezone($tz)->locale('en')->isoFormat('ddd HH:mm') : '';
         $timeAr = fn (?string $iso) => $iso ? CarbonImmutable::parse($iso)->setTimezone($tz)->locale('ar')->isoFormat('dddd HH:mm') : '';
+        // A date-only deadline names the day, never a time.
+        $dayEn = fn (?string $iso) => $iso ? CarbonImmutable::parse($iso)->setTimezone($tz)->locale('en')->isoFormat('ddd D MMM') : '';
+        $dayAr = fn (?string $iso) => $iso ? CarbonImmutable::parse($iso)->setTimezone($tz)->locale('ar')->isoFormat('dddd D MMMM') : '';
         $out = collect();
 
         // Approaching deadlines without time set aside (or at risk of not fitting).
@@ -223,11 +226,11 @@ class RecommendationService
             }
             $risky = in_array('deadline_risk', $p['reasons'], true);
             $out->push(['key' => "deadline:{$p['id']}:".$due->toDateString(), 'type' => 'deadline', 'severity' => $risky || $due->lte($now->addHours(24)) ? 'high' : 'medium',
-                'title' => ['en' => "“{$p['title']}” is due {$time($p['due_at'])}", 'ar' => "«{$p['title']}» مستحقة {$timeAr($p['due_at'])}"],
+                'title' => ['en' => "“{$p['title']}” is due ".(($p['due_all_day'] ?? false) ? $dayEn($p['due_at']) : $time($p['due_at'])), 'ar' => "«{$p['title']}» مستحقة ".(($p['due_all_day'] ?? false) ? $dayAr($p['due_at']) : $timeAr($p['due_at']))],
                 'detail' => $risky
                     ? ['en' => 'It may not fit around your other commitments, and no time is set aside for it yet.', 'ar' => 'قد لا تتسع حول التزاماتك الأخرى، ولم يُخصص لها وقت بعد.']
                     : ['en' => 'No time is set aside for it yet.', 'ar' => 'لم يُخصص لها وقت بعد.'],
-                'confidence' => $p['confidence'], 'sources' => $p['sources'], 'evidence' => ['due_at' => $p['due_at'], 'estimated_minutes' => $p['estimated_minutes'], 'reasons' => $p['reasons']],
+                'confidence' => $p['confidence'], 'sources' => $p['sources'], 'evidence' => ['due_at' => $p['due_at'], 'due_all_day' => $p['due_all_day'] ?? false, 'due_date' => $p['due_date'] ?? null, 'estimated_minutes' => $p['estimated_minutes'], 'reasons' => $p['reasons']],
                 'subject' => ['task_id' => $p['id']],
                 'action' => ['kind' => 'proposal', 'proposal' => 'find_time', 'task_ids' => [$p['id']], 'label' => ['en' => 'Find time', 'ar' => 'اعثر على وقت']]]);
         }

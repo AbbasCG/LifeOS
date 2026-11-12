@@ -283,6 +283,7 @@ class AssistantActions
         $actions = $steps->map(fn (array $s, int $i) => [
             'id' => 'a'.($i + 1), 'type' => 'create_task', 'title' => $s['title'], 'goal_id' => $goal->id, 'priority' => $priority,
             'estimated_minutes' => $s['estimated_minutes'], 'minutes' => $s['estimated_minutes'],
+            'due_all_day' => false, 'due_date' => null,
             'due_at' => min($deadline ?? $now->addYear(), $now->startOfDay()->addDays(($i + 1) * $span)->setTimeFromTimeString($c['work_end']))->utc()->toIso8601String(),
         ])->all();
         $explanation[] = $deadline
@@ -321,7 +322,7 @@ class AssistantActions
                     continue;
                 }
                 $days[$i]['free_minutes'] -= $need;
-                $actions[] = ['id' => 'a'.(count($actions) + 1), 'type' => 'reschedule_task', 'task_id' => $task->id, 'title' => $task->title, 'from_due_at' => $task->due_at->toIso8601String(), 'due_at' => $end->utc()->toIso8601String(), 'minutes' => $need];
+                $actions[] = ['id' => 'a'.(count($actions) + 1), 'type' => 'reschedule_task', 'task_id' => $task->id, 'title' => $task->title, 'from_due_at' => $task->due_at->toIso8601String(), 'from_due_all_day' => (bool) $task->due_all_day, 'from_due_date' => $task->dueDate($c['tz']), 'due_at' => $end->utc()->toIso8601String(), 'due_all_day' => false, 'due_date' => null, 'minutes' => $need];
                 $placed = true;
                 break;
             }
@@ -547,7 +548,15 @@ class AssistantActions
                 if (! $task || ! isset($result['before']) || $task->due_at?->toIso8601String() !== $result['after']['due_at']) {
                     return $kept('changed since');
                 }
-                $task->update(['due_at' => CarbonImmutable::parse($result['before']['due_at'])]);
+                // A date-only deadline is rebuilt from its stored date in the CURRENT zone; if the instant is not an end of day there, the flag is dropped.
+                $tz = $user->timezone();
+                $at = CarbonImmutable::parse($result['before']['due_at'])->utc();
+                $wasAllDay = (bool) ($result['before']['due_all_day'] ?? false);
+                if ($wasAllDay && ! empty($result['before']['due_date'])) {
+                    $at = Task::endOfDay($result['before']['due_date'], $tz);
+                }
+                $allDay = $wasAllDay && $at->equalTo(Task::endOfDay($at->setTimezone($tz)->toDateString(), $tz));
+                $task->update(['due_at' => $at, 'due_all_day' => $allDay]);
 
                 return ['done' => true];
         }
@@ -688,7 +697,7 @@ class AssistantActions
             }
             $task = Task::create(['user_id' => $user->id, 'goal_id' => $goalId, 'title' => $title, 'priority' => $action['priority'], 'estimated_minutes' => $minutes, 'due_at' => $due, 'status' => 'todo']);
 
-            return ['action_id' => $action['id'], 'type' => 'create_task', 'task_id' => $task->id, 'after' => ['title' => $task->title, 'due_at' => $task->due_at?->toIso8601String()]];
+            return ['action_id' => $action['id'], 'type' => 'create_task', 'task_id' => $task->id, 'after' => ['title' => $task->title, 'due_at' => $task->due_at?->toIso8601String(), 'due_all_day' => false, 'due_date' => null]];
         }
 
         $task = Task::where('user_id', $user->id)->whereKey($action['task_id'] ?? 0)->lockForUpdate()->first();
@@ -699,10 +708,10 @@ class AssistantActions
         if (! $due || ! $from || ! $task->due_at?->equalTo($from)) {
             $fail('This task changed since the suggestion was made.');
         }
-        $before = ['due_at' => $task->due_at->toIso8601String()];
-        $task->update(['due_at' => $due]);
+        $before = ['due_at' => $task->due_at->toIso8601String(), 'due_all_day' => (bool) $task->due_all_day, 'due_date' => $task->dueDate($user->timezone())];
+        $task->update(['due_at' => $due, 'due_all_day' => false]);
 
-        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String()]];
+        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String(), 'due_all_day' => false, 'due_date' => null]];
     }
 
     /**

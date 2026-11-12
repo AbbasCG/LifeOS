@@ -6,7 +6,9 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { minutesLabel } from '../../lib/dates'
 import { Skeleton } from '../../components/ui/Shared'
 import { CheckinCard } from '../wellbeing/CheckinCard'
-import { formatClock, formatDayTime } from '../../lib/clock'
+import { formatClock } from '../../lib/clock'
+import { formatDue } from '../../lib/dueDate'
+import { accountZone } from '../../lib/accountDay'
 
 type Props = { data: TodayData | null; onChange?: () => void }
 
@@ -67,7 +69,7 @@ export function DeadlinesWidget({ data }: Props) {
       <ul className="deadline-list">{data.deadlines.slice(0, 6).map(d => <li key={`${d.type}-${d.id}`} className={`bucket-${d.bucket}`}>
         <span className="bucket">{bucket[d.bucket]}</span>
         <Link to={d.type === 'task' || d.type === 'external' ? '/tasks' : d.type === 'project' ? `/projects/${d.id}` : '/goals'}><strong>{d.title}</strong></Link>
-        <small className="muted">{d.type === 'external' ? <span className="source-badge">{d.source}</span> : type[d.type]} · {formatDayTime(d.due_at, { language }, { weekday: 'short' })}</small>
+        <small className="muted">{d.type === 'external' ? <span className="source-badge">{d.source}</span> : type[d.type]} · {formatDue(d, { language, timeZone: accountZone() }, { weekday: 'short' })}</small>
       </li>)}</ul>}
   </section>
 }

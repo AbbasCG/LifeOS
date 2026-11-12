@@ -86,7 +86,7 @@ class IntelligenceService
         $risks = $allow('calendar') ? collect($this->conflicts->deadlines($user, $occurrences, $now->utc(), $horizon->utc()))->keyBy(fn ($r) => (int) substr($r['items'][0], 5)) : collect();
         $scheduled = CalendarEvent::where('user_id', $user->id)->whereNotNull('task_id')->where('ends_at', '>', $now->utc())->pluck('task_id')->flip();
 
-        $priorities = BriefingService::rank($open, $now, $pressure)->take(10)->map(function (array $row) use ($now, $risks, $scheduled, $pressure) {
+        $priorities = BriefingService::rank($open, $now, $pressure)->take(10)->map(function (array $row) use ($now, $tz, $risks, $scheduled, $pressure) {
             /** @var Task $task */
             $task = $row['task'];
             $risk = $risks->get($task->id);
@@ -104,7 +104,7 @@ class IntelligenceService
             };
 
             return [
-                'id' => $task->id, 'title' => $task->title, 'priority' => $task->priority, 'status' => $task->status, 'due_at' => $task->due_at?->toIso8601String(),
+                'id' => $task->id, 'title' => $task->title, 'priority' => $task->priority, 'status' => $task->status, 'due_at' => $task->due_at?->toIso8601String(), ...$task->dueMeta($tz),
                 'estimated_minutes' => $task->estimated_minutes, 'score' => min(100, $row['score']), 'reasons' => array_values(array_unique($reasons)), 'risk' => $level,
                 'scheduled' => $scheduled->has($task->id), 'postponed_count' => (int) $task->postponed_count,
                 // Priority, deadline and status are facts the user entered; a deadline risk also depends on the estimate.
@@ -137,9 +137,9 @@ class IntelligenceService
         ])->values() : collect();
 
         $unfinished = $open->filter(fn (Task $t) => $t->status === 'in_progress' && $t->updated_at && $t->updated_at->lt($now->subDays(self::STALE_DAYS)))
-            ->sortBy('updated_at')->take(5)->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'idle_days' => (int) $t->updated_at->diffInDays($now), 'due_at' => $t->due_at?->toIso8601String(), 'confidence' => 'high', 'sources' => ['tasks']])->values();
+            ->sortBy('updated_at')->take(5)->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'idle_days' => (int) $t->updated_at->diffInDays($now), 'due_at' => $t->due_at?->toIso8601String(), ...$t->dueMeta($tz), 'confidence' => 'high', 'sources' => ['tasks']])->values();
         $postponed = $open->filter(fn (Task $t) => $t->postponed_count >= self::POSTPONED)->sortByDesc('postponed_count')->take(5)
-            ->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'postponed_count' => (int) $t->postponed_count, 'due_at' => $t->due_at?->toIso8601String(), 'confidence' => 'high', 'sources' => ['tasks']])->values();
+            ->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'postponed_count' => (int) $t->postponed_count, 'due_at' => $t->due_at?->toIso8601String(), ...$t->dueMeta($tz), 'confidence' => 'high', 'sources' => ['tasks']])->values();
 
         return [
             'generated_at' => $now->toIso8601String(), 'timezone' => $tz, 'date' => $today->toDateString(),

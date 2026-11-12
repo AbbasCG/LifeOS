@@ -95,7 +95,7 @@ class WeeklyReviewService
             'timezone' => $tz,
             'metrics' => $metrics,
             'completed' => $completed->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'completed_at' => $t->completed_at?->toIso8601String(), 'estimated_minutes' => $t->estimated_minutes, 'actual_minutes' => $t->actual_minutes])->values(),
-            'unfinished' => $unfinished->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'status' => $t->status, 'due_at' => $t->due_at?->toIso8601String(), 'overdue' => $t->due_at !== null && $t->due_at->isPast(), 'estimated_minutes' => $t->estimated_minutes])->values(),
+            'unfinished' => $unfinished->map(fn (Task $t) => ['id' => $t->id, 'title' => $t->title, 'priority' => $t->priority, 'status' => $t->status, 'due_at' => $t->due_at?->toIso8601String(), ...$t->dueMeta($tz), 'overdue' => $t->due_at !== null && $t->due_at->isPast(), 'estimated_minutes' => $t->estimated_minutes])->values(),
             'focus_by_day' => collect($focusByDay)->map(fn (int $minutes, string $date) => ['date' => $date, 'minutes' => $minutes])->values(),
             'planned_vs_actual' => $plannedVsActual,
             'goals' => $goals,
@@ -103,7 +103,7 @@ class WeeklyReviewService
             'habits' => $habits,
             'achievements' => $this->achievements($metrics, $habits->all(), $plannedVsActual['totals']),
             'improvements' => $this->improvements($metrics, $habits->all(), $plannedVsActual['totals'], $unfinished->filter(fn (Task $t) => $t->due_at?->isPast())->count()),
-            'suggested_priorities' => $ranked->map(fn (array $row) => ['id' => $row['task']->id, 'title' => $row['task']->title, 'priority' => $row['task']->priority, 'estimated_minutes' => $row['task']->estimated_minutes, 'due_at' => $row['task']->due_at?->toIso8601String(), 'reasons' => $row['reasons']])->values(),
+            'suggested_priorities' => $ranked->map(fn (array $row) => ['id' => $row['task']->id, 'title' => $row['task']->title, 'priority' => $row['task']->priority, 'estimated_minutes' => $row['task']->estimated_minutes, 'due_at' => $row['task']->due_at?->toIso8601String(), ...$row['task']->dueMeta($tz), 'reasons' => $row['reasons']])->values(),
             'review' => [
                 'status' => $review?->status ?? 'new',
                 'reflection' => $review?->reflection ?? ['wins' => '', 'challenges' => '', 'lessons' => '', 'rating' => null],

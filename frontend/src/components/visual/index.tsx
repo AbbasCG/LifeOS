@@ -5,7 +5,9 @@ import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, CheckSquare, ChevronD
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useAnimatedClose } from '../../lib/useAnimatedClose'
-import { formatClock, formatMediumDateTime } from '../../lib/clock'
+import { formatClock, formatDayText, formatMediumDateTime } from '../../lib/clock'
+import { isAllDay } from '../../lib/dueDate'
+import { dayIn, displayZone } from '../../lib/taskSchedule'
 
 /**
  * LifeOS visual language (V20): small, reusable pieces that let a screen be read at a glance — rings and numbers
@@ -42,21 +44,25 @@ export function PriorityMark({ priority, labelled = false }: { priority?: string
   return <span className={`prio prio-${priority ?? 'medium'}`} title={t(p.en, p.ar, p.nl)}><Icon size={13} aria-hidden="true" />{labelled ? <span>{t(p.en, p.ar, p.nl)}</span> : <span className="sr-only">{t(p.en, p.ar, p.nl)}</span>}</span>
 }
 
-/** A deadline as a short relative chip: "Today 14:00", "Tomorrow", "Tue", "3d late" (late is red with an icon). */
-export function DueChip({ due, done = false, label }: { due?: string | null; done?: boolean; label?: string }) {
+/**
+ * A deadline as a short relative chip: "Today 14:00", "Tomorrow", "Tue", "3d late" (late is red with an icon). Days and times are the
+ * ACCOUNT's (the same as the form and the list badge), whatever zone this device is in. A date-only deadline (`allDay`) has no time
+ * and is late only once its day has ended.
+ */
+export function DueChip({ due, allDay, done = false, label }: { due?: string | null; allDay?: boolean; done?: boolean; label?: string }) {
   const t = useText(), { language } = useLanguage()
-  if (!due) return null
-  const d = new Date(due), now = new Date()
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-  const diff = Math.round((day(d) - day(now)) / 86400000)
+  if (!due || Number.isNaN(Date.parse(due))) return null
+  const d = new Date(due), now = new Date(), zone = displayZone(), date = isAllDay({ due_at: due, due_all_day: allDay })
+  const dayNo = (iso: string) => { const [y, m, n] = iso.split('-').map(Number); return Date.UTC(y, m - 1, n) / 86400000 }
+  const diff = Math.round(dayNo(dayIn(d, zone)) - dayNo(dayIn(now, zone)))
   const late = !done && d.getTime() < now.getTime()
-  const time = formatClock(d, { language })
+  const time = formatClock(d, { language, timeZone: zone }), clock = time !== '00:00'
   const text = late && diff < 0 ? t(`${-diff}d late`, `متأخرة ${-diff} يوم`, `${-diff} d te laat`)
-    : diff === 0 ? (d.getHours() || d.getMinutes() ? `${t('Today', 'اليوم', 'Vandaag')} ${time}` : t('Today', 'اليوم', 'Vandaag'))
+    : diff === 0 ? (!date && clock ? `${t('Today', 'اليوم', 'Vandaag')} ${time}` : t('Today', 'اليوم', 'Vandaag'))
       : diff === 1 ? t('Tomorrow', 'غدًا', 'Morgen')
-        : diff > 1 && diff < 7 ? d.toLocaleDateString(language, { weekday: 'short' })
-          : d.toLocaleDateString(language, { day: 'numeric', month: 'short' })
-  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={formatMediumDateTime(d, { language })}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={due}>{text}</time></span>
+        : formatDayText(d, { language, timeZone: zone }, diff > 1 && diff < 7 ? { weekday: 'short' } : { day: 'numeric', month: 'short' })
+  const title = date ? formatDayText(d, { language, timeZone: zone }, { day: 'numeric', month: 'short', year: 'numeric' }) : formatMediumDateTime(d, { language, timeZone: zone })
+  return <span className={`due ${late ? 'late' : diff === 0 ? 'today' : ''}`} title={title}>{late ? <AlertTriangle size={12} aria-hidden="true" /> : <CalendarClock size={12} aria-hidden="true" />}{label && <span className="due-label">{label}</span>}<time dateTime={date ? dayIn(d, zone) : due}>{text}</time></span>
 }
 
 /** The kind of a calendar item as an icon: meetings, focus blocks, tasks, everything else. */

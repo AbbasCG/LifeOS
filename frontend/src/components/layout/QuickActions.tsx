@@ -1,3 +1,4 @@
+import { isAllDay, moveDue, restoreDue } from '../../lib/dueDate'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { Check, Flame, Heart } from 'lucide-react'
@@ -49,8 +50,8 @@ export default function QuickActions() {
   const snoozeTask = useCallback(async (id: number, kind: 'hour' | 'tomorrow') => {
     try {
       const task = (await api<{ data: RecordItem }>(`/api/tasks/${id}`)).data
-      const before = kind === 'hour' ? { remind_at: (task.remind_at as string | null | undefined) ?? null } : { due_at: task.due_at ?? null }
-      const after = kind === 'hour' ? { remind_at: new Date(Date.now() + 3600_000).toISOString() } : { due_at: dueFor('tomorrow') }
+      const before = kind === 'hour' ? { remind_at: (task.remind_at as string | null | undefined) ?? null } : restoreDue(task)
+      const after = kind === 'hour' ? { remind_at: new Date(Date.now() + 3600_000).toISOString() } : (isAllDay(task) ? moveDue('tomorrow', task) : { due_at: dueFor('tomorrow') })
       await api(`/api/tasks/${id}`, 'PATCH', after)
       window.dispatchEvent(new Event(TASKS_CHANGED))
       toast(kind === 'hour' ? t(`“${task.title}” will remind you again in an hour.`, `ستذكّرك «${task.title}» مجدداً بعد ساعة.`) : t(`“${task.title}” moved to tomorrow.`, `نُقلت «${task.title}» إلى الغد.`), 'success',

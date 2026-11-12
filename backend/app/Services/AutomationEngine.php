@@ -219,11 +219,11 @@ class AutomationEngine
                 $step = $task->recurrence === 'weekly' ? 7 : 1;
                 $due = $next->due_at;
                 for ($i = 0; $due <= now() && $i < 400; $i++) {
-                    $due = $due->addDays($step);
+                    $due = $next->addDaysToDue($due, $step);
                 }
                 $next->update(['due_at' => $due]);
 
-                return ['succeeded', ($ar ? 'أُنشئ التكرار التالي بتاريخ ' : 'Created the next occurrence due ').$next->due_at->setTimezone($user->timezone())->format('Y-m-d H:i').($ar ? '. بقيت المهمة الفائتة كما هي لتقرر بشأنها.' : '. The missed one is left for you to decide.'), ['task_id' => $next->id]];
+                return ['succeeded', ($ar ? 'أُنشئ التكرار التالي بتاريخ ' : 'Created the next occurrence due ').$next->due_at->setTimezone($user->timezone())->format($next->due_all_day ? 'Y-m-d' : 'Y-m-d H:i').($ar ? '. بقيت المهمة الفائتة كما هي لتقرر بشأنها.' : '. The missed one is left for you to decide.'), ['task_id' => $next->id]];
 
             case 'offer_next_week_plan':
                 $start = CarbonImmutable::parse($model->week_start, $user->timezone())->addWeek();

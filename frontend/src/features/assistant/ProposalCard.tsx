@@ -7,7 +7,9 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useToast } from '../../lib/toast'
 import { ErrorMessage } from '../../components/ui/Shared'
 import { TEMPLATES_CHANGED } from '../../lib/copilot'
-import { formatClock } from '../../lib/clock'
+import { formatClock, formatDayText } from '../../lib/clock'
+import { isAllDay } from '../../lib/dueDate'
+import { accountZone } from '../../lib/accountDay'
 
 /**
  * Reviewable changes suggested by the assistant. Nothing changes until the user approves specific items.
@@ -17,11 +19,11 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
   const [proposal, setProposal] = useState(initial), [selected, setSelected] = useState<string[]>(initial.actions.map(a => a.id))
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [naming, setNaming] = useState(false), [templateName, setTemplateName] = useState('')
   const open = proposal.status === 'pending'
-  const day = (iso: string) => new Date(iso).toLocaleDateString(language, { weekday: 'short', day: 'numeric', month: 'short' })
-  const time = (iso: string) => formatClock(iso, { language })
+  const day = (iso: string) => formatDayText(iso, { language, timeZone: accountZone() })
+  const time = (iso: string) => formatClock(iso, { language, timeZone: accountZone() })
   const range = (start: string, end: string) => `${day(start)} · ${time(start)}–${time(end)}`
   const taskKind = proposal.kind === 'goal_plan' || proposal.kind === 'triage'
-  const dueLabel = (iso: string) => `${day(iso)} · ${time(iso)}`
+  const dueLabel = (iso: string, known?: boolean) => isAllDay({ due_at: iso, due_all_day: known }) ? day(iso) : `${day(iso)} · ${time(iso)}`
   const toggle = (id: string) => setSelected(list => list.includes(id) ? list.filter(x => x !== id) : [...list, id])
 
   async function run(path: 'apply' | 'dismiss' | 'undo') {
@@ -105,8 +107,8 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
               : <small className="conflict-check warn">{t('Overlaps', 'يتداخل مع')}: {action.conflicts.map(c => `${c.title} (${c.source_label})`).join(', ')}</small>)}
           </span>}
           <span className="proposal-time">
-            {action.type === 'create_task' && <><ListPlus size={13} />{action.estimated_minutes} {t('min', 'د')}{action.due_at && <> · {t('due', 'الموعد')} {dueLabel(action.due_at)}</>}</>}
-            {action.type === 'reschedule_task' && action.due_at && <>{action.from_due_at && <><s>{dueLabel(action.from_due_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}<CalendarClock size={13} />{dueLabel(action.due_at)}</>}
+            {action.type === 'create_task' && <><ListPlus size={13} />{action.estimated_minutes} {t('min', 'د')}{action.due_at && <> · {t('due', 'الموعد')} {dueLabel(action.due_at, action.due_all_day)}</>}</>}
+            {action.type === 'reschedule_task' && action.due_at && <>{action.from_due_at && <><s>{dueLabel(action.from_due_at, action.from_due_all_day)}</s><ArrowRight size={13} className="flip-rtl" /></>}<CalendarClock size={13} />{dueLabel(action.due_at, action.due_all_day)}</>}
             {action.type === 'move_event' && action.from_starts_at && action.from_ends_at && <><s>{range(action.from_starts_at, action.from_ends_at)}</s><ArrowRight size={13} className="flip-rtl" /></>}
             {action.starts_at && action.ends_at && <><Clock size={13} />{grouped && action.type !== 'move_event' ? `${time(action.starts_at)}–${time(action.ends_at)}` : range(action.starts_at, action.ends_at)}</>}
           </span>

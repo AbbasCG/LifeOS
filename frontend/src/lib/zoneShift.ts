@@ -1,4 +1,4 @@
-import { offsetMinutes, wallClockToInstant, zonedParts } from './accountDay'
+import { accountZone, offsetMinutes, wallClockToInstant, zonedParts } from './accountDay'
 
 /**
  * Showing a calendar in another timezone (V29). The calendar grid is built from the browser's local time, so to draw
@@ -39,3 +39,6 @@ export function zonesDiffer(zone: string | undefined, now = new Date()): boolean
   const later = new Date(now.getTime() + 182 * 86_400_000)
   return offsetMinutes(now, zone) !== offsetMinutes(now) || offsetMinutes(later, zone) !== offsetMinutes(later)
 }
+
+/** True when typed times (which mean the account's timezone) would read differently on this device's clock: the forms then say which zone they use. */
+export const typedTimesShifted = (now = new Date()) => zonesDiffer(accountZone(), now)
