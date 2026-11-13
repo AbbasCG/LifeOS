@@ -105,7 +105,7 @@ export type WeeklyReviewData = {
 }
 export type Availability = { work_start: string; work_end: string; days: { date: string; work_day: boolean; free_minutes: number; slots: { starts_at: string; ends_at: string; minutes: number }[] }[] }
 export type Recurrence = { freq: 'daily' | 'weekly' | 'monthly' | 'yearly'; interval?: number; by_weekday?: number[]; count?: number; until?: string }
-export type CalendarOccurrence = { id: string; event_id: number | null; source: 'lifeos' | 'google' | 'outlook' | string; title: string; description?: string | null; kind: 'fixed' | 'flexible' | string; task_id?: number | null; starts_at: string; ends_at: string; recurring: boolean; occurrence_start: string | null; is_exception?: boolean; recurrence?: Recurrence | null; timezone?: string | null; remind_minutes?: number | null; editable: boolean; account_label?: string | null }
+export type CalendarOccurrence = { id: string; event_id: number | null; source: 'lifeos' | 'google' | 'outlook' | string; title: string; description?: string | null; kind: 'fixed' | 'flexible' | string; task_id?: number | null; task_closed?: boolean; starts_at: string; ends_at: string; recurring: boolean; occurrence_start: string | null; is_exception?: boolean; recurrence?: Recurrence | null; timezone?: string | null; remind_minutes?: number | null; editable: boolean; account_label?: string | null }
 
 export type Checkin = { date: string; energy: number | null; mood: number | null; stress: number | null; workload: number | null; sleep_minutes: number | null; reflection: string | null; updated_at?: string | null }
 export type CheckinFinding = { key: string; type: 'positive' | 'warning' | 'neutral'; en: string; ar: string; groups: { label: string; days: number; average: number }[] }

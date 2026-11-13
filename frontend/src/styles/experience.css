@@ -160,6 +160,8 @@ p { text-wrap: pretty; }
 .grid-event:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-primary) 60%, transparent); outline-offset: 1px; z-index: 4; }
 .grid-event.compact { flex-direction: row; align-items: center; gap: 6px; }
 .grid-event.is-source { opacity: .35; }
+/* A completed or cancelled task's block: still shown, but it no longer holds the time (text keeps full contrast). */
+.grid-event.closed, .agenda-item.closed, .calendar-event.closed { background: color-mix(in srgb, var(--color-text-muted) 8%, var(--color-surface)); outline: 1px dashed var(--color-border); outline-offset: -1px; }
 .grid-event.conflict { box-shadow: 0 0 0 2px var(--color-danger); }
 .grid-event .grip { position: absolute; top: 3px; inset-inline-end: 3px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--color-text-muted); cursor: grab; touch-action: none; opacity: .55; transition: opacity var(--duration), background var(--duration); }
 .grid-event:hover .grip, .grid-event:focus-visible .grip { opacity: 1; background: color-mix(in srgb, var(--color-surface) 70%, transparent); }

@@ -1,5 +1,6 @@
 /** Anything with an id and a time range: stored events, expanded occurrences or external events. */
-export type Timed = { id: string | number; title?: string; starts_at?: string; ends_at?: string }
+/** `task_closed`: the block of a completed or cancelled task. It stays on the calendar but does not hold the time (the server ignores it too). */
+export type Timed = { id: string | number; title?: string; starts_at?: string; ends_at?: string; task_closed?: boolean }
 export type Lane<T extends Timed = Timed> = { item: T; lane: number; lanes: number }
 
 /** Assign overlapping events to side-by-side lanes. */
@@ -79,13 +80,13 @@ export function resizePreview(origStart: Date, origEnd: Date, day: Date, delta: 
 
 /** First other event overlapping [start, end). Touching edges do not conflict. */
 export function findConflict<T extends Timed>(items: T[], id: string | number | undefined, start: Date, end: Date): T | undefined {
-  return items.find(item => item.id !== id && new Date(item.starts_at!) < end && new Date(item.ends_at!) > start)
+  return items.find(item => item.id !== id && !item.task_closed && new Date(item.starts_at!) < end && new Date(item.ends_at!) > start)
 }
 
 /** Ids of events that overlap another event. */
 export function overlappingIds(items: Timed[]) {
   const ids = new Set<string | number>()
-  const sorted = [...items].sort((a, b) => a.starts_at!.localeCompare(b.starts_at!))
+  const sorted = items.filter(item => !item.task_closed).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!))
   sorted.forEach((a, i) => { for (const b of sorted.slice(i + 1)) { if (new Date(b.starts_at!) >= new Date(a.ends_at!)) break; ids.add(a.id); ids.add(b.id) } })
   return ids
 }
