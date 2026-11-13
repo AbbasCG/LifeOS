@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ApiError, type RecordItem } from './api'
+import { api, ApiError, type NewTask, type RecordItem } from './api'
 
 /**
  * Offline capture (V23). Three small actions can be kept on this device while there is no connection: adding a task,
@@ -69,11 +69,20 @@ export function usePending() {
   return items
 }
 
-/** Add a task now, or keep it on this device when offline. The client_id makes a repeated send harmless. */
-export async function createTaskOrQueue(task: Partial<RecordItem>): Promise<'created' | 'queued'> {
+/**
+ * The headers a queued or live task creation carries: a task with a `schedule` (a booked time) also sends its client_id as the
+ * Idempotency-Key, so a repeated send (lost response, replay from the queue) books the time once.
+ */
+const createHeaders = (payload: Record<string, unknown>) => payload.schedule && typeof payload.client_id === 'string' ? { 'Idempotency-Key': payload.client_id } : undefined
+
+/**
+ * Add a task now, or keep it on this device when offline. The client_id makes a repeated send harmless. A `schedule` is sent in the
+ * same request (one atomic save); a refused time throws the server's 422 (see parseConflict) and nothing is saved or queued.
+ */
+export async function createTaskOrQueue(task: NewTask): Promise<'created' | 'queued'> {
   const payload = { ...task, client_id: uuid() }
   if (isOffline()) { enqueue({ kind: 'task.create', label: String(task.title ?? ''), payload }); return 'queued' }
-  try { await api('/api/tasks', 'POST', payload); return 'created' } catch (e) {
+  try { await api('/api/tasks', 'POST', payload, createHeaders(payload)); return 'created' } catch (e) {
     if (!isOffline(e)) throw e
     enqueue({ kind: 'task.create', label: String(task.title ?? ''), payload }); return 'queued'
   }
@@ -105,7 +114,7 @@ export async function sendPending(item: Pending, force = false): Promise<SendRes
   }
   try {
     if (item.kind === 'task.create') {
-      await api('/api/tasks', 'POST', item.payload)
+      await api('/api/tasks', 'POST', item.payload, createHeaders(item.payload))
     } else if (item.kind === 'habit.log') {
       const { habit_id, date, completed } = item.payload as { habit_id: number; date: string; completed: boolean }
       await api(`/api/habits/${habit_id}/entry`, 'PUT', { date, completed })

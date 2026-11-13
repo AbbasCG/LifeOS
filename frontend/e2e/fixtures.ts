@@ -118,3 +118,43 @@ export function zonedInstant(local: string, zone: string): string {
   }
   return new Date(guess).toISOString()
 }
+
+/**
+ * A day, from about `from` days ahead, with nothing in the calendar around the morning (06:00-17:00 UTC): the demo data has events and weekly
+ * series, so a spec that books a session never uses a fixed "in N days" slot. Needs a signed-in page.
+ */
+export async function emptyDay(page: Page, from: number): Promise<string> {
+  await page.goto('/')
+  for (let i = from; i < from + 60; i++) {
+    const day = new Date(Date.now() + i * 86_400_000).toISOString().slice(0, 10)
+    const r = await page.evaluate(async ([a, b]) => {
+      const res = await fetch(`/api/calendar?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`, { credentials: 'include', headers: { Accept: 'application/json' } })
+      return { status: res.status, count: ((await res.json().catch(() => ({ data: [] }))).data as unknown[]).length }
+    }, [`${day}T05:00:00Z`, `${day}T15:00:00Z`])
+    if (r.status === 200 && r.count === 0) return day
+  }
+  throw new Error('no empty day found')
+}
+/**
+ * Makes the app believe it is noon (UTC) the day BEFORE `day`, so its "Tomorrow" tile means that empty `day` (the demo data's weekly events
+ * would otherwise sit on the real tomorrow). Only the page's clock moves: the server and the real calendar are untouched. Reloads the app.
+ */
+export async function eveOf(page: Page, day: string) {
+  await page.clock.setFixedTime(new Date(new Date(`${day}T12:00:00Z`).getTime() - 86_400_000))
+  await page.goto('/')
+}
+/** Deletes a task and the calendar sessions it booked (a session is an event of its own). Needs a signed-in page. */
+export async function removeBooked(page: Page, taskId: number) {
+  await page.evaluate(async id => {
+    const token = decodeURIComponent(document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '')
+    const send = (method: string, path: string) => fetch(path, { method, credentials: 'include', headers: { Accept: 'application/json', 'X-XSRF-TOKEN': token } })
+    // The session's own day tells where to look (the calendar answers at most 62 days at a time).
+    const task = (await (await send('GET', `/api/tasks/${id}`)).json().catch(() => null))?.data as { schedule?: { starts_at: string } | null } | undefined
+    if (task?.schedule?.starts_at) {
+      const at = Date.parse(task.schedule.starts_at), from = new Date(at - 86_400_000).toISOString(), to = new Date(at + 2 * 86_400_000).toISOString()
+      const listed = await (await send('GET', `/api/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)).json().catch(() => ({ data: [] }))
+      for (const o of (listed.data ?? []) as { task_id: number | null; event_id: number | null }[]) if (o.task_id === id && o.event_id) await send('DELETE', `/api/events/${o.event_id}`)
+    }
+    await send('DELETE', `/api/tasks/${id}`)
+  }, taskId)
+}

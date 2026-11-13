@@ -44,7 +44,8 @@ test('a task is captured with one line and completed with one tap, with undo', a
     await page.getByRole('button', { name: 'Quick add' }).filter({ visible: true }).first().click()
     const sheet = page.getByRole('dialog', { name: 'Quick add' })
     await sheet.getByRole('textbox', { name: 'Task' }).fill(title)
-    await sheet.getByRole('radio', { name: /Today/ }).click()
+    // Nothing is scheduled by default (a booked time could meet the demo data's events), so the task is just captured.
+    await expect(sheet.getByRole('radio', { name: /Not scheduled/ })).toHaveAttribute('aria-checked', 'true')
     await sheet.getByRole('radio', { name: /High/ }).click()
     await sheet.getByRole('button', { name: /Add task/ }).click()
     await expect(sheet).toBeHidden()
