@@ -150,4 +150,34 @@ class ScheduleConflictConcurrencyTest extends TestCase
         $this->assertSame(1, CalendarEvent::count());
         $this->assertSame(1, Task::where('title', 'Next occurrence')->count());
     }
+
+    public function test_a_one_step_task_create_in_the_same_slot_waits_and_is_refused_and_leaves_no_task_behind(): void
+    {
+        [$user, $a] = $this->world();
+        $this->startHolder('locked', $user, $a);
+
+        $response = $this->actingAs($user)->postJson('/api/tasks', ['title' => 'One-step racer', 'estimated_minutes' => 30, 'schedule' => ['starts_at' => self::SLOT['starts_at']]]);
+        $output = $this->finishHolder();
+
+        $this->assertStringStartsWith('waiter ', $output[0] ?? '', 'the one-step save was blocked on the booking lock: '.json_encode($output));
+        $this->assertStringStartsWith('committed ', $output[1] ?? '');
+        $response->assertUnprocessable()->assertJsonPath('conflict.code', 'schedule_conflict')->assertJsonPath('conflict.conflicts.0.task_id', $a->id);
+        $this->assertSame(0, Task::where('title', 'One-step racer')->count(), 'the task row was rolled back with the refused time');
+        $this->assertSame(1, CalendarEvent::count(), 'one winner');
+    }
+
+    public function test_a_one_step_move_into_a_slot_taken_meanwhile_is_refused_and_keeps_the_task_and_old_session(): void
+    {
+        [$user, $a, $b] = $this->world();
+        $old = CalendarEvent::create(['user_id' => $user->id, 'task_id' => $b->id, 'title' => 'Task B', 'kind' => 'flexible', 'starts_at' => '2027-02-03 14:00:00', 'ends_at' => '2027-02-03 14:30:00']);
+        $this->startHolder('locked', $user, $a);
+
+        $response = $this->actingAs($user)->patchJson("/api/tasks/{$b->id}", ['title' => 'Renamed in race', 'schedule' => ['starts_at' => self::SLOT['starts_at']]]);
+        $output = $this->finishHolder();
+
+        $this->assertStringStartsWith('waiter ', $output[0] ?? '', json_encode($output));
+        $response->assertUnprocessable()->assertJsonPath('conflict.code', 'schedule_conflict');
+        $this->assertSame('Task B', Task::findOrFail($b->id)->title);
+        $this->assertSame('2027-02-03 14:00:00', CalendarEvent::findOrFail($old->id)->starts_at->format('Y-m-d H:i:s'));
+    }
 }

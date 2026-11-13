@@ -22,13 +22,16 @@ use App\Models\UserDiscoveryState;
 use App\Models\UserSetting;
 use App\Policies\OwnedResourcePolicy;
 use App\Services\AuditLogger;
+use App\Services\CalendarBooking;
 use App\Services\HabitStreaks;
 use App\Services\TaskScheduler;
+use App\Services\TaskSessionWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -38,6 +41,9 @@ class WorkspaceController extends Controller
 
     /** Sections of the top of Today (V22; "focus" since V24). "now" can be moved but never hidden. */
     public const TODAY_SECTIONS = ['now', 'checkin', 'strip', 'top3', 'progress', 'focus', 'habits', 'copilot', 'suggestions'];
+
+    /** How long a client's Idempotency-Key is remembered. */
+    private const IDEMPOTENCY_SECONDS = 600;
 
     public const MODELS = ['tasks' => Task::class, 'projects' => Project::class, 'categories' => Category::class, 'events' => CalendarEvent::class, 'goals' => Goal::class, 'habits' => Habit::class];
 
@@ -147,37 +153,74 @@ class WorkspaceController extends Controller
             ? Task::where('user_id', $request->user()->id)->where('client_id', $request->input('client_id'))->first()
             : null;
         if ($existing = $replay()) {
-            return (new WorkspaceResource($existing))->response()->setStatusCode(200);
+            return $this->replayed($request, $existing);
         }
         try {
-            return $this->save($request, $resource, null)->response()->setStatusCode(201);
+            [$saved, $replayed] = $this->save($request, $resource, null);
+
+            return $replayed ? $this->replayHeader($saved->response()) : $saved->response()->setStatusCode(201);
         } catch (UniqueConstraintViolationException $e) {
             $existing = $replay();
             if (! $existing) {
                 throw $e;
             }
 
-            return (new WorkspaceResource($existing))->response()->setStatusCode(200);
+            return $this->replayed($request, $existing);
         }
     }
 
-    public function update(ResourceRequest $request, string $resource, int $id): WorkspaceResource
+    public function update(ResourceRequest $request, string $resource, int $id): WorkspaceResource|JsonResponse
     {
-        return $this->save($request, $resource, $id);
+        [$saved, $replayed] = $this->save($request, $resource, $id);
+
+        return $replayed ? $this->replayHeader($saved->response()) : $saved;
+    }
+
+    /** A task that was already created (same client_id): returned as it is, with its schedule when the request asked for one. */
+    private function replayed(ResourceRequest $request, Model $existing): JsonResponse
+    {
+        if ($request->has('schedule') && $existing instanceof Task) {
+            app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$existing]));
+        }
+
+        return (new WorkspaceResource($existing))->response()->setStatusCode(200);
+    }
+
+    private function replayHeader(JsonResponse $response): JsonResponse
+    {
+        return $response->setStatusCode(200)->header('Idempotent-Replay', 'true');
     }
 
     /**
      * Lock order across the app is: user row, proposal row, task rows (ascending id), calendar rows. This method takes the user row first and then
      * only updates the one task row, so it follows that order and cannot deadlock with plan acceptance (user, proposal, tasks) or with the
      * assistant (proposal, tasks). Its UPDATE of the task row also queues behind a scheduler that holds the task's FOR UPDATE lock.
+     *
+     * A task request with a `schedule` key (one-step save) runs inside CalendarBooking::run instead: the same user lock, then the task row
+     * FOR UPDATE, then the calendar rows, all in the one transaction that also writes the task fields, so a refused time saves nothing.
+     *
+     * @return array{0: WorkspaceResource, 1: bool} the resource and whether it is the replay of an earlier Idempotency-Key request
      */
-    private function save(ResourceRequest $request, string $resource, ?int $id): WorkspaceResource
+    private function save(ResourceRequest $request, string $resource, ?int $id): array
     {
-        return DB::transaction(function () use ($request, $resource, $id) {
-            User::lockForOrdering($request->user()->id);
+        $data = $request->validated();
+        $withSchedule = $resource === 'tasks' && array_key_exists('schedule', $data);
+        $schedule = $data['schedule'] ?? null;
+        unset($data['schedule']);
+        $key = $withSchedule ? $this->idempotencyKey($request) : null;
+        $replayed = false;
+
+        $body = function () use ($request, $resource, $id, $data, $withSchedule, $schedule, $key, &$replayed) {
             $model = $this->model($resource);
+            $cacheKey = $key ? 'task-schedule-idempotency:'.$request->user()->id.':'.hash('sha256', $request->method().' '.($id ?? 'new').' '.$key) : null;
+            if ($cacheKey && ($firstId = Cache::get($cacheKey)) && ($first = Task::where('user_id', $request->user()->id)->find($firstId))) {
+                // Resent request (lost response, offline queue): the first one's result, nothing is written again.
+                $replayed = true;
+                app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$first]));
+
+                return new WorkspaceResource($first);
+            }
             $record = $id ? $this->owned($request, $resource, $id) : new $model;
-            $data = $request->validated();
             $wasComplete = $record->status === 'completed';
             if ($resource === 'tasks' && isset($data['status'])) {
                 $data['completed_at'] = $data['status'] === 'completed' ? ($record->completed_at ?? now()) : null;
@@ -188,6 +231,13 @@ class WorkspaceController extends Controller
             if ($resource === 'tasks' && ! $wasComplete && $record->status === 'completed') {
                 $record->createNextOccurrence();
             }
+            if ($withSchedule) {
+                // After the fields (the session's default length is the estimate as just saved), before the response; a throw rolls the task back too.
+                app(TaskSessionWriter::class)->apply($request->user(), $record, $schedule);
+            }
+            if ($cacheKey) {
+                Cache::put($cacheKey, $record->id, self::IDEMPOTENCY_SECONDS);
+            }
 
             $saved = $record->fresh();
             if ($resource === 'tasks') {
@@ -195,7 +245,33 @@ class WorkspaceController extends Controller
             }
 
             return new WorkspaceResource($saved);
-        });
+        };
+
+        if ($withSchedule) {
+            $result = app(CalendarBooking::class)->run($request->user(), [$id], fn () => $body());
+        } else {
+            $result = DB::transaction(function () use ($request, $body) {
+                User::lockForOrdering($request->user()->id);
+
+                return $body();
+            });
+        }
+
+        return [$result, $replayed];
+    }
+
+    /** The optional Idempotency-Key header (at most 100 characters). */
+    private function idempotencyKey(Request $request): ?string
+    {
+        $key = $request->header('Idempotency-Key');
+        if ($key === null || $key === '') {
+            return null;
+        }
+        if (mb_strlen($key) > 100) {
+            throw ValidationException::withMessages(['idempotency_key' => ['The Idempotency-Key header may be at most 100 characters.']]);
+        }
+
+        return $key;
     }
 
     public function destroy(Request $request, string $resource, int $id): JsonResponse
