@@ -24,6 +24,7 @@ use App\Policies\OwnedResourcePolicy;
 use App\Services\AuditLogger;
 use App\Services\CalendarBooking;
 use App\Services\HabitStreaks;
+use App\Services\TaskScheduleException;
 use App\Services\TaskScheduler;
 use App\Services\TaskSessionWriter;
 use Carbon\CarbonImmutable;
@@ -213,12 +214,20 @@ class WorkspaceController extends Controller
         $body = function () use ($request, $resource, $id, $data, $withSchedule, $schedule, $key, &$replayed) {
             $model = $this->model($resource);
             $cacheKey = $key ? 'task-schedule-idempotency:'.$request->user()->id.':'.hash('sha256', $request->method().' '.($id ?? 'new').' '.$key) : null;
-            if ($cacheKey && ($firstId = Cache::get($cacheKey)) && ($first = Task::where('user_id', $request->user()->id)->find($firstId))) {
-                // Resent request (lost response, offline queue): the first one's result, nothing is written again.
-                $replayed = true;
-                app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$first]));
+            $bodyHash = $cacheKey ? hash('sha256', json_encode($this->normalised($request->all()))) : null;
+            if ($cacheKey && is_array($first = Cache::get($cacheKey))) {
+                if ($first['hash'] !== $bodyHash) {
+                    $message = 'This Idempotency-Key was already used with a different request.';
 
-                return new WorkspaceResource($first);
+                    throw new TaskScheduleException('idempotency_key_reused', $message, 422, ['errors' => ['idempotency_key' => [$message]]]);
+                }
+                if ($firstTask = Task::where('user_id', $request->user()->id)->find($first['id'])) {
+                    // Resent request (lost response, offline queue): the first one's result, nothing is written again.
+                    $replayed = true;
+                    app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$firstTask]));
+
+                    return new WorkspaceResource($firstTask);
+                }
             }
             $record = $id ? $this->owned($request, $resource, $id) : new $model;
             $wasComplete = $record->status === 'completed';
@@ -233,15 +242,20 @@ class WorkspaceController extends Controller
             }
             if ($withSchedule) {
                 // After the fields (the session's default length is the estimate as just saved), before the response; a throw rolls the task back too.
-                app(TaskSessionWriter::class)->apply($request->user(), $record, $schedule);
+                app(TaskSessionWriter::class)->apply($request->user(), $record, $schedule, array_key_exists('estimated_minutes', $data));
             }
             if ($cacheKey) {
-                Cache::put($cacheKey, $record->id, self::IDEMPOTENCY_SECONDS);
+                Cache::put($cacheKey, ['id' => $record->id, 'hash' => $bodyHash], self::IDEMPOTENCY_SECONDS);
             }
 
             $saved = $record->fresh();
             if ($resource === 'tasks') {
                 app(TaskScheduler::class)->attachSchedules($request->user()->id, collect([$saved]));
+                if ($withSchedule && $saved->scheduled_start !== null) {
+                    // syncPlannedWindow only runs after commit; the response shows the window it is about to write (same rule, read from the sessions).
+                    $sessions = app(TaskScheduler::class)->activeSessionsQuery($request->user()->id, $saved->id)->get(['starts_at', 'ends_at']);
+                    $saved->setAttribute('scheduled_start', $sessions->min('starts_at'))->setAttribute('scheduled_end', $sessions->max('ends_at'));
+                }
             }
 
             return new WorkspaceResource($saved);
@@ -258,6 +272,14 @@ class WorkspaceController extends Controller
         }
 
         return [$result, $replayed];
+    }
+
+    /** @param  array<mixed>  $value */
+    private function normalised(array $value): array
+    {
+        ksort($value);
+
+        return array_map(fn ($v) => is_array($v) && ! array_is_list($v) ? $this->normalised($v) : $v, $value);
     }
 
     /** The optional Idempotency-Key header (at most 100 characters). */

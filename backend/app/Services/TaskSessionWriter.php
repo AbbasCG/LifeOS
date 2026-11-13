@@ -24,13 +24,14 @@ class TaskSessionWriter
     public function __construct(private CalendarBooking $booking, private TaskScheduler $scheduler) {}
 
     /**
+     * @param  bool  $estimateSent  the request carried estimated_minutes: then the end follows it; otherwise a move keeps the session's own length
      * @param  array{starts_at?: string, ends_at?: string|null, session_id?: int|null, expected_starts_at?: string|null, confirm_fixed?: bool}|null  $schedule  null removes the session
      *
      * @throws ScheduleConflictException the time overlaps something (422)
      * @throws TaskScheduleException several_sessions (422), session_not_found (404), event_changed (409)
      * @throws ValidationException closed task, end not in the future
      */
-    public function apply(User $user, Task $task, ?array $schedule): void
+    public function apply(User $user, Task $task, ?array $schedule, bool $estimateSent = false): void
     {
         $active = $this->scheduler->activeSessionsQuery($user->id, $task->id)->get();
         $sessionId = isset($schedule['session_id']) ? (int) $schedule['session_id'] : null;
@@ -49,7 +50,12 @@ class TaskSessionWriter
         $session = $this->target($active, $sessionId);
         $start = CarbonImmutable::parse($schedule['starts_at'])->utc();
         // The server is the single source of the end: the task's length as it is AFTER this request's fields were applied.
-        $end = ! empty($schedule['ends_at']) ? CarbonImmutable::parse($schedule['ends_at'])->utc() : $start->addMinutes((int) ($task->estimated_minutes ?: self::DEFAULT_MINUTES));
+        $end = match (true) {
+            ! empty($schedule['ends_at']) => CarbonImmutable::parse($schedule['ends_at'])->utc(),
+            // Only a start was sent for an existing session and the estimate is not being edited: the session keeps the length it has.
+            $session !== null && ! $estimateSent => $start->addSeconds((int) $session->starts_at->diffInSeconds($session->ends_at)),
+            default => $start->addMinutes((int) ($task->estimated_minutes ?: self::DEFAULT_MINUTES)),
+        };
         if ($end <= $start) {
             throw ValidationException::withMessages(['schedule.ends_at' => ['End must follow start.']]);
         }

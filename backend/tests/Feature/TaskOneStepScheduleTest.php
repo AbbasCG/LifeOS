@@ -311,7 +311,6 @@ class TaskOneStepScheduleTest extends TestCase
         $response = $this->postJson('/api/tasks', ['title' => 'Clash', 'schedule' => ['starts_at' => $this->at('11:00')]])->assertUnprocessable();
         $this->assertStringNotContainsString('Their secret', $response->getContent());
         $theirSession = $this->booked($theirs, '14:00', '14:30');
-        $this->patchJson("/api/tasks/{$theirs->id}", ['schedule' => null])->assertNotFound();
         $this->assertNotNull(CalendarEvent::find($theirSession->id));
     }
 
@@ -337,6 +336,63 @@ class TaskOneStepScheduleTest extends TestCase
             ->assertStatus(409)->assertJsonPath('code', 'event_changed');
         $this->assertSame('Write report', Task::findOrFail($task->id)->title);
         $this->patchJson("/api/tasks/{$task->id}", ['schedule' => ['starts_at' => $this->at('10:00'), 'expected_starts_at' => $this->at('09:00')]])->assertOk();
+    }
+
+    public function test_a_move_without_end_or_estimate_keeps_the_sessions_own_length(): void
+    {
+        $task = $this->task(['estimated_minutes' => 30]);
+        $event = $this->booked($task, '09:00', '10:30');
+        $this->patchJson("/api/tasks/{$task->id}", ['schedule' => ['starts_at' => $this->at('13:00')]])
+            ->assertOk()->assertJsonPath('data.schedule.session_id', $event->id)->assertJsonPath('data.schedule.ends_at', $this->at('14:30'));
+        $this->patchJson("/api/tasks/{$task->id}", ['estimated_minutes' => 45, 'schedule' => ['starts_at' => $this->at('13:00')]])->assertOk()->assertJsonPath('data.schedule.ends_at', $this->at('13:45'));
+        $this->postJson('/api/tasks', ['title' => 'New', 'schedule' => ['starts_at' => $this->at('16:00')]])->assertCreated()->assertJsonPath('data.schedule.ends_at', $this->at('16:30'));
+    }
+
+    public function test_the_same_idempotency_key_with_a_different_body_is_refused_and_applies_nothing(): void
+    {
+        $headers = ['Idempotency-Key' => 'reuse-1'];
+        $first = $this->postJson('/api/tasks', ['title' => 'One', 'schedule' => ['starts_at' => $this->at('09:00')]], $headers)->assertCreated();
+        $this->postJson('/api/tasks', ['title' => 'Two', 'schedule' => ['starts_at' => $this->at('11:00')]], $headers)->assertUnprocessable()->assertJsonPath('code', 'idempotency_key_reused')->assertJsonStructure(['errors' => ['idempotency_key']]);
+        $this->assertSame(0, Task::where('title', 'Two')->count());
+        $this->assertSame(1, CalendarEvent::count());
+        $this->postJson('/api/tasks', ['schedule' => ['starts_at' => $this->at('09:00')], 'title' => 'One'], $headers)->assertOk()->assertJsonPath('data.id', $first->json('data.id'));
+    }
+
+    public function test_the_response_shows_the_synced_planned_window_and_a_refusal_leaves_it_alone(): void
+    {
+        $task = $this->task(['scheduled_start' => '2027-02-03 09:00:00', 'scheduled_end' => '2027-02-03 09:30:00']);
+        $this->booked($task, '09:00', '09:30');
+        $this->patchJson("/api/tasks/{$task->id}", ['schedule' => ['starts_at' => $this->at('13:00')]])->assertOk()
+            ->assertJsonPath('data.scheduled_start', '2027-02-03T13:00:00.000000Z')->assertJsonPath('data.scheduled_end', '2027-02-03T13:30:00.000000Z');
+        $this->assertSame('2027-02-03 13:00:00', Task::findOrFail($task->id)->scheduled_start->format('Y-m-d H:i:s'));
+
+        $this->busy('15:00', '16:00');
+        $this->patchJson("/api/tasks/{$task->id}", ['schedule' => ['starts_at' => $this->at('15:15')]])->assertUnprocessable();
+        $this->assertSame('2027-02-03 13:00:00', Task::findOrFail($task->id)->scheduled_start->format('Y-m-d H:i:s'), 'a refused save did not sync the window');
+    }
+
+    public function test_a_session_id_of_another_task_or_user_is_404_and_never_moved(): void
+    {
+        $task = $this->task();
+        $this->booked($task, '09:00', '09:30');
+        $otherTask = $this->task(['title' => 'Other']);
+        $theirs = $this->booked($otherTask, '11:00', '11:30');
+        $stranger = $this->booked($this->task([], User::factory()->create()), '12:00', '12:30');
+
+        foreach ([$theirs, $stranger] as $event) {
+            $this->patchJson("/api/tasks/{$task->id}", ['schedule' => ['starts_at' => $this->at('14:00'), 'session_id' => $event->id]])->assertNotFound()->assertJsonPath('code', 'session_not_found');
+        }
+        $this->assertSame(['11:00:00', '12:00:00'], [CalendarEvent::findOrFail($theirs->id)->starts_at->format('H:i:s'), CalendarEvent::findOrFail($stranger->id)->starts_at->format('H:i:s')]);
+        $this->assertSame(3, CalendarEvent::count());
+    }
+
+    public function test_the_longest_estimate_works_and_a_completed_task_can_be_reopened_with_a_schedule(): void
+    {
+        $this->postJson('/api/tasks', ['title' => 'Marathon', 'estimated_minutes' => 10080, 'schedule' => ['starts_at' => $this->at('09:00')]])
+            ->assertCreated()->assertJsonPath('data.schedule.ends_at', '2027-02-10T09:00:00Z');
+
+        $done = $this->task(['status' => 'completed', 'completed_at' => now()]);
+        $this->patchJson("/api/tasks/{$done->id}", ['status' => 'todo', 'schedule' => ['starts_at' => $this->at('15:00', '2027-02-12')]])->assertOk()->assertJsonPath('data.status', 'todo')->assertJsonPath('data.schedule.ends_at', $this->at('15:30', '2027-02-12'));
     }
 
     /** @return iterable<string, array{0: array<string, mixed>, 1: string}> */
