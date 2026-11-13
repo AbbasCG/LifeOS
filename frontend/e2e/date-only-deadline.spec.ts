@@ -28,6 +28,12 @@ async function makeTask(page: Page, label: string) {
   return { id: (made.body.data as { id: number }).id, title, zone }
 }
 const accountDay = (zone: string, plus = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date(Date.now() + plus * 86_400_000))
+/** Open «خيارات متقدمة» / More options and switch the deadline on, so its fields can be used. */
+async function showDeadline(dialog: import('@playwright/test').Locator) {
+  const sw = dialog.getByRole('checkbox', { name: /Do you have a deadline|هل لديك موعد نهائي/ })
+  if (!(await sw.isVisible())) await dialog.locator('summary').click()
+  if (!(await sw.isChecked())) await sw.check()
+}
 async function openDialog(page: Page, title: string) {
   await page.goto('/tasks')
   const row = page.locator('.task-item', { hasText: title })
@@ -44,6 +50,7 @@ test('a date-only deadline: set in the dialog, shown without a time, persists, m
   const day = accountDay(zone, 9), tomorrow = accountDay(zone, 1)
   try {
     let dialog = await openDialog(page, title)
+    await showDeadline(dialog)
     const toggle = dialog.getByRole('checkbox', { name: 'No specific time' })
     await expect(toggle).not.toBeChecked()
     await toggle.check()
@@ -100,6 +107,7 @@ test('the toggle is accessible, reads right in Arabic, and the dialog fits 320px
   try {
     await page.setViewportSize({ width: 320, height: 700 })
     const dialog = await openDialog(page, title)
+    await showDeadline(dialog)
     const toggle = dialog.getByRole('checkbox', { name: 'بدون وقت محدد' })
     await toggle.focus(); await page.keyboard.press('Space')
     await expect(toggle).toBeChecked()

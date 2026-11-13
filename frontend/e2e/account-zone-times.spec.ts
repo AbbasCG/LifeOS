@@ -41,6 +41,12 @@ async function cleanup(page: Page, taskId: number) {
   for (const s of await sessionsOf(page, taskId)) if (s.event_id) await call(page, 'DELETE', `/api/events/${s.event_id}`)
   await call(page, 'DELETE', `/api/tasks/${taskId}`)
 }
+/** Open «خيارات متقدمة» / More options and switch the deadline on, so its fields can be used. */
+async function showDeadline(dialog: import('@playwright/test').Locator) {
+  const sw = dialog.getByRole('checkbox', { name: /Do you have a deadline|هل لديك موعد نهائي/ })
+  if (!(await sw.isVisible())) await dialog.locator('summary').click()
+  if (!(await sw.isChecked())) await sw.check()
+}
 async function openDialog(page: Page, title: string) {
   await page.goto('/tasks')
   const row = page.locator('.task-item', { hasText: title })
@@ -69,7 +75,7 @@ for (const browserZone of ['America/Los_Angeles', 'Pacific/Auckland']) {
         // The deadline field shows the account's 17:00, and a quiet note says which zone the fields use.
         await expect(dialog.locator('.rf-deadline .dtp-trigger')).toHaveAttribute('data-value', `${day}T17:00`)
         await expect(dialog.getByText(`Times are in ${zone}`).first()).toBeVisible()
-        await pick(page, field(dialog, 'Execution start'), `${day}T09:00`)
+        await pick(page, dialog.getByRole('radio', { name: /^Pick a date/ }), day); await pick(page, field(dialog, 'Start time'), '09:00')
         await dialog.getByRole('button', { name: 'Save' }).click()
         await expect(dialog).toBeHidden()
 
@@ -89,8 +95,8 @@ for (const browserZone of ['America/Los_Angeles', 'Pacific/Auckland']) {
         await expect(block).toHaveCount(1)
         await expect(block).toContainText('09:00')
         dialog = await openDialog(page, title)
-        await expect(field(dialog, 'Execution start')).toHaveAttribute('data-value', `${day}T09:00`)
-        await expect(field(dialog, 'Execution end')).toHaveAttribute('data-value', `${day}T09:30`)
+        await expect(field(dialog, 'Start time')).toHaveAttribute('data-value', '09:00')
+        await expect(dialog.locator('.rf-end')).toHaveText('Ends 09:30')
       } finally { await cleanup(page, id) }
     })
 
@@ -100,6 +106,7 @@ for (const browserZone of ['America/Los_Angeles', 'Pacific/Auckland']) {
       const day = new Date(Date.now() + 9 * 86_400_000).toISOString().slice(0, 10)
       try {
         const dialog = await openDialog(page, title)
+        await showDeadline(dialog)
         await pick(page, field(dialog, 'Deadline'), `${day}T09:00`)
         await dialog.getByRole('button', { name: 'Save' }).click()
         await expect(dialog).toBeHidden()
@@ -120,6 +127,7 @@ test.describe('browser in the account zone', () => {
     try {
       expect(zone).toBe('Europe/Amsterdam')
       const dialog = await openDialog(page, title)
+      await showDeadline(dialog)
       await expect(dialog.locator('.rf-deadline')).toBeVisible()
       await expect(dialog.getByText(/Times are in/)).toHaveCount(0)
     } finally { await cleanup(page, id) }

@@ -190,34 +190,34 @@ describe('Task details form', () => {
     const dialog = screen.getByRole('dialog')
     // No <select> anywhere: status, priority, duration, repeat are buttons.
     expect(dialog.querySelectorAll('select')).toHaveLength(0)
-    for (const group of ['When', 'Priority', 'Status', 'Duration', 'Repeat']) expect(screen.getByRole('radiogroup', { name: group })).toBeInTheDocument()
+    for (const group of ['When do you want to do it?', 'Priority', 'Status', 'Repeat']) expect(screen.getByRole('radiogroup', { name: group })).toBeInTheDocument()
     // Nothing was removed: the less common fields are under "More options".
     const more = dialog.querySelector('details.rf-more') as HTMLDetailsElement
     for (const name of [/Description/, /Remind me/, /Tags/, /Notes/, /Subtasks/]) expect(within(more).getAllByText(name).length).toBeGreaterThan(0)
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Draft the proposal' } })
     fireEvent.click(screen.getByRole('radio', { name: 'High' }))
     fireEvent.click(screen.getByRole('radio', { name: 'In progress' }))
-    fireEvent.click(screen.getByRole('radio', { name: '1h' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Tomorrow' }))
+    fireEvent.click(screen.getByRole('radio', { name: '60' }))
     fireEvent.click(screen.getByRole('radio', { name: 'Daily' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Project: None' }))
     fireEvent.click(screen.getByRole('radio', { name: 'Website' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     const body = calls.find(c => c.method === 'POST' && c.url.endsWith('/api/tasks'))!.body!
-    expect(body).toMatchObject({ title: 'Draft the proposal', priority: 'high', status: 'in_progress', estimated_minutes: '60', recurrence: 'daily', project_id: 1, goal_id: null, category_id: null, tags: [], subtasks: [] })
-    expect(Object.keys(body).sort()).toEqual(['category_id', 'description', 'due_at', 'estimated_minutes', 'goal_id', 'notes', 'priority', 'project_id', 'recurrence', 'remind_at', 'status', 'subtasks', 'tags', 'title'])
+    expect(body).toMatchObject({ title: 'Draft the proposal', priority: 'high', status: 'in_progress', estimated_minutes: 60, schedule: { starts_at: expect.any(String) }, recurrence: 'daily', project_id: 1, goal_id: null, category_id: null, tags: [], subtasks: [] })
+    expect(Object.keys(body).sort()).toEqual(['category_id', 'description', 'estimated_minutes', 'goal_id', 'notes', 'priority', 'project_id', 'recurrence', 'remind_at', 'schedule', 'status', 'subtasks', 'tags', 'title'])
     expect(onSave).toHaveBeenCalled()
   })
-  it('a deadline chip fills the deadline and "No date" clears it', async () => {
+  it('the deadline is its own switch, off for a new task; turning it on shows the deadline field and off hides it again', () => {
     server(lists)
     render(wrap(<RecordForm resource="tasks" item={{}} onSave={() => {}} onClose={() => {}} />))
-    const trigger = () => document.querySelector('.rf-deadline .dtp-trigger') as HTMLElement
-    expect(trigger().dataset.value).toBe('')
-    fireEvent.click(screen.getByRole('radio', { name: 'Tomorrow' }))
-    expect(trigger().dataset.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
-    expect(screen.getByRole('radio', { name: 'Tomorrow' })).toHaveAttribute('aria-checked', 'true')
-    fireEvent.click(screen.getByRole('radio', { name: 'No date' }))
-    expect(trigger().dataset.value).toBe('')
+    const trigger = () => document.querySelector('.rf-deadline .dtp-trigger') as HTMLElement | null
+    const sw = screen.getByRole('checkbox', { name: /Do you have a deadline/ })
+    expect(sw).not.toBeChecked(); expect(trigger()).toBeNull()
+    fireEvent.click(sw)
+    expect(trigger()!.dataset.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+    fireEvent.click(sw); expect(trigger()).toBeNull()
   })
   it('the Save button is in the sheet footer, outside the scrolling body', () => {
     server(lists)

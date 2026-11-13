@@ -3,8 +3,8 @@ import { a11yViolations } from './axe'
 import type { Page } from '@playwright/test'
 
 /**
- * The task edit dialog: the "When" tiles move the day and keep the time, the selected tile is read from the saved deadline, and a task's
- * calendar session (a different record from its deadline) is shown and moved from the dialog. Real Laravel server, throwaway database;
+ * The task edit dialog: the execution time («متى تريد تنفيذ المهمة؟») and the optional deadline are two different things. A deadline never
+ * becomes an execution time, the old deadline is kept when only the execution time changes, and a task's calendar session is shown and moved from the dialog. Real Laravel server, throwaway database;
  * every task and session made here is removed at the end. Desktop runs light, the mobile project runs dark.
  */
 test.use({ timezoneId: 'UTC' })
@@ -66,59 +66,47 @@ async function openDialog(page: Page, title: string) {
   return dialog
 }
 const deadlineValue = (dialog: ReturnType<Page['locator']>) => dialog.locator('.rf-deadline .dtp-trigger').getAttribute('data-value')
-const checkedWhen = (dialog: ReturnType<Page['locator']>) => dialog.getByRole('radiogroup', { name: 'When' }).getByRole('radio', { checked: true })
+const startField = (dialog: ReturnType<Page['locator']>) => field(dialog, 'Start time')
 
-test('Today and Tomorrow keep the time, the saved day selects its tile after reopening', async ({ page, setLanguage }) => {
+test('an existing deadline is shown, kept when nothing about it changes, and removed only when the switch is turned off', async ({ page, setLanguage }) => {
   await setLanguage('en')
   // Due in 5 days at a time that is neither 17:00 nor 23:00, so a replaced time would show.
   const { id, title, zone } = await makeTask(page, 'time', (_z, today) => `${shift(today, 5)}T12:00:00.000Z`)
   try {
-    const dialog = await openDialog(page, title)
-    const before = (await deadlineValue(dialog))!
-    const time = before.slice(11)
-    expect(time).not.toBe('23:00')
-    // The field is the account's clock, not this UTC browser's: 12:00Z reads as that zone's wall time, the same as the list badge.
+    let dialog = await openDialog(page, title)
     const dueWall = wall(`${shift(wall(new Date(), zone).day, 5)}T12:00:00.000Z`, zone)
-    expect(before).toBe(`${dueWall.day}T${dueWall.time}`)
-    const { day: today } = wall(new Date(), zone)
-    await expect(checkedWhen(dialog)).toHaveCount(0)                        // five days away: no tile claims it
-    await expect(dialog.locator('.rf-custom')).toContainText('Custom due date')
-
-    await dialog.getByRole('radio', { name: 'Today' }).click()
-    expect(await deadlineValue(dialog)).toBe(`${today}T${time}`)             // the day moved, the time did not
-    await expect(checkedWhen(dialog)).toHaveText('Today')
-    await expect(dialog.locator('.rf-custom')).toHaveText('')
-
-    await dialog.getByRole('radio', { name: 'Tomorrow' }).click()
-    expect(await deadlineValue(dialog)).toBe(`${shift(today, 1)}T${time}`)
-    await expect(checkedWhen(dialog)).toHaveText('Tomorrow')
+    const sw = dialog.getByRole('checkbox', { name: /Do you have a deadline/ })
+    await expect(sw).toBeChecked()                                                // «has a deadline»: on, with its value, no click needed
+    expect(await deadlineValue(dialog)).toBe(`${dueWall.day}T${dueWall.time}`)    // the account's clock, not this UTC browser's
+    // A deadline is NOT an execution time: the task is not scheduled, so "Not scheduled" is the chosen tile and there is no start field.
+    await expect(dialog.getByRole('radio', { name: 'Not scheduled' })).toHaveAttribute('aria-checked', 'true')
+    await expect(startField(dialog)).toHaveCount(0)
 
     const saved = page.waitForResponse(r => /\/api\/tasks\/\d+$/.test(r.url()) && r.request().method() === 'PATCH')
     await dialog.getByRole('button', { name: 'Save' }).click()
     expect((await saved).status()).toBe(200)
     await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(await sessionsOf(page, id)).toHaveLength(0)
+    expect(Date.parse(((await call(page, 'GET', `/api/tasks/${id}`)).body.data as { due_at: string }).due_at)).toBe(Date.parse(`${shift(wall(new Date(), zone).day, 5)}T12:00:00.000Z`))
 
-    // Reopen: the tile comes from the saved deadline.
-    const again = await openDialog(page, title)
-    expect(await deadlineValue(again)).toBe(`${shift(today, 1)}T${time}`)
-    await expect(checkedWhen(again)).toHaveText('Tomorrow')
-    await again.getByRole('radio', { name: 'No date' }).click()
-    expect(await deadlineValue(again)).toBe('')
-    await expect(checkedWhen(again)).toHaveText('No date')
+    dialog = await openDialog(page, title)
+    await dialog.getByRole('checkbox', { name: /Do you have a deadline/ }).uncheck()
+    await expect(dialog.getByText('Saving will remove the deadline.')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(((await call(page, 'GET', `/api/tasks/${id}`)).body.data as { due_at: string | null }).due_at).toBeNull()
   } finally { await cleanup(page, id) }
 })
 
-test('a task due next Wednesday opens with no tile selected and a custom-date line', async ({ page, setLanguage }) => {
+test('a task due today is still not scheduled: the deadline never makes an execution time', async ({ page, setLanguage }) => {
   await setLanguage('en')
-  const { id, title } = await makeTask(page, 'custom', (_z, today) => {
-    let day = shift(today, 3)   // not today, tomorrow, or (being at least three days out) the coming Sunday unless it is one
-    while (new Date(`${day}T12:00:00Z`).getUTCDay() !== 3) day = shift(day, 1)
-    return `${day}T12:00:00.000Z`
-  })
+  const { id, title } = await makeTask(page, 'custom', () => new Date(Date.now() + 3_600_000).toISOString())
   try {
     const dialog = await openDialog(page, title)
-    await expect(checkedWhen(dialog)).toHaveCount(0)
-    await expect(dialog.locator('.rf-custom')).toContainText(/Custom due date: Wednesday/)
+    await expect(dialog.getByRole('radio', { name: 'Not scheduled' })).toHaveAttribute('aria-checked', 'true')
+    await expect(dialog.locator('.rf-when .sched-badge')).toHaveCount(0)
+    await page.goto('/tasks')
+    await expect(page.locator('.task-item', { hasText: title }).locator('.sched-badge')).toHaveCount(0)
   } finally { await cleanup(page, id) }
 })
 
@@ -131,39 +119,37 @@ test('moving the session from the dialog changes the calendar once and keeps the
     expect(booked.status).toBe(201)
     const eventId = (booked.body.data as { id: number }).id
     const dialog = await openDialog(page, title)
-    const block = dialog.getByRole('region', { name: 'Scheduled execution time' })
-    await expect(block).toBeVisible()
-    await expect(block).toContainText(wall(slot.starts_at, zone).time.replace(/^0/, ''))   // the session's own time, apart from the deadline
-    await expect(block.getByText(/does not move the session/)).toBeVisible()
+    const block = dialog.locator('.rf-when')
+    await expect(block.locator('.sched-badge')).toBeVisible()
+    await expect(startField(dialog)).toHaveAttribute('data-value', wall(slot.starts_at, zone).time)   // the session's own time, apart from the deadline
+    await expect(dialog.locator('.rf-end')).toContainText(wall(slot.ends_at, zone).time)
 
-    // The new start is saved by the dialog's own Save: ONE PUT on the same session, then the task fields.
-    const put: string[] = []
-    page.on('request', r => { if (r.method() === 'PUT' && /\/api\/tasks\/\d+\/schedule$/.test(r.url())) put.push(r.postData() ?? '') })
-    await pick(page, field(block, 'Execution start'), `${wall(slot.starts_at, zone).day}T11:30`)
-    const moved = page.waitForResponse(r => /\/api\/tasks\/\d+\/schedule$/.test(r.url()) && r.request().method() === 'PUT')
+    // The new start is saved by the dialog's own Save: ONE PATCH carrying the schedule, the same session moves.
+    const patches: string[] = []
+    page.on('request', r => { if (r.method() === 'PATCH' && /\/api\/tasks\/\d+$/.test(r.url())) patches.push(r.postData() ?? '') })
+    await pick(page, startField(dialog), '11:30')
+    await expect(dialog.locator('.rf-end')).toHaveText('Ends 12:00')
     await dialog.getByRole('button', { name: 'Save' }).dblclick()
-    expect((await moved).status()).toBe(200)
     await expect(dialog).toBeHidden()
-    expect(put).toHaveLength(1)
-    const again = (await openDialog(page, title)).getByRole('region', { name: 'Scheduled execution time' })   // after a reload it still shows the new time
+    expect(patches).toHaveLength(1); expect(JSON.parse(patches[0])).not.toHaveProperty('due_at')
+    await openDialog(page, title)   // after a reload it still shows the new time
 
     const after = await sessionsOf(page, id)
     expect(after).toHaveLength(1)
     expect(after[0].event_id).toBe(eventId)
     expect(after[0].starts_at).not.toBe(slot.starts_at)
+    await expect(startField(page.getByRole('dialog'))).toHaveAttribute('data-value', '11:30')
 
-    // "View in calendar" now points at the new day, and the session is drawn there once, at its new time.
-    await again.getByRole('link', { name: 'View in calendar' }).click()
-    await expect(page).toHaveURL(new RegExp(`/calendar\\?date=${wall(after[0].starts_at, zone).day}&session=${eventId}`))
+    // The session is drawn in the calendar once, at its new time.
+    await page.goto(`/calendar?date=${wall(after[0].starts_at, zone).day}&session=${eventId}`)
     const drawn = page.locator(`[data-session="${eventId}"]`)
     await expect(drawn).toHaveCount(1)
-    const { time } = wall(after[0].starts_at, zone), [hh, mm] = time.split(':'), h12 = String(Number(hh) % 12 || 12)
-    await expect(drawn).toContainText(new RegExp(`(${hh}:${mm}|${h12}:${mm})`))
+    await expect(drawn).toContainText(/11:30/)
     await expect(page.locator('[data-session]', { hasText: title })).toHaveCount(1)
   } finally { await cleanup(page, id) }
 })
 
-test('the dialog reads right in Arabic (right to left) with the deadline and the session apart', async ({ page, setLanguage }) => {
+test('the dialog reads right in Arabic (right to left) with the execution time and the deadline apart', async ({ page, setLanguage }) => {
   await setLanguage('ar')
   const { id, title } = await makeTask(page, 'rtl', () => new Date(Date.now() + 12 * 86_400_000).toISOString())
   try {
@@ -174,9 +160,10 @@ test('the dialog reads right in Arabic (right to left) with the deadline and the
     await row.locator('.task-body').click()
     await row.getByRole('button', { name: 'تعديل' }).click()
     const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('radiogroup', { name: 'متى تريد تنفيذ المهمة؟' })).toBeVisible()
     await expect(dialog.getByText('الموعد النهائي (الاستحقاق)')).toBeVisible()
-    await expect(dialog.getByRole('region', { name: 'موعد التنفيذ المجدول' })).toBeVisible()
-    await expect(dialog.getByRole('link', { name: 'عرض في التقويم' })).toBeVisible()
+    await expect(dialog.getByText('النهاية', { exact: false }).first()).toBeVisible()
+    await expect(dialog.getByRole('checkbox', { name: /هل لديك موعد نهائي لإنجاز المهمة/ })).toBeChecked()
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).direction)).toBe('rtl')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     expect(await a11yViolations(page, 'dialog.sheet')).toEqual([])

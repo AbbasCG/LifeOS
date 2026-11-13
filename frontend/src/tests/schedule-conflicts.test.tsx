@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup, within, renderHook, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import axe from 'axe-core'
 import { useState, type ReactNode } from 'react'
@@ -9,7 +9,6 @@ import { ToastProvider } from '../components/ui/Toaster'
 import { AuthProvider } from '../contexts/AuthContext'
 import { ScheduleConflictDialog } from '../components/ui/ScheduleConflictDialog'
 import TasksPage from '../features/TasksPage'
-import { useSessionFields } from '../features/tasks/sessionFields'
 import { ApiError, type Availability } from '../lib/api'
 import { conflictSentence, conflictTitle, parseConflict, type ScheduleConflict } from '../lib/scheduleConflict'
 import { setAccountZone } from '../lib/accountDay'
@@ -133,30 +132,6 @@ describe('the conflict dialog', () => {
       const result = await axe.run(dialog, { rules: { 'color-contrast': { enabled: false }, region: { enabled: false } } })
       expect(result.violations.map(v => `${v.id}: ${v.nodes.map(n => n.html).join(' | ')}`)).toEqual([])
     })
-})
-
-describe('the fields of the scheduled time', () => {
-  const schedule = { session_id: 55, starts_at: '2026-11-12T08:00:00Z', ends_at: '2026-11-12T08:30:00Z', sessions: 1, split: false }
-  const hook = (task: Record<string, unknown>, estimate = 45) => renderHook(() => useSessionFields({ id: 7, ...task }, estimate), { wrapper: ({ children }) => wrap(children) })
-  it('does nothing when untouched, for a scheduled and an unscheduled task', () => {
-    expect(hook({ schedule }).result.current.plan()).toBeNull(); expect(hook({ schedule: null }).result.current.plan()).toBeNull()
-  })
-  it('the end defaults from the estimate when only a start is given, and follows the start by the same length', () => {
-    const { result } = hook({ schedule: null })
-    act(() => result.current.changeStart('2026-11-13T10:00'))
-    expect(result.current.end).toBe('2026-11-13T10:45')
-    expect(result.current.plan()).toEqual({ slot: { starts_at: '2026-11-13T09:00:00.000Z', ends_at: '2026-11-13T09:45:00.000Z' } })   // 10:00 to 10:45 on the account's (Amsterdam) clock, whatever the browser zone is
-    const moved = hook({ schedule })
-    act(() => moved.result.current.changeStart('2026-11-12T10:00'))
-    expect(moved.result.current.end).toBe('2026-11-12T10:30')   // the session was 30 minutes long: it stays 30
-  })
-  it('clearing is not supported and says so; an end before the start is refused', () => {
-    const { result } = hook({ schedule })
-    act(() => { result.current.changeStart(''); result.current.changeEnd('') })
-    expect(result.current.plan()).toMatchObject({ error: expect.stringContaining('cannot be cleared') })
-    act(() => { result.current.changeStart('2026-11-12T10:00'); result.current.changeEnd('2026-11-12T09:00') })
-    expect(result.current.plan()).toMatchObject({ error: expect.stringContaining('after the start') })
-  })
 })
 
 type Reply = { status: number; body: unknown }

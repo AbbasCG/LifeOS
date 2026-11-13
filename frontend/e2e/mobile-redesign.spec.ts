@@ -131,7 +131,7 @@ for (const [name, width, height] of sizes) {
       await body.evaluate(e => { e.scrollTop = 0 })
       try {
         await dialog.getByRole('radio', { name: 'High', exact: true }).tap()
-        await dialog.getByRole('radio', { name: '1h', exact: true }).tap()
+        await dialog.getByRole('radio', { name: '60', exact: true }).tap()   // the length chips are minutes now, and are there for a task that is not scheduled too
         if (projects?.length) {
           await dialog.getByRole('button', { name: /^Project:/ }).tap()
           const list = page.getByRole('dialog', { name: 'Project' })

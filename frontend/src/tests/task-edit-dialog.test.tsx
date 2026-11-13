@@ -11,375 +11,414 @@ import { CALENDAR_CHANGED } from '../lib/taskSchedule'
 import { TASKS_CHANGED } from '../lib/quickAdd'
 import type { Availability } from '../lib/api'
 
-// The browser zone (the date fields' zone) is Amsterdam, equal to the account's, the usual case.
+// The browser zone is Amsterdam, equal to the account's, the usual case.
 const BROWSER_TZ = process.env.TZ
 process.env.TZ = 'Europe/Amsterdam'
 afterAll(() => { if (BROWSER_TZ === undefined) delete process.env.TZ; else process.env.TZ = BROWSER_TZ })
 // "Now" is Wednesday 2026-11-11 11:00 in Amsterdam (10:00 UTC).
 const NOW = '2026-11-11T10:00:00Z'
 const wrap = (children: ReactNode) => <ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider>{children}</ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>
-type Call = { method: string; url: string; body?: Record<string, unknown>; key?: string }
+type Call = { method: string; url: string; body?: Record<string, unknown>; key?: string; availability?: string }
 const free: Availability = { work_start: '09:00', work_end: '17:00', days: [{ date: '2026-11-13', work_day: true, free_minutes: 480, slots: [{ starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T16:00:00Z', minutes: 480 }] }] }
 const session = (over: Record<string, unknown> = {}) => ({ session_id: 55, starts_at: '2026-11-12T08:00:00Z', ends_at: '2026-11-12T08:30:00Z', sessions: 1, split: false, ...over })
 const task = (over: Record<string, unknown> = {}) => ({ id: 7, title: 'Pay the invoice', status: 'todo', priority: 'high', due_at: '2026-11-20T08:30:00Z', estimated_minutes: 30, schedule: null, ...over })
 
 type Reply = { status: number; body: unknown }
-function server(opts: { put?: () => Reply | Promise<Reply>; post?: () => Reply | Promise<Reply>; patch?: () => Reply | Promise<Reply> } = {}) {
+function server(opts: { write?: () => Reply | Promise<Reply>; undo?: () => Reply } = {}) {
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method || 'GET'
     calls.push({ method, url: String(url), body: init?.body ? JSON.parse(init.body as string) : undefined, key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
     const reply = (r: Reply) => new Response(JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } })
-    if (method === 'PUT' && /\/api\/tasks\/\d+\/schedule$/.test(String(url))) return reply(await (opts.put?.() ?? { status: 200, body: { data: { id: 55 }, schedule: session({ starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T08:30:00Z' }) } }))
-    if (method === 'POST' && /\/api\/tasks\/\d+\/schedule$/.test(String(url))) return reply(await (opts.post?.() ?? { status: 201, body: { data: { id: 91, task_id: 7 }, schedule: session({ session_id: 91, starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T08:30:00Z' }) } }))
-    if (method === 'PATCH') return reply(await (opts.patch?.() ?? { status: 200, body: { data: { id: 7 } } }))
+    if (method === 'POST' && /\/api\/tasks\/\d+\/schedule$/.test(String(url))) return reply(opts.undo?.() ?? { status: 201, body: { data: { id: 91 }, schedule: session({ session_id: 91 }) } })
+    if (method === 'PATCH' || (method === 'POST' && /\/api\/tasks$/.test(String(url)))) return reply(await (opts.write?.() ?? { status: 200, body: { data: { id: 7 } } }))
     if (/\/api\/availability/.test(String(url))) return reply({ status: 200, body: free })
     return reply({ status: 200, body: { data: [], meta: { last_page: 1 } } })
   }))
   return calls
 }
 const open = (item: Record<string, unknown> = task(), onSave = vi.fn(), onClose = vi.fn()) => { render(wrap(<RecordForm resource="tasks" item={item} onSave={onSave} onClose={onClose} />)); return { onSave, onClose } }
-const deadline = () => (document.querySelector('.rf-deadline .dtp-trigger') as HTMLElement).dataset.value
+const writes = (calls: Call[]) => calls.filter(c => c.method === 'PATCH' || (c.method === 'POST' && /\/api\/tasks$/.test(c.url)))
+const bodyOf = (calls: Call[]) => writes(calls)[0].body!
 const tile = (name: string) => screen.getByRole('radio', { name })
-const selected = () => screen.getAllByRole('radio').filter(r => r.closest('[aria-label="When"]') && r.getAttribute('aria-checked') === 'true').map(r => r.textContent)
-const patchBody = (calls: Call[]) => calls.filter(c => c.method === 'PATCH').map(c => c.body)
+const chip = (name: string) => screen.getByRole('radio', { name })
+const checked = () => screen.getAllByRole('radio').filter(r => r.getAttribute('aria-checked') === 'true').map(r => r.textContent)
+const startTrigger = () => screen.getByText(/^(Start time|وقت البداية|Starttijd)$/).closest('label')!.querySelector('.dtp-trigger') as HTMLElement
+const startValue = () => startTrigger().dataset.value
+const typeStart = (time: string) => {
+  fireEvent.click(startTrigger())
+  const box = screen.getByRole('textbox', { name: 'Time' }); fireEvent.change(box, { target: { value: time } }); fireEvent.keyDown(box, { key: 'Enter' })
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+}
+const ends = () => document.querySelector('.rf-end')!.textContent
+const deadlineSwitch = () => screen.getByRole('checkbox', { name: /Do you have a deadline/ }) as HTMLInputElement
+const deadline = () => document.querySelector('.rf-deadline .dtp-trigger') as HTMLElement | null
+const saveButton = () => screen.getByRole('button', { name: 'Save' })
+const formError = () => document.querySelector('p.error')
 
 beforeEach(() => { cleanup(); localStorage.clear(); localStorage.setItem('lifeos-language', 'en'); vi.unstubAllGlobals(); setAccountZone('Europe/Amsterdam'); vi.useFakeTimers({ toFake: ['Date'], now: new Date(NOW) }) })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); setAccountZone(undefined) })
 
-describe('the "When" tiles set the day and keep the time', () => {
-  it('Today and Tomorrow keep the time already chosen (09:30 here), and the tile is selected', () => {
-    server(); open()   // due 2026-11-20 09:30 Amsterdam
-    expect(deadline()).toBe('2026-11-20T09:30'); expect(selected()).toEqual([])
-    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T09:30'); expect(selected()).toEqual(['Today'])
-    fireEvent.click(tile('Tomorrow')); expect(deadline()).toBe('2026-11-12T09:30'); expect(selected()).toEqual(['Tomorrow'])
-    fireEvent.click(tile('This week')); expect(deadline()).toBe('2026-11-15T09:30'); expect(selected()).toEqual(['This week'])
+describe('one step: choose a day, a start and a length, press Save once', () => {
+  it('Tomorrow 09:00 for 15 minutes is ONE POST with schedule.starts_at and estimated_minutes, and no deadline of any kind', async () => {
+    const calls = server(); const { onSave, onClose } = open({})
+    const tasks = vi.fn(), cal = vi.fn()
+    window.addEventListener(TASKS_CHANGED, tasks); window.addEventListener(CALENDAR_CHANGED, cal)
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Call the bank' } })
+    fireEvent.click(tile('Tomorrow'))
+    expect(startValue()).toBe('09:00')   // another day than today: 09:00
+    fireEvent.click(chip('15'))
+    expect(ends()).toBe('Ends 09:15')
+    expect(screen.getByText('Saving puts it in your calendar.')).toBeInTheDocument()
+    const save = saveButton(); fireEvent.click(save); fireEvent.click(save)
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(calls.filter(c => c.method !== 'GET')).toHaveLength(1)
+    const sent = writes(calls)[0]
+    expect(sent.method).toBe('POST'); expect(sent.url).toMatch(/\/api\/tasks$/)
+    expect(sent.body).toMatchObject({ title: 'Call the bank', estimated_minutes: 15, schedule: { starts_at: '2026-11-12T08:00:00.000Z' } })   // 09:00 Amsterdam
+    expect(sent.body).not.toHaveProperty('due_at'); expect(sent.body).not.toHaveProperty('due_date')
+    expect(sent.key).toMatch(/^[0-9a-f-]{36}$/)
+    expect(onSave).toHaveBeenCalledTimes(1); expect(tasks).toHaveBeenCalledTimes(1); expect(cal).toHaveBeenCalledTimes(1)
+    window.removeEventListener(TASKS_CHANGED, tasks); window.removeEventListener(CALENDAR_CHANGED, cal)
   })
-  it('with no deadline yet, a tile fills the visible default 17:00', () => {
-    server(); open(task({ due_at: null }))
-    expect(deadline()).toBe(''); expect(selected()).toEqual(['No date'])
-    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T17:00')
-    expect(document.querySelector('.rf-deadline .dtp-trigger')!.textContent).toMatch(/17:00|5:00\s?PM/)
+  it('a new task starts as "Not scheduled" with no start field, and saving then sends no schedule key', async () => {
+    const calls = server(); const { onClose } = open({})
+    expect(checked()).toContain('Not scheduled'); expect(screen.queryByText('Start time')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Someday' } }); fireEvent.click(saveButton())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).not.toHaveProperty('schedule'); expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 30 })
+    expect(bodyOf(calls)).not.toHaveProperty('due_at'); expect(bodyOf(calls)).not.toHaveProperty('due_date')
   })
-  it('after 17:00 the default for today is the next half hour, never 23:00', () => {
-    server(); vi.setSystemTime(new Date('2026-11-11T17:10:00Z'))   // 18:10 in Amsterdam
-    open(task({ due_at: null }))
-    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T18:30')
-    fireEvent.click(tile('Tomorrow')); expect(deadline()).toBe('2026-11-12T18:30')   // now it has a time: kept
+  it('the first start is the next half hour for today and 09:00 for any other day; a time that has passed today is moved forward', () => {
+    server(); open({})
+    fireEvent.click(tile('Today')); expect(startValue()).toBe('11:30')
+    fireEvent.click(tile('Tomorrow')); expect(startValue()).toBe('09:00')
+    typeStart('08:00'); vi.setSystemTime(new Date('2026-11-11T11:10:00Z'))   // 12:10 now
+    fireEvent.click(tile('Today')); expect(startValue()).toBe('12:30')
+    fireEvent.click(tile('Tomorrow')); expect(startValue()).toBe('12:30')   // the time he chose is kept
   })
-  it('"No date" clears the deadline and is selected; the save sends null', async () => {
-    const calls = server(); open()
-    fireEvent.click(tile('No date')); expect(deadline()).toBe(''); expect(selected()).toEqual(['No date'])
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
-    expect(patchBody(calls)[0]).toMatchObject({ due_at: null })
+  it('the end is computed and read-only, follows the start and the length, and says the new day after midnight', () => {
+    server(); open({})
+    fireEvent.click(tile('Today')); typeStart('23:50')
+    expect(ends()).toBe('Ends Tomorrow 00:20')
+    fireEvent.click(chip('15')); expect(ends()).toBe('Ends Tomorrow 00:05')
+    typeStart('22:00'); expect(ends()).toBe('Ends 22:15')
+    expect(document.querySelector('.rf-end')).not.toHaveAttribute('role')   // no live region: it does not chatter at every keystroke
+    expect(startTrigger().getAttribute('aria-describedby')).toBe(document.querySelector('.rf-end')!.id)   // the start field is described by it
+    expect(document.querySelector('.rf-end input')).toBeNull()
   })
-  it('another day (Wednesday the 18th) selects no tile and says it is a custom date', async () => {
-    server(); open(task({ due_at: '2026-11-18T15:00:00Z' }))
-    expect(selected()).toEqual([])
-    expect(document.querySelector('.rf-custom')).toHaveTextContent('Custom due date: Wednesday, November 18')
-    expect(document.querySelector('.rf-custom')).toHaveAttribute('aria-hidden', 'true')   // the visible copy; the status below speaks it
-    fireEvent.click(tile('Tomorrow')); expect(screen.queryByText(/Custom due date/)).toBeNull()
+  it('custom duration: a number of minutes, at least 5; it IS the estimate, there is no separate estimate field', async () => {
+    const calls = server(); const { onClose } = open({})
+    expect(screen.queryByText(/Estimate/)).toBeNull()
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Long one' } })
+    fireEvent.click(tile('Tomorrow')); fireEvent.click(chip('Custom'))
+    const input = screen.getByLabelText('Custom duration (minutes)') as HTMLInputElement
+    expect(input.min).toBe('5'); fireEvent.change(input, { target: { value: '25' } })
+    expect(ends()).toBe('Ends 09:25')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 25 })
   })
-  it('near midnight the account day decides, not the UTC day', () => {
-    server(); open(task({ due_at: '2026-11-11T23:30:00Z' }))   // 00:30 on the 12th in Amsterdam, still the 11th in UTC
-    expect(deadline()).toBe('2026-11-12T00:30'); expect(selected()).toEqual(['Tomorrow'])
+  it('the duration chips are 15, 30, 45, 60 and 120; the task\'s current estimate is used directly (90 shows as custom)', () => {
+    server(); open({}); fireEvent.click(tile('Tomorrow'))
+    expect(screen.getAllByRole('radio').map(r => r.textContent)).toEqual(expect.arrayContaining(['15', '30', '45', '60', '120', 'Custom']))
+    expect(checked()).toContain('30'); cleanup()
+    open(task({ estimated_minutes: 90 })); fireEvent.click(tile('Tomorrow'))
+    expect(checked()).toContain('Custom'); expect((screen.getByLabelText('Custom duration (minutes)') as HTMLInputElement).value).toBe('90')
   })
-  it('the deadline is saved as the typed wall time in the browser zone (09:30 Amsterdam), and the label says it is the deadline', async () => {
-    const calls = server(); open()
-    expect(screen.getByText('Deadline (due)')).toBeInTheDocument()
-    fireEvent.click(tile('Today'))
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
-    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-11T08:30:00.000Z' })
-  })
-  it('reopening after a save shows the right tile', async () => {
-    const calls = server(); const first = open()
-    fireEvent.click(tile('Tomorrow')); fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(first.onClose).toHaveBeenCalled())
-    cleanup()
-    open(task({ due_at: patchBody(calls)[0]!.due_at as string }))
-    expect(selected()).toEqual(['Tomorrow'])
-  })
-})
-
-describe('accessibility and wording of the When tiles', () => {
-  const statuses = () => [...document.querySelectorAll('[role="status"]')].map(n => n.textContent)
-  it('the custom-date status node is always there, empty until the date settles, then speaks once; the year shows only when it differs', async () => {
-    server(); open(task({ due_at: '2027-02-17T15:00:00Z' }))
-    expect(document.querySelector('.rf-custom')).toHaveTextContent('Wednesday, February 17, 2027')
-    expect(statuses().join('')).not.toContain('Custom due date')   // not yet: it waits for the date to stop changing
-    await waitFor(() => expect(statuses().filter(x => x?.includes('Custom due date: Wednesday, February 17, 2027'))).toHaveLength(1))
-    fireEvent.click(tile('Today'))
-    await waitFor(() => expect(statuses().join('')).not.toContain('Custom due date'))
-    expect(statuses().length).toBeGreaterThan(0)
-  })
-  it('Save keeps focus while saving: aria-disabled, not disabled, and a second press does nothing', async () => {
-    let release: (r: Reply) => void = () => undefined
-    const calls = server({ patch: () => new Promise<Reply>(r => { release = r }) })
-    open()
-    const save = screen.getByRole('button', { name: 'Save' }); save.focus()
-    fireEvent.click(save)
-    await waitFor(() => expect(save).toHaveAttribute('aria-disabled', 'true'))
-    expect(save).not.toBeDisabled(); expect(save).toHaveFocus()
-    fireEvent.click(save)
-    release({ status: 200, body: { data: { id: 7 } } })
-    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
-  })
-  it('the helper text describes the deadline field', () => {
-    server(); open()
-    const group = screen.getByRole('group', { name: 'Deadline (due)' })
-    expect(document.getElementById(group.getAttribute('aria-describedby')!)).toHaveTextContent(/keeps the time/)
-  })
-  it('"This week" on a Saturday (resolves to tomorrow) and on a Sunday (resolves to today) stays the checked tile until something else changes the field', () => {
-    server()
-    vi.setSystemTime(new Date('2026-11-14T10:00:00Z'))   // Saturday
-    open(task({ due_at: null }))
-    fireEvent.click(tile('This week')); expect(deadline()).toBe('2026-11-15T17:00'); expect(selected()).toEqual(['This week'])
-    fireEvent.click(tile('Tomorrow')); expect(selected()).toEqual(['Tomorrow'])
-    cleanup(); vi.setSystemTime(new Date('2026-11-15T10:00:00Z'))   // Sunday
-    open(task({ due_at: null }))
-    fireEvent.click(tile('This week')); expect(deadline()).toBe('2026-11-15T17:00'); expect(selected()).toEqual(['This week'])
-    fireEvent.click(tile('Today')); expect(selected()).toEqual(['Today'])
-    fireEvent.click(tile('No date')); expect(selected()).toEqual(['No date'])
-  })
-  it('is Dutch where the dialog is: tiles, label, priority', () => {
-    localStorage.setItem('lifeos-language', 'nl'); server(); open()
-    for (const name of ['Vandaag', 'Morgen', 'Deze week', 'Geen datum']) expect(screen.getByRole('radio', { name })).toBeInTheDocument()
-    expect(screen.getByRole('radiogroup', { name: 'Wanneer' })).toBeInTheDocument()
-    expect(screen.getByRole('radiogroup', { name: 'Prioriteit' })).toBeInTheDocument()
-    expect(screen.getByText('Deadline (uiterste datum)')).toBeInTheDocument()
-    expect(screen.getByText(/behoudt de tijd/)).toBeInTheDocument()
+  it('suggested times follow the duration and the chosen day, and picking one fills the day and the start', async () => {
+    const calls = server(); open({})
+    fireEvent.click(tile('Tomorrow')); fireEvent.click(chip('60'))
+    await waitFor(() => expect(calls.some(c => /availability\?date=2026-11-12&days=7&min_minutes=60/.test(c.url))).toBe(true))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])
+    expect(startValue()).toBe('09:00'); expect(checked()).toEqual(expect.not.arrayContaining(['Tomorrow']))
+    expect(document.querySelector('.qa-pick.is-set')).not.toBeNull()   // 13 Nov is its own selected "Pick a date" tile
   })
 })
 
-describe('browser zone differs from the account zone', () => {
-  it('the field shows the account\'s clock (not the browser\'s), the tile follows it, and Today keeps the time', () => {
-    server(); setAccountZone('Pacific/Auckland')   // 23:00 on the 11th there; the browser is in Amsterdam
-    open(task({ due_at: '2026-11-11T12:00:00Z' }))   // 01:00 on the 12th in Auckland (13:00 in Amsterdam)
-    expect(deadline()).toBe('2026-11-12T01:00'); expect(selected()).toEqual(['Tomorrow'])
-    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T01:00')   // account today = the 11th, time kept
+describe('the length of a task that is not scheduled, and the end in the same clock', () => {
+  it('an unscheduled task can still set its estimate: the duration group is there and the chosen minutes are posted, with no schedule', async () => {
+    const calls = server(); const { onClose } = open({})
+    expect(screen.getByRole('radiogroup', { name: 'How long will it take?' })).toBeInTheDocument(); expect(screen.queryByText('Start time')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Estimate only' } })
+    fireEvent.click(chip('45')); fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 45 }); expect(bodyOf(calls)).not.toHaveProperty('schedule')
+  })
+  it('removing a session keeps the estimate the user chose', async () => {
+    const calls = server(); const { onClose } = open(task({ schedule: session() }))
+    fireEvent.click(tile('Not scheduled')); fireEvent.click(chip('60'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 60, schedule: null })
+  })
+  it('the end line follows the user\'s 12/24-hour setting, like the start field (never "9:00 AM … Ends 09:15")', () => {
+    localStorage.setItem('lifeos-hour-cycle', '12'); server(); open({})
+    fireEvent.click(tile('Tomorrow')); expect(startTrigger().textContent).toBe('9:00 AM'); expect(ends()).toBe('Ends 9:30 AM')
+  })
+  it('choosing Custom moves focus to the number box', () => {
+    server(); open({}); fireEvent.click(chip('Custom'))
+    expect(screen.getByLabelText('Custom duration (minutes)')).toHaveFocus()
+  })
+  it('typing a custom length does not ask for suggestions digit by digit, and the suggestions never vanish while loading', async () => {
+    const calls = server(); open({}); fireEvent.click(tile('Tomorrow'))
+    await screen.findAllByRole('button', { name: /Suggested times/ })
+    fireEvent.click(chip('Custom')); const input = screen.getByLabelText('Custom duration (minutes)')
+    for (const v of ['1', '12', '120']) fireEvent.change(input, { target: { value: v } })
+    expect(screen.getByRole('group', { name: 'Suggested times' })).toBeInTheDocument()
+    await waitFor(() => expect(calls.some(c => /min_minutes=120/.test(c.url))).toBe(true))
+    expect(calls.some(c => /min_minutes=15&|min_minutes=15$/.test(c.url))).toBe(false)
+    expect(screen.getByRole('group', { name: 'Suggested times' })).toBeInTheDocument()
+  })
+  it('near midnight with no half hour left, Today falls back to tomorrow 09:00', () => {
+    server(); vi.setSystemTime(new Date('2026-11-11T22:40:00Z')); open({})   // 23:40
+    fireEvent.click(tile('Today')); expect(checked()).toContain('Tomorrow'); expect(startValue()).toBe('09:00')
+  })
+  it('a start that has passed before Save is said calmly and nothing is sent', async () => {
+    const calls = server(); open({}); fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Late' } }); fireEvent.click(tile('Today'))   // 11:30 for 30 minutes
+    vi.setSystemTime(new Date('2026-11-11T12:00:00Z'))
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(formError()).toHaveTextContent('Choose a time that has not passed.'))
+    expect(writes(calls)).toHaveLength(0)
+  })
+  it('a clock-skipped start (02:30 on the spring day) is shown as what will be booked', () => {
+    server(); open(task({ schedule: session({ starts_at: '2026-03-29T00:30:00Z', ends_at: '2026-03-29T01:00:00Z' }) }))   // 01:30 Amsterdam, then typed 02:30
+    typeStart('02:30'); expect(startValue()).toBe('03:30'); expect(ends()).toBe('Ends 04:00')
+  })
+  it('the second 02:30 of the autumn day: a length change does not put the end an hour off', () => {
+    server(); open(task({ schedule: session({ starts_at: '2026-10-25T01:30:00Z', ends_at: '2026-10-25T02:00:00Z' }) }))
+    expect(startValue()).toBe('02:30'); fireEvent.click(chip('60')); expect(ends()).toBe('Ends 03:30')
   })
 })
 
-describe.each(['UTC', 'America/New_York'])('browser in %s, account in Amsterdam: the dialog speaks the account clock', browser => {
-  const sessionStart = () => (screen.getByText('Execution start').closest('label')!.querySelector('.dtp-trigger') as HTMLElement).dataset.value
+describe('a deadline before the end of the session', () => {
+  it('says so calmly (a polite, static notice) and stops when the deadline is later', () => {
+    server(); open(task({ schedule: session(), due_at: '2026-11-12T08:10:00Z' }))   // session 09:00-09:30, due 09:10
+    expect(screen.getByText('The scheduled session is after the deadline.')).toBeInTheDocument()
+    expect(screen.getByText('The scheduled session is after the deadline.').closest('[aria-live]')).toHaveAttribute('aria-live', 'polite')
+    cleanup(); open(task({ schedule: session(), due_at: '2026-11-20T08:30:00Z' }))
+    expect(screen.queryByText('The scheduled session is after the deadline.')).toBeNull()
+  })
+})
+
+describe('an already scheduled task', () => {
+  const booked = (over: Record<string, unknown> = {}) => task({ schedule: session(), ...over })
+  it('shows «Scheduled», its day, start, length and the computed end, and the deadline is kept apart', () => {
+    server(); open(booked())
+    expect(document.querySelector('.sched-badge')).toHaveTextContent('Scheduled: Tomorrow 09:00 – 09:30')
+    expect(checked()).toEqual(expect.arrayContaining(['Tomorrow', '30'])); expect(startValue()).toBe('09:00'); expect(ends()).toBe('Ends 09:30')
+    expect(deadlineSwitch()).toBeChecked(); expect(deadline()!.dataset.value).toBe('2026-11-20T09:30')
+  })
+  it('the duration shown is the session\'s own length, not the estimate', () => {
+    server(); open(booked({ estimated_minutes: 30, schedule: session({ ends_at: '2026-11-12T09:30:00Z' }) }))
+    expect(ends()).toBe('Ends 10:30'); expect(checked()).toContain('Custom')
+  })
+  it('a new start edits THE SAME session: one PATCH with schedule.starts_at, the end follows, the deadline is untouched', async () => {
+    const calls = server(); const { onClose } = open(booked())
+    typeStart('16:00'); expect(ends()).toBe('Ends 16:30')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(calls.filter(c => c.method !== 'GET')).toHaveLength(1)
+    expect(writes(calls)[0].method).toBe('PATCH'); expect(writes(calls)[0].url).toMatch(/\/api\/tasks\/7$/)
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 30, schedule: { starts_at: '2026-11-12T15:00:00.000Z' } })
+    expect(bodyOf(calls)).not.toHaveProperty('due_at'); expect(bodyOf(calls)).not.toHaveProperty('due_date')
+  })
+  it('a new length updates the end and estimated_minutes, and keeps the start instant', async () => {
+    const calls = server(); const { onClose } = open(booked())
+    fireEvent.click(chip('60')); expect(ends()).toBe('Ends 10:00')
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 60, schedule: { starts_at: '2026-11-12T08:00:00Z' } })
+  })
+  it('saving without touching the time sends no schedule key at all', async () => {
+    const calls = server(); const { onClose } = open(booked({ schedule: session({ ends_at: '2026-11-12T09:30:00Z' }) }))
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).not.toHaveProperty('schedule'); expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 30 })
+  })
+  it('«Not scheduled» says in words that saving removes it, sends schedule: null, and the toast offers Undo that books the old slot again', async () => {
+    const calls = server(); const { onClose } = open(booked())
+    fireEvent.click(tile('Not scheduled'))
+    expect(screen.getByText(/Saving will remove it from your calendar/)).toBeInTheDocument(); expect(screen.queryByText('Start time')).toBeNull()
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toHaveProperty('schedule', null); expect(bodyOf(calls)).not.toHaveProperty('due_at')
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(calls.some(c => c.method === 'POST' && /\/api\/tasks\/7\/schedule$/.test(c.url))).toBe(true))
+    const undo = calls.find(c => c.method === 'POST' && /\/schedule$/.test(c.url))!
+    expect(undo.body).toEqual({ starts_at: '2026-11-12T08:00:00Z', ends_at: '2026-11-12T08:30:00Z' }); expect(undo.key).toBeTruthy()
+  })
+  it('several sessions: the note and no start field; saving never sends a schedule', async () => {
+    const calls = server(); const { onClose } = open(booked({ schedule: session({ sessions: 3, split: true }) }))
+    expect(screen.getByText('This task has several sessions. Change them in the calendar.')).toBeInTheDocument()
+    expect(screen.queryByText('Start time')).toBeNull(); expect(screen.queryByRole('radio', { name: 'Tomorrow' })).toBeNull()
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).not.toHaveProperty('schedule')
+  })
+  it('a completed or cancelled task has no scheduling controls and says why', () => {
+    server(); open(task({ status: 'completed' }))
+    expect(screen.getByText(/Completed and cancelled tasks are not scheduled/)).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: 'Tomorrow' })).toBeNull(); expect(screen.queryByText('Start time')).toBeNull()
+    fireEvent.click(screen.getByRole('radio', { name: 'To do' })); expect(screen.getByRole('radio', { name: 'Tomorrow' })).toBeInTheDocument()
+  })
+})
+
+describe('the deadline is separate and optional', () => {
+  it('is off for a new task and on, with its value, for a task that has one', () => {
+    server(); open({}); expect(deadlineSwitch()).not.toBeChecked(); expect(deadline()).toBeNull()
+    expect(screen.getByText(/Execution time: when I will work on the task/)).toBeInTheDocument(); expect(screen.getByText(/Deadline: the last moment/)).toBeInTheDocument()
+    cleanup(); open(task()); expect(deadlineSwitch()).toBeChecked(); expect(deadline()!.dataset.value).toBe('2026-11-20T09:30')
+  })
+  it('scheduling a task that has a deadline never touches the deadline; a deadline-less task never gets one', async () => {
+    const calls = server(); const { onClose } = open(task())
+    fireEvent.click(tile('Tomorrow')); fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).not.toHaveProperty('due_at'); expect(bodyOf(calls)).not.toHaveProperty('due_date')
+    expect(bodyOf(calls)).toMatchObject({ schedule: { starts_at: '2026-11-12T08:00:00.000Z' } })
+  })
+  it('turning it off on a task that has one says it will be removed and sends due_at: null', async () => {
+    const calls = server(); const { onClose } = open(task())
+    fireEvent.click(deadlineSwitch()); expect(screen.getByText('Saving will remove the deadline.')).toBeInTheDocument()
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toHaveProperty('due_at', null)
+  })
+  it('a deadline typed with the switch on is saved as the account\'s wall time (17:00 Amsterdam is 16:00Z)', async () => {
+    const calls = server(); const { onClose } = open({})
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'With deadline' } })
+    fireEvent.click(deadlineSwitch()); expect(deadline()!.dataset.value).toBe('2026-11-11T17:00')
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ due_at: '2026-11-11T16:00:00.000Z' }); expect(bodyOf(calls)).not.toHaveProperty('schedule')
+  })
+})
+
+describe('a taken time', () => {
+  const conflictBody = () => ({ message: 'The given data was invalid.', errors: { starts_at: ['That time overlaps another item.'] }, conflict: { code: 'schedule_conflict', requested: { starts_at: '2026-11-12T08:00:00Z', ends_at: '2026-11-12T08:15:00Z' },
+    conflicts: [{ id: 3, event_id: 3, task_id: 8, title: 'Write report', kind: 'task_session', source: 'lifeos', starts_at: '2026-11-12T07:45:00Z', ends_at: '2026-11-12T08:05:00Z', overlap_minutes: 5 }], suggestion: { starts_at: '2026-11-12T08:05:00Z', ends_at: '2026-11-12T08:20:00Z' } } })
+  const arrange = async (write: () => Reply) => {
+    const calls = server({ write }); const handlers = open({})
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Pay' } }); fireEvent.click(tile('Tomorrow')); fireEvent.click(chip('15'))
+    fireEvent.click(saveButton())
+    return { calls, ...handlers, dialog: await screen.findByRole('alertdialog') }
+  }
+  it('keeps the dialog open with everything typed, saves nothing, and tells what is in the way', async () => {
+    const { dialog, onSave, onClose } = await arrange(() => ({ status: 422, body: conflictBody() }))
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('This time is already booked for another task.')
+    expect(dialog).toHaveTextContent('Write report'); expect(dialog).toHaveTextContent('5 min overlap'); expect(dialog).toHaveTextContent('08:45 to 09:05')
+    expect(within(dialog).getByRole('link', { name: 'View the conflicting item' })).toBeInTheDocument()
+    expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled(); expect(document.body.textContent).not.toContain('Created.')
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Pay'); expect(ends()).toBe('Ends 09:15')
+  })
+  it('"Choose another time" puts focus on the start field', async () => {
+    await arrange(() => ({ status: 422, body: conflictBody() }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose another time' }))
+    await waitFor(() => expect(document.activeElement).toBe(startTrigger()))
+  })
+  it('the suggested time fills the day and start and saves again, once', async () => {
+    let n = 0; const { calls, onClose } = await arrange(() => (n++ === 0 ? { status: 422, body: conflictBody() } : { status: 201, body: { data: { id: 9 } } }))
+    const use = screen.getByRole('button', { name: /Suggest the first free time/ }); fireEvent.click(use); fireEvent.click(use)
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(writes(calls)).toHaveLength(2)
+    expect(writes(calls)[1].body).toMatchObject({ estimated_minutes: 15, schedule: { starts_at: '2026-11-12T08:05:00.000Z' } })
+  })
+  it('speaks Arabic, with the three actions', async () => {
+    localStorage.setItem('lifeos-language', 'ar')
+    server({ write: () => ({ status: 422, body: conflictBody() }) }); open({})
+    fireEvent.change(document.querySelector('input[name="title"]')!, { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'غدًا' })); fireEvent.click(screen.getByRole('button', { name: 'حفظ' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('هذا الوقت محجوز بالفعل لمهمة أخرى.')
+    for (const name of [/اختيار وقت آخر/, /اقتراح أول وقت متاح/, /عرض المهمة المتعارضة/]) expect(within(dialog).getByRole(name.source.includes('عرض') ? 'link' : 'button', { name })).toBeInTheDocument()
+  })
+  it('a dropped connection keeps the dialog, and trying again carries the same Idempotency-Key', async () => {
+    let n = 0; const calls: Call[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method || 'GET'
+      calls.push({ method, url: String(url), key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
+      if (method === 'POST') { if (n++ === 0) throw new TypeError('Failed to fetch'); return new Response(JSON.stringify({ data: { id: 9 } }), { status: 201 }) }
+      return new Response(JSON.stringify(/availability/.test(String(url)) ? free : { data: [], meta: { last_page: 1 } }), { status: 200 })
+    }))
+    const { onClose } = open({})
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Pay' } }); fireEvent.click(tile('Tomorrow'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(formError()).toHaveTextContent('Could not reach LifeOS'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const posts = calls.filter(c => c.method === 'POST'); expect(posts).toHaveLength(2); expect(posts[0].key).toBe(posts[1].key); expect(posts[0].key).toBeTruthy()
+  })
+})
+
+describe('the Idempotency-Key after a server error', () => {
+  it('a 502 keeps the key (the save may have happened), so the retry cannot create a second task; a 4xx drops it', async () => {
+    let n = 0; const calls: Call[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method || 'GET'
+      calls.push({ method, url: String(url), key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
+      if (method === 'POST') { n++; return new Response(JSON.stringify(n === 1 ? { message: 'Bad gateway' } : n === 2 ? { message: 'No' } : { data: { id: 9 } }), { status: n === 1 ? 502 : n === 2 ? 422 : 201 }) }
+      return new Response(JSON.stringify(/availability/.test(String(url)) ? free : { data: [], meta: { last_page: 1 } }), { status: 200 })
+    }))
+    const { onClose } = open({}); fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Pay' } })
+    fireEvent.click(saveButton()); await waitFor(() => expect(formError()).toHaveTextContent('Bad gateway'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(formError()).toHaveTextContent('No'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const keys = calls.filter(c => c.method === 'POST').map(c => c.key)
+    expect(keys[0]).toBe(keys[1]); expect(keys[2]).not.toBe(keys[1])
+  })
+})
+
+describe('words, direction and the 24-hour clock', () => {
+  it.each([
+    ['en', 'When do you want to do it?', ['Today', 'Tomorrow', 'Pick a date', 'Not scheduled'], 'Start time', 'Ends'],
+    ['ar', 'متى تريد تنفيذ المهمة؟', ['اليوم', 'غدًا', 'تاريخ آخر', 'بدون جدولة'], 'وقت البداية', 'النهاية'],
+    ['nl', 'Wanneer wil je de taak doen?', ['Vandaag', 'Morgen', 'Andere datum', 'Niet ingepland'], 'Starttijd', 'Einde'],
+  ])('%s: the question, the four tiles, the start field and the end line', (lang, question, tiles, startLabel, endWord) => {
+    localStorage.setItem('lifeos-language', lang); server(); open({})
+    expect(screen.getByRole('radiogroup', { name: question })).toBeInTheDocument()
+    for (const name of tiles) expect(screen.getByRole('radio', { name })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: tiles[1] }))
+    expect(screen.getByText(startLabel)).toBeInTheDocument(); expect(ends()).toContain(endWord)
+    expect(startTrigger().textContent).toBe('09:00')   // 24-hour, never AM/PM
+    expect(ends()).toMatch(/09:30/)
+  })
+  it('a picked date is its own selected tile, named by the day (Thursday 19 November)', () => {
+    server(); open({})
+    fireEvent.click(screen.getByRole('radio', { name: 'Pick a date' }))
+    const box = screen.getByRole('textbox', { name: 'Date' }); fireEvent.change(box, { target: { value: '2026-11-19' } }); fireEvent.keyDown(box, { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('radio', { name: /Thursday, November 19/ })).toHaveAttribute('aria-checked', 'true'); expect(startValue()).toBe('09:00')
+  })
+  it('Enter and Space on a tile are real button clicks (keyboard works), and Escape is not swallowed', () => {
+    server(); open({})
+    const t = tile('Tomorrow'); expect(t.tagName).toBe('BUTTON'); expect(t).toHaveAttribute('type', 'button')
+  })
+})
+
+describe.each(['UTC', 'America/New_York'])('browser in %s, account in Amsterdam', browser => {
   beforeEach(() => { process.env.TZ = browser })
   afterEach(() => { process.env.TZ = 'Europe/Amsterdam' })
-
-  it('shows the deadline and the scheduled start/end as the calendar and the list badges show them (17:00, 09:00-09:30)', () => {
-    server(); open(task({ due_at: '2026-11-20T16:00:00Z', schedule: session() }))
-    expect(deadline()).toBe('2026-11-20T17:00')
-    expect(sessionStart()).toBe('2026-11-12T09:00')
-    expect(screen.getByText('Execution end').closest('label')!.querySelector<HTMLElement>('.dtp-trigger')!.dataset.value).toBe('2026-11-12T09:30')
-  })
-  it('saving without touching anything sends no deadline at all, and no session request', async () => {
-    const calls = server(); open(task({ due_at: '2026-11-20T16:00:00Z', schedule: session() }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
-    expect(patchBody(calls)[0]).not.toHaveProperty('due_at'); expect(patchBody(calls)[0]).not.toHaveProperty('due_date')
-    expect(calls.filter(c => /schedule$/.test(c.url))).toHaveLength(0)
-  })
-  it('a tile keeps the typed time and posts it as account time (Today 17:00 is 16:00Z)', async () => {
-    const calls = server(); open(task({ due_at: '2026-11-20T16:00:00Z' }))
-    fireEvent.click(tile('Today')); expect(deadline()).toBe('2026-11-11T17:00')
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(patchBody(calls)).toHaveLength(1))
-    expect(patchBody(calls)[0]).toMatchObject({ due_at: '2026-11-11T16:00:00.000Z' })
-  })
-  it('says which zone the times are in, and ties the note to the deadline for screen readers', () => {
-    server(); open()
-    const [note, ...others] = screen.getAllByText(/Times are in/)   // one under the deadline, one in the scheduled-time box
-    expect(others).toHaveLength(1)
-    expect(note).toHaveTextContent('Times are in Europe/Amsterdam')
-    expect(screen.getByRole('group', { name: 'Deadline (due)' }).getAttribute('aria-describedby')).toContain(note.id)
+  it('shows the session on the account clock (09:00-09:30), says which zone the times are in, and saves a typed start as the account\'s instant', async () => {
+    const calls = server(); const { onClose } = open(task({ schedule: session() }))
+    expect(startValue()).toBe('09:00'); expect(ends()).toBe('Ends 09:30')
+    expect(screen.getAllByText(/Times are in/).length).toBeGreaterThan(0); expect(screen.getAllByText(/Times are in/)[0]).toHaveTextContent('Times are in Europe/Amsterdam')
+    typeStart('10:00'); fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ schedule: { starts_at: '2026-11-12T09:00:00.000Z' } })
   })
 })
 
 describe('browser in the account zone', () => {
-  it('shows no zone note: there is nothing to explain', () => {
-    server(); open()
-    expect(screen.queryByText(/Times are in/)).not.toBeInTheDocument()
-  })
+  it('shows no zone note: there is nothing to explain', () => { server(); open(task({ schedule: session() })); expect(screen.queryByText(/Times are in/)).not.toBeInTheDocument() })
   it('the note reads in Arabic, with the zone name kept left-to-right', () => {
     process.env.TZ = 'UTC'; localStorage.setItem('lifeos-language', 'ar')
-    try { server(); open() } finally { process.env.TZ = 'Europe/Amsterdam' }
+    try { server(); open(task({ schedule: session() })) } finally { process.env.TZ = 'Europe/Amsterdam' }
     const note = screen.getAllByText(/الأوقات بتوقيت/)[0]
     expect(note.querySelector('bdi')).toHaveAttribute('dir', 'ltr'); expect(note).toHaveTextContent('Europe/Amsterdam')
   })
 })
 
 describe('saving', () => {
-  it('sends one request for a double click, then refreshes the task lists and the calendar once each', async () => {
-    const calls = server(); let release: (r: Reply) => void = () => undefined
-    const gate = new Promise<Reply>(r => { release = r })
-    vi.unstubAllGlobals(); const inner = server({ patch: () => gate }); void calls
-    const tasks = vi.fn(), cal = vi.fn()
-    window.addEventListener(TASKS_CHANGED, tasks); window.addEventListener(CALENDAR_CHANGED, cal)
-    const { onSave, onClose } = open()
-    const save = screen.getByRole('button', { name: 'Save' })
-    fireEvent.click(save); fireEvent.submit(document.getElementById('record-form-tasks')!)
-    release({ status: 200, body: { data: { id: 7 } } })
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-    expect(patchBody(inner)).toHaveLength(1); expect(onSave).toHaveBeenCalledTimes(1)
-    expect(tasks).toHaveBeenCalledTimes(1); expect(cal).toHaveBeenCalledTimes(1)
-    window.removeEventListener(TASKS_CHANGED, tasks); window.removeEventListener(CALENDAR_CHANGED, cal)
+  it('Save keeps focus while saving (aria-disabled, not disabled) and a second press sends nothing', async () => {
+    let release: (r: Reply) => void = () => undefined
+    const calls = server({ write: () => new Promise<Reply>(r => { release = r }) }); open()
+    const save = saveButton(); save.focus(); fireEvent.click(save)
+    await waitFor(() => expect(save).toHaveAttribute('aria-disabled', 'true'))
+    expect(save).not.toBeDisabled(); expect(save).toHaveFocus()
+    fireEvent.click(save); release({ status: 200, body: { data: { id: 7 } } })
+    await waitFor(() => expect(writes(calls)).toHaveLength(1))
   })
-})
-
-const conflictBody = (over: Record<string, unknown> = {}) => ({ message: 'The given data was invalid.', errors: { starts_at: ['That time overlaps another item.'] }, conflict: { code: 'schedule_conflict', requested: { starts_at: '2026-11-13T08:00:00Z', ends_at: '2026-11-13T08:30:00Z' },
-  conflicts: [{ id: 3, event_id: 3, task_id: 8, title: 'Write report', kind: 'task_session', source: 'lifeos', starts_at: '2026-11-13T07:45:00Z', ends_at: '2026-11-13T08:15:00Z', overlap_minutes: 15 }], suggestion: { starts_at: '2026-11-13T08:15:00Z', ends_at: '2026-11-13T08:45:00Z' }, ...over } })
-const suggestedTime = async () => fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])   // fills start and end: 13 Nov 09:00 to 09:30
-const putCalls = (calls: Call[]) => calls.filter(c => c.method === 'PUT')
-const postCalls = (calls: Call[]) => calls.filter(c => c.method === 'POST')
-const formError = () => document.querySelector('p.error')
-const saveButton = () => screen.getByRole('button', { name: 'Save' })
-
-describe('the scheduled execution time, apart from the deadline and the estimate', () => {
-  const booked = (over: Record<string, unknown> = {}) => task({ schedule: session(), due_at: '2026-11-20T15:00:00Z', ...over })
-  it('is shown for an unscheduled task too, saying it is not scheduled yet', () => {
-    server(); open(task())
-    const block = screen.getByRole('region', { name: 'Scheduled execution time' })
-    expect(block).toHaveTextContent('Not scheduled yet'); expect(within(block).queryByRole('link')).toBeNull()
-  })
-  it('shows the session time in the account zone, a calendar link, and says that the deadline alone does not move it', () => {
-    server(); open(booked())
-    const block = screen.getByRole('region', { name: 'Scheduled execution time' })
-    expect(block.textContent).toMatch(/09:00/)   // 08:00Z is 09:00 in Amsterdam
-    expect(within(block).getByRole('link', { name: 'View in calendar' })).toHaveAttribute('href', '/calendar?date=2026-11-12&session=55')
-    expect(within(block).getByText(/does not move the session/)).toBeInTheDocument()
-    expect(block).toHaveTextContent(/remove the session, use the calendar or Undo/)
-  })
-  it('warns calmly when the deadline is before the session ends, and stops when it is later', () => {
-    server(); open(booked({ due_at: '2026-11-12T08:00:00Z' }))
-    expect(screen.getByText('The scheduled session is after the deadline.')).toBeInTheDocument()
-    fireEvent.click(tile('Tomorrow'))   // keeps 09:00; the session ends 09:30
-    expect(screen.getByText('The scheduled session is after the deadline.')).toBeInTheDocument()
-    fireEvent.click(tile('This week'))
-    expect(screen.queryByText('The scheduled session is after the deadline.')).toBeNull()
-  })
-  it('changing only the deadline never touches the session: one PATCH, no PUT, no POST', async () => {
-    const calls = server(); const { onClose } = open(booked())
-    fireEvent.click(tile('Tomorrow')); fireEvent.click(saveButton())
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
-    expect(patchBody(calls)).toHaveLength(1); expect(putCalls(calls)).toHaveLength(0); expect(postCalls(calls)).toHaveLength(0)
-  })
-  it('a scheduled task: the new start and end are saved with Save as ONE PUT on the same session (then the task fields), refreshes once, success only after both', async () => {
-    const calls = server(); const { onSave, onClose } = open(booked())
-    const tasks = vi.fn(), cal = vi.fn()
-    window.addEventListener(TASKS_CHANGED, tasks); window.addEventListener(CALENDAR_CHANGED, cal)
-    await suggestedTime()
-    const save = saveButton(); fireEvent.click(save); fireEvent.click(save)   // a double click
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-    expect(putCalls(calls)).toHaveLength(1); expect(postCalls(calls)).toHaveLength(0); expect(patchBody(calls)).toHaveLength(1)
-    expect(putCalls(calls)[0].body).toEqual({ session_id: 55, starts_at: '2026-11-13T08:00:00.000Z', ends_at: '2026-11-13T08:30:00.000Z' })
-    expect(patchBody(calls)[0]).not.toHaveProperty('due_at')   // the deadline is unchanged by moving the session
-    expect(onSave).toHaveBeenCalledTimes(1); expect(tasks).toHaveBeenCalledTimes(1); expect(cal).toHaveBeenCalledTimes(1)
-    expect(document.body.textContent).toContain('Changes saved.')
-    window.removeEventListener(TASKS_CHANGED, tasks); window.removeEventListener(CALENDAR_CHANGED, cal)
-  })
-  it('an unscheduled task: filling the time books ONE new session with POST and an Idempotency-Key (never PUT)', async () => {
-    const calls = server(); const { onClose } = open(task())
-    await suggestedTime(); fireEvent.click(saveButton())
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
-    expect(postCalls(calls)).toHaveLength(1); expect(putCalls(calls)).toHaveLength(0)
-    expect(postCalls(calls)[0].key).toMatch(/^[0-9a-f-]{36}$/)
-    expect(postCalls(calls)[0].body).toEqual({ starts_at: '2026-11-13T08:00:00.000Z', ends_at: '2026-11-13T08:30:00.000Z' })
-  })
-  it('a retry after a dropped connection reuses the Idempotency-Key (so it cannot book twice)', async () => {
-    let n = 0; const calls: Call[] = []
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      const method = init?.method || 'GET'
-      calls.push({ method, url: String(url), key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
-      const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
-      if (method === 'POST' && /schedule$/.test(String(url))) { if (n++ === 0) throw new TypeError('Failed to fetch'); return json(201, { data: { id: 91 }, schedule: session({ session_id: 91 }) }) }
-      if (/availability/.test(String(url))) return json(200, free)
-      if (method === 'PATCH') return json(200, { data: { id: 7 } })
-      return json(200, { data: [], meta: { last_page: 1 } })
-    }))
-    const { onClose } = open(task())
-    await suggestedTime(); fireEvent.click(saveButton())
-    await waitFor(() => expect(formError()).toHaveTextContent('Could not reach LifeOS'))
-    fireEvent.click(saveButton())
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
-    const posts = postCalls(calls); expect(posts).toHaveLength(2); expect(posts[0].key).toBe(posts[1].key); expect(posts[0].key).toBeTruthy()
-  })
-  it('a failed session save is not a success: no task save, no message, the dialog stays open with the error', async () => {
-    const calls = server({ put: () => ({ status: 500, body: { message: 'Server error.' } }) }); const { onSave, onClose } = open(booked())
-    await suggestedTime(); fireEvent.click(saveButton())
-    await waitFor(() => expect(formError()).toHaveTextContent('Server error.'))
-    expect(patchBody(calls)).toHaveLength(0); expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled()
-    expect(document.body.textContent).not.toContain('Changes saved.'); expect(document.body.textContent).not.toContain('moved to')
-  })
-  it('the session saved but the task fields failed: it says exactly that, nothing is marked saved, and a retry does not move the session again', async () => {
-    const calls = server({ patch: () => ({ status: 500, body: { message: 'Could not save.' } }) }); const { onSave, onClose } = open(booked())
-    await suggestedTime(); fireEvent.click(saveButton())
-    await waitFor(() => expect(formError()).toHaveTextContent(/The scheduled time was saved, but the other changes were not: Could not save\./))
-    expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled(); expect(document.body.textContent).not.toContain('Changes saved.')
-    fireEvent.click(saveButton())
-    await waitFor(() => expect(patchBody(calls)).toHaveLength(2))
-    expect(putCalls(calls)).toHaveLength(1)   // the fields already show the saved time: untouched, so nothing is sent for it
-  })
-  describe('a taken time', () => {
-    it('keeps the dialog open, saves nothing, and opens the conflict dialog with the sentence, the 24-hour times and the overlap', async () => {
-      const calls = server({ put: () => ({ status: 422, body: conflictBody() }) }); const { onSave, onClose } = open(booked())
-      const cal = vi.fn(); window.addEventListener(CALENDAR_CHANGED, cal)
-      await suggestedTime(); fireEvent.click(saveButton())
-      const dialog = await screen.findByRole('alertdialog')
-      expect(within(dialog).getByRole('heading')).toHaveTextContent('This time is already booked for another task.')
-      expect(dialog).toHaveTextContent("You can't schedule this task from 09:00 to 09:30, because you already have another task from 08:45 to 09:15.")
-      expect(dialog).toHaveTextContent('Write report'); expect(dialog).toHaveTextContent('15 min overlap')
-      expect(within(dialog).getByRole('link', { name: 'View the conflicting item' })).toHaveAttribute('href', '/calendar?date=2026-11-13&session=3')
-      expect(patchBody(calls)).toHaveLength(0); expect(onSave).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled()
-      expect(document.body.textContent).not.toContain('Changes saved.')
-      expect(cal).toHaveBeenCalled()   // the task is read again, so the row shows the real state
-      window.removeEventListener(CALENDAR_CHANGED, cal)
-    })
-    it('"Choose another time" closes it and puts focus on the start field', async () => {
-      server({ put: () => ({ status: 422, body: conflictBody() }) }); open(booked())
-      await suggestedTime(); fireEvent.click(saveButton())
-      fireEvent.click(await screen.findByRole('button', { name: 'Choose another time' }))
-      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-      await waitFor(() => expect(document.activeElement).toBe(document.querySelector('.rf-session-edit .dtp-trigger')))
-      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
-    })
-    it('Escape closes only the conflict dialog; focus goes back to Save; the edit dialog stays', async () => {
-      server({ put: () => ({ status: 422, body: conflictBody() }) }); const { onClose } = open(booked())
-      await suggestedTime(); saveButton().focus(); fireEvent.click(saveButton())
-      const dialog = await screen.findByRole('alertdialog')
-      fireEvent(dialog, new Event('cancel', { cancelable: true }))
-      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-      expect(onClose).not.toHaveBeenCalled(); await waitFor(() => expect(saveButton()).toHaveFocus())
-    })
-    it('the first free time is applied once through the same path: one more PUT with the suggested slot, then the task fields, then closed', async () => {
-      let n = 0
-      const calls = server({ put: () => (n++ === 0 ? { status: 422, body: conflictBody() } : { status: 200, body: { data: { id: 55 }, schedule: session({ starts_at: '2026-11-13T08:15:00Z', ends_at: '2026-11-13T08:45:00Z' }) } }) })
-      const { onClose } = open(booked())
-      await suggestedTime(); fireEvent.click(saveButton())
-      const button = await screen.findByRole('button', { name: /Suggest the first free time: 09:15–09:45/ })
-      fireEvent.click(button); fireEvent.click(button)
-      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-      expect(putCalls(calls)).toHaveLength(2)
-      expect(putCalls(calls)[1].body).toEqual({ session_id: 55, starts_at: '2026-11-13T08:15:00Z', ends_at: '2026-11-13T08:45:00Z' })
-      expect(patchBody(calls)).toHaveLength(1)
-    })
-    it('hides the suggestion button when the server has none', async () => {
-      server({ put: () => ({ status: 422, body: conflictBody({ suggestion: null }) }) }); open(booked())
-      await suggestedTime(); fireEvent.click(saveButton())
-      await screen.findByRole('alertdialog'); expect(screen.queryByRole('button', { name: /Suggest the first free time/ })).toBeNull()
-    })
-  })
-  it('speaks Arabic and Dutch, and keeps the deadline, the scheduled time and the estimate apart', () => {
-    localStorage.setItem('lifeos-language', 'ar'); server(); open(booked({ due_at: '2026-11-12T08:00:00Z' }))
-    expect(screen.getByText('موعد التنفيذ المجدول')).toBeInTheDocument()
-    expect(screen.getByText('الجلسة المجدولة بعد الموعد النهائي.')).toBeInTheDocument()
-    expect(screen.getByText('الموعد النهائي (الاستحقاق)')).toBeInTheDocument()
-    expect(screen.getAllByText('المدة المتوقعة (دقائق)').length).toBeGreaterThan(0)
-    cleanup(); localStorage.setItem('lifeos-language', 'nl'); server(); open(booked())
-    expect(screen.getByText('Geplande uitvoeringstijd')).toBeInTheDocument()
-    expect(screen.getByText('Deadline (uiterste datum)')).toBeInTheDocument()
-    expect(screen.getAllByText('Geschatte duur (minuten)').length).toBeGreaterThan(0)
-    cleanup(); localStorage.setItem('lifeos-language', 'en'); server(); open(booked())
-    expect(screen.getByText('Scheduled execution time')).toBeInTheDocument(); expect(screen.getByText('Deadline (due)')).toBeInTheDocument(); expect(screen.getAllByText('Estimate (minutes)').length).toBeGreaterThan(0)
+  it('another error keeps the dialog open and shows it', async () => {
+    server({ write: () => ({ status: 500, body: { message: 'Server error.' } }) }); const { onClose } = open(task({ schedule: session() }))
+    typeStart('10:00'); fireEvent.click(saveButton())
+    await waitFor(() => expect(formError()).toHaveTextContent('Server error.')); expect(onClose).not.toHaveBeenCalled()
   })
 })
