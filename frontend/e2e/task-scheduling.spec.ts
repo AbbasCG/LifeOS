@@ -26,6 +26,21 @@ async function sessionsOf(page: Page, taskId: number) {
   return (r.body.data as unknown as { event_id: number | null; task_id: number | null; starts_at: string; ends_at: string }[]).filter(o => o.task_id === taskId)
 }
 
+/**
+ * `count` days, from about `from` days ahead, with nothing in the calendar between 06:00 and 14:00 UTC. The demo data has events and weekly series,
+ * so a fixed "in three days at 10:00" lands on one of them on some weekdays and the booking is (rightly) refused as a conflict.
+ */
+async function freeDays(page: Page, from: number, count: number): Promise<string[]> {
+  const days: string[] = []
+  for (let i = from; i < from + 40 && days.length < count; i++) {
+    const day = new Date(Date.now() + i * 86_400_000).toISOString().slice(0, 10)
+    const r = await call(page, 'GET', `/api/calendar?from=${encodeURIComponent(`${day}T06:00:00Z`)}&to=${encodeURIComponent(`${day}T14:00:00Z`)}`)
+    if (r.status === 200 && (r.body.data as unknown[]).length === 0) days.push(day)
+  }
+  if (days.length < count) throw new Error('not enough free days found')
+  return days
+}
+
 async function makeTask(page: Page, label: string, name?: string) {
   await page.goto('/')
   const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
@@ -145,7 +160,8 @@ test('a stale list cannot book twice: the server says it is already scheduled, t
     await expect(choices.locator('button').first()).toBeVisible()
 
     // Meanwhile (another tab, another device) the same task gets booked.
-    const slot = await page.evaluate(() => { const s = new Date(Date.now() + 3 * 86_400_000); s.setUTCHours(10, 0, 0, 0); return { starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 30 * 60_000).toISOString() } })
+    const [day, nextDay] = await freeDays(page, 3, 2)
+    const slot = { starts_at: `${day}T10:00:00.000Z`, ends_at: `${day}T10:30:00.000Z` }
     const first = await call(page, 'POST', `/api/tasks/${id}/schedule`, slot, { 'Idempotency-Key': crypto.randomUUID() })
     expect(first.status).toBe(201)
 
@@ -161,7 +177,7 @@ test('a stale list cannot book twice: the server says it is already scheduled, t
     expect(await sessionsOf(page, id)).toHaveLength(1)
 
     // The same key again returns the same session, never a second one.
-    const key = crypto.randomUUID(), other = { starts_at: new Date(Date.parse(slot.starts_at) + 86_400_000).toISOString(), ends_at: new Date(Date.parse(slot.ends_at) + 86_400_000).toISOString() }
+    const key = crypto.randomUUID(), other = { starts_at: `${nextDay}T10:00:00.000Z`, ends_at: `${nextDay}T10:30:00.000Z` }
     const replayA = await call(page, 'POST', `/api/tasks/${id}/schedule`, other, { 'Idempotency-Key': key })
     const replayB = await call(page, 'POST', `/api/tasks/${id}/schedule`, other, { 'Idempotency-Key': key })
     expect([replayA.status, replayB.status].every(s => [200, 201, 409].includes(s))).toBe(true)
@@ -175,7 +191,8 @@ test('the scheduled row reads right in Arabic (right to left) and on a narrow sc
   await setLanguage('ar')
   const { id, title } = await makeTask(page, 'ar')
   try {
-    const slot = await page.evaluate(() => { const s = new Date(Date.now() + 2 * 86_400_000); s.setUTCHours(9, 0, 0, 0); return { starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 30 * 60_000).toISOString() } })
+    const [freeDay] = await freeDays(page, 2, 1)
+    const slot = { starts_at: `${freeDay}T09:00:00.000Z`, ends_at: `${freeDay}T09:30:00.000Z` }
     expect((await call(page, 'POST', `/api/tasks/${id}/schedule`, slot, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
     await page.setViewportSize({ width: 320, height: 700 })
     await page.goto('/tasks')
@@ -200,7 +217,8 @@ for (const [language, letter] of [['ar', 'ب'], ['nl', 'x']] as const) {
     const { id, title } = await makeTask(page, `long-${language}`, `E2E ${letter.repeat(40)}${Date.now()}`)
     try {
       expect((await call(page, 'PUT', '/api/settings', { language })).status).toBe(200)
-      const slot = await page.evaluate(() => { const s = new Date(Date.now() + 2 * 86_400_000); s.setUTCHours(9, 0, 0, 0); return { starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 30 * 60_000).toISOString() } })
+      const [freeDay] = await freeDays(page, 2, 1)
+      const slot = { starts_at: `${freeDay}T09:00:00.000Z`, ends_at: `${freeDay}T09:30:00.000Z` }
       expect((await call(page, 'POST', `/api/tasks/${id}/schedule`, slot, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
       await page.setViewportSize({ width: 320, height: 700 })
       await page.goto('/tasks')

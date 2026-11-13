@@ -31,6 +31,19 @@ const wall = (at: Date | string, zone: string) => {
 }
 const shift = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
 
+/**
+ * A 30-minute slot at 10:00 UTC on the first day, from about three days ahead, with nothing in the calendar between 06:00 and 14:00 UTC. The demo data
+ * has events and weekly series, so a fixed "in three days at 10:00" collides with one of them on some weekdays and the booking is (rightly) refused.
+ */
+async function freeSlot(page: Page) {
+  for (let i = 3; i < 43; i++) {
+    const day = new Date(Date.now() + i * 86_400_000).toISOString().slice(0, 10)
+    const r = await call(page, 'GET', `/api/calendar?from=${encodeURIComponent(`${day}T06:00:00Z`)}&to=${encodeURIComponent(`${day}T14:00:00Z`)}`)
+    if (r.status === 200 && (r.body.data as unknown[]).length === 0) return { starts_at: `${day}T10:00:00.000Z`, ends_at: `${day}T10:30:00.000Z` }
+  }
+  throw new Error('no free day found')
+}
+
 async function makeTask(page: Page, label: string, due: (zone: string, today: string) => string | null) {
   await page.goto('/')
   const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
@@ -113,7 +126,7 @@ test('moving the session from the dialog changes the calendar once and keeps the
   await setLanguage('en')
   const { id, title, zone } = await makeTask(page, 'session', () => new Date(Date.now() + 12 * 86_400_000).toISOString())
   try {
-    const slot = await page.evaluate(() => { const s = new Date(Date.now() + 3 * 86_400_000); s.setUTCHours(10, 0, 0, 0); return { starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 30 * 60_000).toISOString() } })
+    const slot = await freeSlot(page)
     const booked = await call(page, 'POST', `/api/tasks/${id}/schedule`, slot, { 'Idempotency-Key': crypto.randomUUID() })
     expect(booked.status).toBe(201)
     const eventId = (booked.body.data as { id: number }).id
@@ -154,7 +167,7 @@ test('the dialog reads right in Arabic (right to left) with the deadline and the
   await setLanguage('ar')
   const { id, title } = await makeTask(page, 'rtl', () => new Date(Date.now() + 12 * 86_400_000).toISOString())
   try {
-    const slot = await page.evaluate(() => { const s = new Date(Date.now() + 3 * 86_400_000); s.setUTCHours(10, 0, 0, 0); return { starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 30 * 60_000).toISOString() } })
+    const slot = await freeSlot(page)
     expect((await call(page, 'POST', `/api/tasks/${id}/schedule`, slot, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
     await page.goto('/tasks')
     const row = page.locator('.task-item', { hasText: title })

@@ -222,14 +222,14 @@ class ScheduleConflictTest extends TestCase
         $this->postJson("/api/tasks/{$second->id}/schedule", $this->slot('09:00', '10:00'))->assertCreated();
     }
 
-    public function test_the_future_session_of_a_completed_task_is_still_a_calendar_event_and_still_blocks(): void
+    public function test_the_future_session_of_a_completed_task_stays_a_calendar_event_but_no_longer_blocks(): void
     {
         $done = $this->task(null, 'Shipped', ['status' => 'completed', 'completed_at' => now()]);
-        $this->bookedSession($done, '09:00', '10:00');
+        $session = $this->bookedSession($done, '09:00', '10:00');
 
-        $conflict = $this->assertConflict($this->postJson('/api/events', ['title' => 'Other'] + $this->slot('09:30', '10:30')), 'starts_at');
-
-        $this->assertSame('Shipped', $conflict['conflicts'][0]['title']);
+        // Finishing a task early frees its later slot (see ClosedTaskSessionsTest); the block itself is not deleted.
+        $this->postJson('/api/events', ['title' => 'Other'] + $this->slot('09:30', '10:30'))->assertCreated();
+        $this->assertTrue(CalendarEvent::whereKey($session->id)->exists());
     }
 
     public function test_a_completed_task_cannot_get_a_session_through_any_creation_path(): void

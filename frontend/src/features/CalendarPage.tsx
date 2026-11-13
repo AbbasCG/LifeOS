@@ -338,7 +338,7 @@ export default function CalendarPage() {
                 const flexible = item.kind !== 'fixed' && item.editable, active = preview?.id === item.id, external = item.source !== 'lifeos'
                 return <div key={item.id} role="button" tabIndex={0} aria-describedby="calendar-keyboard-help" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined}
                   title={`${item.title}, ${time(s)} – ${time(en)}`} data-occurrence={item.id}
-                  className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${height < 22 ? 'tiny' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}
+                  className={`grid-event kind-${item.kind} ${external ? 'external' : ''} ${height < 44 ? 'compact' : ''} ${height < 22 ? 'tiny' : ''} ${active ? 'is-source' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${item.task_closed ? 'closed' : ''}`}
                   style={{ top, height, insetInlineStart: `calc(${lane / lanes * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)` }}
                   onPointerDown={e => { if (e.pointerType === 'mouse') beginDrag(e, item, 'move', dayIndex) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
                   onClick={() => { if (!suppressClick.current) setEditing(item) }} onKeyDown={e => onEventKey(e, item, day)}>
@@ -366,7 +366,7 @@ export default function CalendarPage() {
             <button className="icon-button" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}><Plus size={17} /></button></header>
           {events.length === 0 ? <p className="agenda-empty">{t('Open day', 'يوم متاح')}</p> : <ul>{events.map(item => {
             const external = item.source !== 'lifeos', current = new Date(item.starts_at!) <= nowView && new Date(item.ends_at!) > nowView
-            return <li key={item.id}><button type="button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} className={`agenda-item kind-${item.kind} ${external ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${current ? 'current' : ''} ${new Date(item.ends_at!) <= nowView ? 'past' : ''}`} onClick={() => setEditing(item)}>
+            return <li key={item.id}><button type="button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} className={`agenda-item kind-${item.kind} ${external ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${item.task_closed ? 'closed' : ''} ${current ? 'current' : ''} ${new Date(item.ends_at!) <= nowView ? 'past' : ''}`} onClick={() => setEditing(item)}>
               <time dateTime={(item as ViewOccurrence).real_times?.starts_at ?? item.starts_at!}><strong>{time(item.starts_at!)}</strong><span className="sr-only"> {t('to', 'إلى', 'tot')} </span><small>{time(item.ends_at!)}</small></time>
               <span className="agenda-bar" aria-hidden="true" />
               <span className="agenda-title"><KindIcon kind={item.kind} source={item.source} /><strong>{item.title}</strong></span>
@@ -378,7 +378,7 @@ export default function CalendarPage() {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day)
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === todayKey ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
           <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
-          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''}`}><button className="text-button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} onClick={() => setEditing(item)}><small><bdi dir="ltr">{time(item.starts_at!)}</bdi></small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
+          {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${item.task_closed ? 'closed' : ''}`}><button className="text-button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} onClick={() => setEditing(item)}><small><bdi dir="ltr">{time(item.starts_at!)}</bdi></small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
         </section>
       })}</div>}
       {timed && <aside className="panel task-tray" aria-label={t('Unscheduled tasks', 'مهام غير مجدولة')}>

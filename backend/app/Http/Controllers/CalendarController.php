@@ -39,7 +39,11 @@ class CalendarController extends Controller
             throw ValidationException::withMessages(['to' => ['The calendar window may span at most 62 days.']]);
         }
 
-        return response()->json(['data' => $this->calendar->occurrences($request->user(), $from, $to)->map(fn (array $o) => CalendarService::present($o))->values()]);
+        $occurrences = $this->calendar->occurrences($request->user(), $from, $to);
+        // A completed or cancelled task's block stays visible but does not hold the time, so the client must not treat it as busy.
+        $closed = $this->calendar->closedTaskIds($request->user(), $occurrences);
+
+        return response()->json(['data' => $occurrences->map(fn (array $o) => CalendarService::present($o) + ['task_closed' => isset($o['task_id']) && $closed->has($o['task_id'])])->values()]);
     }
 
     public function store(Request $request): JsonResponse

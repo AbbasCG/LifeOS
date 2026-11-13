@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\CalendarEvent;
 use App\Models\CalendarEventException;
+use App\Models\Task;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Generator;
@@ -230,13 +231,44 @@ class CalendarService
      */
     public function conflicts(User $user, CarbonImmutable $start, CarbonImmutable $end, ?int $ignoreEventId = null, ?CarbonImmutable $ignoreOccurrence = null): Collection
     {
-        return $this->occurrences($user, $start, $end)->filter(function (array $o) use ($start, $end, $ignoreEventId, $ignoreOccurrence) {
+        return $this->withoutClosedTaskSessions($user, $this->occurrences($user, $start, $end))->filter(function (array $o) use ($start, $end, $ignoreEventId, $ignoreOccurrence) {
             if ($ignoreEventId !== null && ($o['event_id'] ?? null) === $ignoreEventId && ($ignoreOccurrence === null || ($o['occurrence_start'] ?? null)?->equalTo($ignoreOccurrence))) {
                 return false;
             }
 
             return self::overlaps($o, $start, $end);
         })->values();
+    }
+
+    /**
+     * Drops the calendar blocks of tasks that are completed or cancelled. Such a block stays on the calendar (nothing is deleted on the person's
+     * behalf and un-completing the task brings it back as it was), but it no longer holds the time: finishing a task early frees its later slot.
+     * Events that belong to no task, and other users' tasks, are never touched.
+     *
+     * @param  Collection<int, array<string, mixed>>  $occurrences
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function withoutClosedTaskSessions(User $user, Collection $occurrences): Collection
+    {
+        $closed = $this->closedTaskIds($user, $occurrences);
+
+        return $closed->isEmpty() ? $occurrences : $occurrences->reject(fn (array $o) => isset($o['task_id']) && $closed->has($o['task_id']))->values();
+    }
+
+    /**
+     * The task ids (as keys) among these occurrences whose task of this user is completed or cancelled.
+     *
+     * @param  Collection<int, array<string, mixed>>  $occurrences
+     * @return Collection<int, int>
+     */
+    public function closedTaskIds(User $user, Collection $occurrences): Collection
+    {
+        $taskIds = $occurrences->pluck('task_id')->filter()->unique()->values();
+        if ($taskIds->isEmpty()) {
+            return collect();
+        }
+
+        return Task::where('user_id', $user->id)->whereIn('id', $taskIds->all())->whereIn('status', ['completed', 'cancelled'])->pluck('id')->flip();
     }
 
     /**
@@ -261,7 +293,7 @@ class CalendarService
     {
         $from = max($event->starts_at, CarbonImmutable::now());
         $to = $from->addDays($days);
-        $existing = $this->occurrences($user, $from, $to)->filter(fn (array $o) => ! $event->exists || ($o['event_id'] ?? null) !== $event->id);
+        $existing = $this->withoutClosedTaskSessions($user, $this->occurrences($user, $from, $to))->filter(fn (array $o) => ! $event->exists || ($o['event_id'] ?? null) !== $event->id);
         $found = [];
         foreach ($this->expand($event, $from, $to, $event->exists ? null : collect()) as $mine) {
             $clash = $existing->first(fn (array $o) => self::overlaps($o, $mine['starts_at'], $mine['ends_at']));
