@@ -39,7 +39,7 @@ for (const timezoneId of ['UTC', 'Asia/Riyadh', 'America/New_York']) {
         const form = page.getByRole('dialog').first()
         await expect(form).toBeVisible()
         const due = `${ymd(5)}T14:30`, remind = `${ymd(4)}T09:15`
-        await form.locator('details.rf-more > summary').click()   // the reminder is under "More options" since V53
+        await showDeadline(form)   // the deadline and the reminder are under "More options"
         await chooseByTapping(page, label(form, T.deadline), due.slice(0, 10), '14:30')
         await chooseByTapping(page, label(form, T.remind), remind.slice(0, 10), '09:15', 'icon')
         await expect(label(form, T.deadline)).toHaveAttribute('data-value', due)
@@ -68,6 +68,13 @@ for (const timezoneId of ['UTC', 'Asia/Riyadh', 'America/New_York']) {
 }
 
 const SAVE = /^Save$|^حفظ$/
+/** The deadline is optional and lives under «خيارات متقدمة» / More options: open it (if it is closed) and switch the deadline on (if it is off). */
+async function showDeadline(form: Locator) {
+  const more = form.locator('details.rf-more')
+  if (!(await more.evaluate(d => (d as HTMLDetailsElement).open))) await more.locator('summary').click()
+  const sw = form.getByRole('checkbox', { name: /Do you have a deadline|هل لديك موعد نهائي/ })
+  if (!(await sw.isChecked())) await sw.check()
+}
 const opened = (page: Page) => page.getByRole('dialog').first()
 
 for (const language of ['en', 'ar'] as const) {
@@ -207,7 +214,9 @@ test.describe('behaviour of the picker itself', () => {
     await page.goto('/tasks')
     await page.getByText(title).first().click()
     await page.getByRole('button', { name: /^Edit$|^تعديل$/ }).first().click()
-    return opened(page)
+    const form = opened(page)
+    await showDeadline(form)
+    return form
   }
   async function makeTask(page: Page, extra: Record<string, unknown> = {}) {
     const title = stamp()

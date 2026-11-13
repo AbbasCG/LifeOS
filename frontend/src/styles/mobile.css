@@ -96,7 +96,7 @@ img, svg, video, canvas { max-width: 100%; }
 .sheet-foot { flex-wrap: wrap; }
 .sheet-foot .error { flex-basis: 100%; margin: 0; }
 .record-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
-.record-form > label, .record-form .rf-more-body > label, .record-form .rf-deadline { display: grid; gap: 6px; font-size: 13px; font-weight: 700; color: var(--color-text-muted); min-width: 0; }
+.record-form > label, .record-form .rf-more-body > label, .record-form .rf-deadline, .record-form .rf-start { display: grid; gap: 6px; font-size: 13px; font-weight: 700; color: var(--color-text-muted); min-width: 0; }
 .record-form .rf-title { min-height: 60px; padding-inline: 16px; border-radius: 18px; font-size: 18px; font-weight: 600; color: var(--color-text); }
 .record-form .rf-deadline { margin-top: 2px; }
 .record-form .rf-notime { display: flex; align-items: center; gap: 10px; min-block-size: 44px; font-size: 14px; font-weight: 500; color: var(--color-text); }

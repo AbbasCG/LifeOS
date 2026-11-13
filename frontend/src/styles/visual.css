@@ -637,14 +637,15 @@ a.filter-chip { text-decoration: none; color: var(--color-text); }
 /* The sidebar scrolls by wheel, touch and keyboard; its scrollbar is hidden by the global rule in scrollbars.css. overflow-y stays `auto`, so every item is still reachable. */
 .sidebar { overscroll-behavior: contain; }
 
-/* === task edit dialog: deadline vs scheduled session === */
-.rf-session { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-border); border-radius: 16px; min-width: 0; }
-.rf-session-time { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; }
-.rf-session-edit { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 8px; }
+/* === task edit dialog: «متى تريد تنفيذ المهمة؟» (execution time) and the optional deadline === */
+.rf-when { display: grid; gap: 10px; min-width: 0; }
+.qa-whens.rf-whens { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 360px) { .qa-whens.rf-whens { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rf-end { display: flex; align-items: center; gap: 8px; margin: 0; min-height: 1.4em; font-weight: 600; }
+.rf-explain { display: grid; gap: 2px; }
+.rf-deadline-box { display: grid; gap: 8px; }
 .sc-body { margin: 0 0 8px; line-height: 1.6; }
 .sc-list { display: grid; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; font-size: 14px; }
 .sc-suggest { margin-bottom: 12px; white-space: normal; max-width: 100%; }
 .sc-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.rf-custom:empty { display: none; }
-.rf-custom { font-weight: 700; color: var(--color-text); }
 @media (forced-colors: active) { .choice[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; } }

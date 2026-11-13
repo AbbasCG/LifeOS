@@ -1,11 +1,7 @@
 import { describe, it, expect, afterEach, afterAll } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
 import { setAccountZone } from '../lib/accountDay'
 import { deadlineField, deadlineInstant, deriveWhen, nextHalfHour, whenField } from '../lib/quickAdd'
-import { useSessionFields } from '../features/tasks/sessionFields'
 import { typedTimesShifted } from '../lib/zoneShift'
-import { LanguageProvider } from '../contexts/LanguageContext'
-import type { ReactNode } from 'react'
 
 /**
  * Typed times mean the ACCOUNT's timezone, not the browser's. Every case below runs with the browser in a zone that differs from
@@ -63,32 +59,6 @@ describe.each(BROWSERS)('browser in %s, account in Amsterdam', browser => {
     // A deadline typed as 00:30 on the 12th (Amsterdam) is tomorrow there, whatever the browser's day.
     expect(deriveWhen('2026-11-12T00:30', new Date('2026-11-11T20:00:00Z'))).toBe('tomorrow')
     expect(deriveWhen('2026-11-11T23:30', new Date('2026-11-11T20:00:00Z'))).toBe('today')
-  }))
-})
-
-describe('the scheduled start and end fields (browser in New York, account in Amsterdam)', () => {
-  const schedule = { session_id: 55, starts_at: '2026-11-12T08:00:00Z', ends_at: '2026-11-12T08:30:00Z', sessions: 1, split: false }
-  const hook = (task: Record<string, unknown>, estimate = 45) => renderHook(() => useSessionFields({ id: 7, ...task }, estimate), { wrapper: ({ children }: { children: ReactNode }) => <LanguageProvider>{children}</LanguageProvider> })
-  it('shows a saved session as the 09:00 to 09:30 the list badge and the calendar show', () => within('America/New_York', AMS, () => {
-    const { result } = hook({ schedule })
-    expect(result.current.start).toBe('2026-11-12T09:00'); expect(result.current.end).toBe('2026-11-12T09:30')
-    expect(result.current.plan()).toBeNull()   // untouched: nothing to save
-  }))
-  it('typing a start books it on the account clock, the end follows by the estimate, and moving never invents a deadline', () => within('America/New_York', AMS, () => {
-    const { result } = hook({ schedule: null })
-    act(() => result.current.changeStart('2026-11-13T09:00'))
-    expect(result.current.end).toBe('2026-11-13T09:45')
-    expect(result.current.plan()).toEqual({ slot: { starts_at: '2026-11-13T08:00:00.000Z', ends_at: '2026-11-13T08:45:00.000Z' } })
-    const moved = hook({ schedule })
-    act(() => moved.result.current.changeStart('2026-11-12T10:00'))
-    expect(moved.result.current.end).toBe('2026-11-12T10:30')
-    expect(moved.result.current.plan()).toEqual({ slot: { starts_at: '2026-11-12T09:00:00.000Z', ends_at: '2026-11-12T09:30:00.000Z' } })
-  }))
-  it('keeps the length across the spring change when the start moves over it', () => within('Asia/Riyadh', AMS, () => {
-    const { result } = hook({ schedule: null }, 60)
-    act(() => result.current.changeStart('2026-03-29T01:30'))   // 00:30Z
-    expect(result.current.plan()).toEqual({ slot: { starts_at: '2026-03-29T00:30:00.000Z', ends_at: '2026-03-29T01:30:00.000Z' } })
-    expect(result.current.end).toBe('2026-03-29T03:30')         // one hour later is 03:30 on the wall clock: 02:xx does not exist
   }))
 })
 

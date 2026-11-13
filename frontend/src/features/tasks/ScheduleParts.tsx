@@ -56,10 +56,10 @@ export function Duration({ minutes }: { minutes: number }) {
  * The next free times that fit the task, one tap each (the server's own free-time answer). `label` names the group. While a
  * request runs the group is busy: the buttons are aria-disabled (not disabled, so keyboard focus stays where it is) and a polite status says so.
  */
-export function SlotChoices({ task, label, busy, onPick, focusFirst = false, onCancel }: { task: Pick<RecordItem, 'id' | 'estimated_minutes'>; label: string; busy: boolean; onPick: (slot: FreeSlot) => void; focusFirst?: boolean; onCancel?: () => void }) {
+export function SlotChoices({ task, label, busy, onPick, focusFirst = false, onCancel, from }: { task: Pick<RecordItem, 'id' | 'estimated_minutes'>; label: string; busy: boolean; onPick: (slot: FreeSlot) => void; focusFirst?: boolean; onCancel?: () => void; from?: string }) {
   const t = useText(), { language } = useLanguage()
   const minutes = Math.max(15, task.estimated_minutes || 30)
-  const free = useApi<Availability>(`/api/availability?date=${accountDay()}&days=7&min_minutes=${minutes}`)
+  const free = useApi<Availability>(`/api/availability?date=${from && from > accountDay() ? from : accountDay()}&days=7&min_minutes=${minutes}`)
   const slots = suggestSlots(free.data, minutes), box = useRef<HTMLDivElement>(null), focused = useRef(false)
   const loaded = !!free.data
   useEffect(() => {

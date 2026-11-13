@@ -29,6 +29,9 @@ type Props = {
   label?: string
   /** Set when the trigger is one option of a radio group (Quick Add's date tile): it then has role radio and this checked state. */
   radioChecked?: boolean
+  /** What the trigger says while empty (default "Set date"), and what it says for a chosen date (default the short date): a tile can name itself. */
+  placeholder?: string
+  shown?: string
 }
 
 function useHourCycle(): [HourCycle, (next: HourCycle) => void] {
@@ -43,21 +46,22 @@ function useHourCycle(): [HourCycle, (next: HourCycle) => void] {
 
 const isPhone = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches
 
-export function DateTimeField({ kind, value: controlled, defaultValue = '', onChange: notify, name, id, required, disabled, min, max, className, label, radioChecked }: Props) {
+export function DateTimeField({ kind, value: controlled, defaultValue = '', onChange: notify, name, id, required, disabled, min, max, className, label, radioChecked, placeholder: emptyText, shown }: Props) {
   const t = useText(), { language } = useLanguage(), [open, setOpen] = useState(false), [cycle] = useHourCycle()
   const trigger = useRef<HTMLButtonElement>(null), [own, setOwn] = useState(defaultValue)
   const value = controlled ?? own
   const onChange = useCallback((next: string) => { setOwn(next); notify?.(next) }, [notify])
   const { date, time } = kind === 'datetime' ? splitDateTime(value) : kind === 'date' ? { date: parseDay(value) ? value : '', time: '' } : { date: '', time: TIME_RE.test(value) ? value : '' }
-  const text = kind === 'time' ? formatTime(time, cycle, language)
+  const computed = kind === 'time' ? formatTime(time, cycle, language)
     : date ? formatDay(date, language, { weekday: 'short', day: 'numeric', month: 'short', ...(kind === 'date' ? { year: 'numeric' } : {}) }) + (kind === 'datetime' && time ? ` · ${formatTime(time, cycle, language)}` : '')
       : ''
-  const placeholder = kind === 'time' ? t('Set time', 'اختر الوقت') : t('Set date', 'اختر التاريخ')
+  const text = shown && value ? shown : computed
+  const placeholder = emptyText ?? (kind === 'time' ? t('Set time', 'اختر الوقت') : t('Set date', 'اختر التاريخ'))
   const Icon = kind === 'time' ? Clock : CalendarDays
   const minDay = min?.slice(0, 10), maxDay = max?.slice(0, 10)
 
   return <span className={`dtp ${className ?? ''}`}>
-    <button ref={trigger} id={id} type="button" className="dtp-trigger" disabled={disabled} aria-haspopup="dialog" {...(radioChecked === undefined ? { 'aria-expanded': open } : { role: 'radio', 'aria-checked': radioChecked })} aria-label={label ? `${label}: ${text || placeholder}` : undefined} data-value={value} data-min={min} data-max={max} onClick={() => setOpen(true)}>
+    <button ref={trigger} id={id} type="button" className="dtp-trigger" disabled={disabled} aria-haspopup="dialog" {...(radioChecked === undefined ? { 'aria-expanded': open } : { role: 'radio', 'aria-checked': radioChecked })} aria-label={label ? ((text || placeholder) === label ? label : `${label}: ${text || placeholder}`) : undefined} data-value={value} data-min={min} data-max={max} onClick={() => setOpen(true)}>
       <Icon size={16} aria-hidden="true" /><span className={text ? '' : 'dtp-empty'} dir="auto">{text || placeholder}</span>
     </button>
     {/* Carries the value in a form post and makes `required` work, without the browser's own picker. */}

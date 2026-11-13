@@ -30,10 +30,10 @@ async function sessionsOf(page: Page, taskId: number) {
 /** `pick` from the fixtures, with the picker's Arabic names (the fixture helper knows only the English ones). */
 async function pickAr(page: Page, trigger: Locator, value: string) {
   await trigger.click()
-  const sheet = page.locator('.dtp-dialog[open]'), [date, time] = value.split('T')
+  const sheet = page.locator('.dtp-dialog[open]'), [date, time] = value.includes('T') ? value.split('T') : /^\d{4}-/.test(value) ? [value, ''] : ['', value]
   await expect(sheet).toBeVisible()
-  const d = sheet.getByRole('textbox', { name: 'التاريخ' }); await d.fill(date); await d.press('Enter')
-  const t = sheet.getByRole('textbox', { name: 'الوقت' }); await t.fill(time); await t.press('Enter')
+  if (date) { const d = sheet.getByRole('textbox', { name: 'التاريخ' }); await d.fill(date); await d.press('Enter') }
+  if (time) { const t = sheet.getByRole('textbox', { name: 'الوقت' }); await t.fill(time); await t.press('Enter') }
   await sheet.getByRole('button', { name: 'تم' }).click()
   await expect(sheet).toBeHidden()
 }
@@ -78,7 +78,9 @@ async function openDialog(page: Page, title: string) {
   await expect(dialog).toBeVisible()
   return dialog
 }
-const scheduleCalls = (page: Page, seen: { method: string; key: string }[]) => page.on('request', r => { if (/\/api\/tasks\/\d+\/schedule$/.test(r.url()) && ['POST', 'PUT'].includes(r.method())) seen.push({ method: r.method(), key: r.headers()['idempotency-key'] ?? '' }) })
+/** The saves of a task that carry a `schedule` (the dialog's one request): POST /api/tasks or PATCH /api/tasks/{id}. */
+const scheduleCalls = (page: Page, seen: { method: string; key: string }[]) => page.on('request', r => { if (/\/api\/tasks(\/\d+)?$/.test(r.url()) && ['POST', 'PATCH'].includes(r.method()) && (r.postData() ?? '').includes('"schedule"')) seen.push({ method: r.method(), key: r.headers()['idempotency-key'] ?? '' }) })
+const dayTile = (dialog: Locator) => dialog.getByRole('radio', { name: /^Pick a date|^تاريخ آخر/ })
 
 test('schedule from the edit dialog, move it once, then a taken time is refused with a clear dialog and a free time works', async ({ page, setLanguage, guard }, testInfo) => {
   guard.allowConsole(/status of 42[29]/)   // the refused overlap is the point of this test
@@ -91,11 +93,12 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
 
     // 1-3. A 30-minute task, scheduled at 09:00 from the dialog: one POST, one session, drawn once in the calendar.
     let dialog = await openDialog(page, first.title)
-    await expect(dialog.getByRole('region', { name: 'Scheduled execution time' })).toContainText('Not scheduled yet')
-    await pick(page, field(dialog, 'Execution start'), `${day}T09:00`)
+    await expect(dialog.getByRole('radio', { name: 'Not scheduled' })).toHaveAttribute('aria-checked', 'true')
+    await pick(page, dayTile(dialog), day); await pick(page, field(dialog, 'Start time'), '09:00')
+    await expect(dialog.locator('.rf-end')).toHaveText('Ends 09:30')
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(dialog).toBeHidden()
-    expect(seen.filter(c => c.method === 'POST')).toHaveLength(1); expect(seen[0].key).toMatch(/^[0-9a-f-]{36}$/)
+    expect(seen).toHaveLength(1); expect(seen[0].key).toMatch(/^[0-9a-f-]{36}$/)
     const created = await sessionsOf(page, first.id)
     expect(created).toHaveLength(1)
     expect(Date.parse(created[0].starts_at)).toBe(Date.parse(wall(day, '09:00'))); expect(Date.parse(created[0].ends_at)).toBe(Date.parse(wall(day, '09:30')))
@@ -105,15 +108,14 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
 
     // 4-6. Open the task again, move the start to 10:00 with Save (a double click): one PUT, the same session, the old block is gone.
     dialog = await openDialog(page, first.title)
-    const block = dialog.getByRole('region', { name: 'Scheduled execution time' })
-    await expect(block).toContainText(clock(created[0].starts_at, first.zone))
-    await pick(page, field(block, 'Execution start'), `${day}T10:00`)
-    const moved = page.waitForResponse(r => /\/api\/tasks\/\d+\/schedule$/.test(r.url()) && r.request().method() === 'PUT')
+    await expect(field(dialog, 'Start time')).toHaveAttribute('data-value', clock(created[0].starts_at, first.zone))
+    await pick(page, field(dialog, 'Start time'), '10:00')
+    const moved = page.waitForResponse(r => /\/api\/tasks\/\d+$/.test(r.url()) && r.request().method() === 'PATCH')
     await dialog.getByRole('button', { name: 'Save' }).dblclick()
     expect((await moved).status()).toBe(200)
     await expect(dialog).toBeHidden()
     await page.waitForTimeout(400)
-    expect(seen.filter(c => c.method === 'PUT')).toHaveLength(1)
+    expect(seen.filter(c => c.method === 'PATCH')).toHaveLength(2)   // the first booking and this move: one request each
     const afterMove = await sessionsOf(page, first.id)
     expect(afterMove).toHaveLength(1); expect(afterMove[0].event_id).toBe(eventId)
     expect(Date.parse(afterMove[0].starts_at)).toBe(Date.parse(wall(day, '10:00'))); expect(Date.parse(afterMove[0].ends_at)).toBe(Date.parse(wall(day, '10:30')))
@@ -129,7 +131,7 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
 
     // 8-10. A second task, 09:45 to 10:15: the server says no, the dialog explains, nothing is created, the edit dialog stays open.
     dialog = await openDialog(page, second.title)
-    await pick(page, field(dialog.getByRole('region', { name: 'Scheduled execution time' }), 'Execution start'), `${day}T09:45`)
+    await pick(page, dayTile(dialog), day); await pick(page, field(dialog, 'Start time'), '09:45')
     await dialog.getByRole('button', { name: 'Save' }).click()
     const alert = page.getByRole('alertdialog')
     await expect(alert).toBeVisible()
@@ -156,7 +158,7 @@ test('schedule from the edit dialog, move it once, then a taken time is refused 
     const placed = await sessionsOf(page, second.id)
     expect(placed).toHaveLength(1)
     expect(Date.parse(placed[0].starts_at) >= Date.parse(wall(day, '10:30')) || Date.parse(placed[0].ends_at) <= Date.parse(wall(day, '10:00'))).toBe(true)
-    expect(seen.filter(c => c.method === 'POST')).toHaveLength(4)   // first task, the refused try, the same try again after Escape, the suggestion
+    expect(seen).toHaveLength(5)   // first booking, the move, the refused try, the same try again after Escape, the suggestion
     expect(await sessionsOf(page, first.id)).toHaveLength(1)
   } finally { await cleanup(page, second.id); await cleanup(page, first.id) }
 })
@@ -184,7 +186,7 @@ test('the conflict dialog reads right in Arabic and fits a 320px screen', async 
   try {
     expect((await call(page, 'POST', `/api/tasks/${first.id}/schedule`, { starts_at: wall(day, '09:00'), ends_at: wall(day, '09:30') }, { 'Idempotency-Key': crypto.randomUUID() })).status).toBe(201)
     const dialog = await openDialog(page, second.title)
-    await pickAr(page, field(dialog.getByRole('region', { name: 'موعد التنفيذ المجدول' }), 'بداية التنفيذ'), `${day}T09:15`)
+    await pickAr(page, dayTile(dialog), day); await pickAr(page, field(dialog, 'وقت البداية'), '09:15')
     await dialog.getByRole('button', { name: 'حفظ' }).click()
     const alert = page.getByRole('alertdialog')
     await expect(alert.getByRole('heading')).toHaveText('هذا الوقت محجوز بالفعل لمهمة أخرى.')
@@ -196,7 +198,7 @@ test('the conflict dialog reads right in Arabic and fits a 320px screen', async 
     expect(await a11yViolations(page, 'dialog.sc-dialog')).toEqual([])
     await alert.getByRole('button', { name: 'اختيار وقت آخر' }).click()
     await expect(alert).toBeHidden()
-    await expect(field(dialog.getByRole('region', { name: 'موعد التنفيذ المجدول' }), 'بداية التنفيذ')).toBeFocused()
+    await expect(field(dialog, 'وقت البداية')).toBeFocused()
     expect(await sessionsOf(page, second.id)).toHaveLength(0)
   } finally { await cleanup(page, second.id); await cleanup(page, first.id) }
 })

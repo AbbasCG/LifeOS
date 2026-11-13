@@ -40,6 +40,11 @@ const patches = (calls: Call[]) => calls.filter(c => c.method === 'PATCH').map(c
 const open = (resource = 'tasks', item: Record<string, unknown> = allDay()) => { const onClose = vi.fn(); render(wrap(<RecordForm resource={resource} item={item} onSave={vi.fn()} onClose={onClose} />)); return onClose }
 const save = async (calls: Call[]) => { fireEvent.click(screen.getByRole('button', { name: 'Save' })); await waitFor(() => expect(patches(calls)).toHaveLength(1)); return patches(calls)[0] }
 const toggle = () => screen.getByRole('checkbox', { name: 'No specific time' }) as HTMLInputElement
+const pickDeadlineDay = (day: string) => {
+  fireEvent.click(field())
+  const box = screen.getByRole('textbox', { name: 'Date' }); fireEvent.change(box, { target: { value: day } }); fireEvent.keyDown(box, { key: 'Enter' })
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+}
 const field = () => (document.querySelector('.rf-deadline .dtp-trigger') as HTMLElement)
 
 beforeEach(() => { cleanup(); localStorage.clear(); localStorage.setItem('lifeos-language', 'en'); vi.unstubAllGlobals(); setAccountZone('Europe/Amsterdam'); vi.useFakeTimers({ toFake: ['Date'], now: new Date(NOW) }) })
@@ -58,7 +63,7 @@ describe('the deadline toggle "No specific time"', () => {
   })
   it('a new day on a date-only task posts exactly { due_date }', async () => {
     const calls = server(); open()
-    fireEvent.click(screen.getByRole('radio', { name: 'Tomorrow' }))
+    pickDeadlineDay('2026-11-13')
     const body = await save(calls)
     expect(body.due_date).toBe('2026-11-13'); expect(body).not.toHaveProperty('due_at')
   })
@@ -77,11 +82,11 @@ describe('the deadline toggle "No specific time"', () => {
     const body = await save(calls)
     expect(body.due_date).toBe('2026-11-14'); expect(body).not.toHaveProperty('due_at')
   })
-  it('a new task defaults to timed; ON then Save posts due_date', async () => {
+  it('a new task has no deadline until the switch is on; "No specific time" then Save posts due_date', async () => {
     const calls = server(); render(wrap(<RecordForm resource="tasks" item={{}} onSave={vi.fn()} onClose={vi.fn()} />))
-    expect(toggle().checked).toBe(false)
+    expect(screen.queryByRole('checkbox', { name: 'No specific time' })).toBeNull()
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'New' } })
-    fireEvent.click(screen.getByRole('radio', { name: 'Tomorrow' })); fireEvent.click(toggle())
+    fireEvent.click(screen.getByRole('checkbox', { name: /Do you have a deadline/ })); pickDeadlineDay('2026-11-13'); fireEvent.click(toggle())
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some(c => c.method === 'POST')).toBe(true))
     const body = calls.find(c => c.method === 'POST')!.body!
