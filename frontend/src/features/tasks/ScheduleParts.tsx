@@ -60,14 +60,18 @@ export function SlotChoices({ task, label, busy, onPick, focusFirst = false, onC
   const t = useText(), { language } = useLanguage()
   const minutes = Math.max(15, task.estimated_minutes || 30)
   const free = useApi<Availability>(`/api/availability?date=${from && from > accountDay() ? from : accountDay()}&days=7&min_minutes=${minutes}`)
-  const slots = suggestSlots(free.data, minutes), box = useRef<HTMLDivElement>(null), focused = useRef(false)
-  const loaded = !!free.data
+  // While the next answer loads (the duration changed) the choices stay as they were: they never vanish and come back.
+  const [kept, setKept] = useState<Availability | null>(null)
+  if (free.data && free.data !== kept) setKept(free.data)
+  const shown = free.data ?? kept
+  const slots = suggestSlots(shown, minutes), box = useRef<HTMLDivElement>(null), focused = useRef(false)
+  const loaded = !!shown
   useEffect(() => {
     if (!focusFirst || !loaded || focused.current) return
     focused.current = true
     box.current?.querySelector<HTMLButtonElement>('button')?.focus()
   }, [focusFirst, loaded])
-  if (!free.data) return null
+  if (!shown) return null
   // Escape closes only these choices: preventDefault stops a dialog around them from taking it as its own "cancel".
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && onCancel) { e.preventDefault(); e.stopPropagation(); onCancel() } }
   return <div ref={box} className="task-quick" data-sched-chips="" role="group" aria-label={label} aria-busy={busy} onKeyDown={onKey}>

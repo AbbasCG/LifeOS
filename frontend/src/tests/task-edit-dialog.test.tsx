@@ -103,7 +103,8 @@ describe('one step: choose a day, a start and a length, press Save once', () => 
     expect(ends()).toBe('Ends Tomorrow 00:20')
     fireEvent.click(chip('15')); expect(ends()).toBe('Ends Tomorrow 00:05')
     typeStart('22:00'); expect(ends()).toBe('Ends 22:15')
-    expect(document.querySelector('.rf-end')).toHaveAttribute('role', 'status')   // announced politely
+    expect(document.querySelector('.rf-end')).not.toHaveAttribute('role')   // no live region: it does not chatter at every keystroke
+    expect(startTrigger().getAttribute('aria-describedby')).toBe(document.querySelector('.rf-end')!.id)   // the start field is described by it
     expect(document.querySelector('.rf-end input')).toBeNull()
   })
   it('custom duration: a number of minutes, at least 5; it IS the estimate, there is no separate estimate field', async () => {
@@ -132,6 +133,69 @@ describe('one step: choose a day, a start and a length, press Save once', () => 
     fireEvent.click((await screen.findAllByRole('button', { name: /Suggested times/ }))[0])
     expect(startValue()).toBe('09:00'); expect(checked()).toEqual(expect.not.arrayContaining(['Tomorrow']))
     expect(document.querySelector('.qa-pick.is-set')).not.toBeNull()   // 13 Nov is its own selected "Pick a date" tile
+  })
+})
+
+describe('the length of a task that is not scheduled, and the end in the same clock', () => {
+  it('an unscheduled task can still set its estimate: the duration group is there and the chosen minutes are posted, with no schedule', async () => {
+    const calls = server(); const { onClose } = open({})
+    expect(screen.getByRole('radiogroup', { name: 'How long will it take?' })).toBeInTheDocument(); expect(screen.queryByText('Start time')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Estimate only' } })
+    fireEvent.click(chip('45')); fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 45 }); expect(bodyOf(calls)).not.toHaveProperty('schedule')
+  })
+  it('removing a session keeps the estimate the user chose', async () => {
+    const calls = server(); const { onClose } = open(task({ schedule: session() }))
+    fireEvent.click(tile('Not scheduled')); fireEvent.click(chip('60'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(bodyOf(calls)).toMatchObject({ estimated_minutes: 60, schedule: null })
+  })
+  it('the end line follows the user\'s 12/24-hour setting, like the start field (never "9:00 AM … Ends 09:15")', () => {
+    localStorage.setItem('lifeos-hour-cycle', '12'); server(); open({})
+    fireEvent.click(tile('Tomorrow')); expect(startTrigger().textContent).toBe('9:00 AM'); expect(ends()).toBe('Ends 9:30 AM')
+  })
+  it('choosing Custom moves focus to the number box', () => {
+    server(); open({}); fireEvent.click(chip('Custom'))
+    expect(screen.getByLabelText('Custom duration (minutes)')).toHaveFocus()
+  })
+  it('typing a custom length does not ask for suggestions digit by digit, and the suggestions never vanish while loading', async () => {
+    const calls = server(); open({}); fireEvent.click(tile('Tomorrow'))
+    await screen.findAllByRole('button', { name: /Suggested times/ })
+    fireEvent.click(chip('Custom')); const input = screen.getByLabelText('Custom duration (minutes)')
+    for (const v of ['1', '12', '120']) fireEvent.change(input, { target: { value: v } })
+    expect(screen.getByRole('group', { name: 'Suggested times' })).toBeInTheDocument()
+    await waitFor(() => expect(calls.some(c => /min_minutes=120/.test(c.url))).toBe(true))
+    expect(calls.some(c => /min_minutes=15&|min_minutes=15$/.test(c.url))).toBe(false)
+    expect(screen.getByRole('group', { name: 'Suggested times' })).toBeInTheDocument()
+  })
+  it('near midnight with no half hour left, Today falls back to tomorrow 09:00', () => {
+    server(); vi.setSystemTime(new Date('2026-11-11T22:40:00Z')); open({})   // 23:40
+    fireEvent.click(tile('Today')); expect(checked()).toContain('Tomorrow'); expect(startValue()).toBe('09:00')
+  })
+  it('a start that has passed before Save is said calmly and nothing is sent', async () => {
+    const calls = server(); open({}); fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Late' } }); fireEvent.click(tile('Today'))   // 11:30 for 30 minutes
+    vi.setSystemTime(new Date('2026-11-11T12:00:00Z'))
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(formError()).toHaveTextContent('Choose a time that has not passed.'))
+    expect(writes(calls)).toHaveLength(0)
+  })
+  it('a clock-skipped start (02:30 on the spring day) is shown as what will be booked', () => {
+    server(); open(task({ schedule: session({ starts_at: '2026-03-29T00:30:00Z', ends_at: '2026-03-29T01:00:00Z' }) }))   // 01:30 Amsterdam, then typed 02:30
+    typeStart('02:30'); expect(startValue()).toBe('03:30'); expect(ends()).toBe('Ends 04:00')
+  })
+  it('the second 02:30 of the autumn day: a length change does not put the end an hour off', () => {
+    server(); open(task({ schedule: session({ starts_at: '2026-10-25T01:30:00Z', ends_at: '2026-10-25T02:00:00Z' }) }))
+    expect(startValue()).toBe('02:30'); fireEvent.click(chip('60')); expect(ends()).toBe('Ends 03:30')
+  })
+})
+
+describe('a deadline before the end of the session', () => {
+  it('says so calmly (a polite, static notice) and stops when the deadline is later', () => {
+    server(); open(task({ schedule: session(), due_at: '2026-11-12T08:10:00Z' }))   // session 09:00-09:30, due 09:10
+    expect(screen.getByText('The scheduled session is after the deadline.')).toBeInTheDocument()
+    expect(screen.getByText('The scheduled session is after the deadline.').closest('[aria-live]')).toHaveAttribute('aria-live', 'polite')
+    cleanup(); open(task({ schedule: session(), due_at: '2026-11-20T08:30:00Z' }))
+    expect(screen.queryByText('The scheduled session is after the deadline.')).toBeNull()
   })
 })
 
@@ -272,6 +336,24 @@ describe('a taken time', () => {
     fireEvent.click(saveButton()); await waitFor(() => expect(formError()).toHaveTextContent('Could not reach LifeOS'))
     fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
     const posts = calls.filter(c => c.method === 'POST'); expect(posts).toHaveLength(2); expect(posts[0].key).toBe(posts[1].key); expect(posts[0].key).toBeTruthy()
+  })
+})
+
+describe('the Idempotency-Key after a server error', () => {
+  it('a 502 keeps the key (the save may have happened), so the retry cannot create a second task; a 4xx drops it', async () => {
+    let n = 0; const calls: Call[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method || 'GET'
+      calls.push({ method, url: String(url), key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] })
+      if (method === 'POST') { n++; return new Response(JSON.stringify(n === 1 ? { message: 'Bad gateway' } : n === 2 ? { message: 'No' } : { data: { id: 9 } }), { status: n === 1 ? 502 : n === 2 ? 422 : 201 }) }
+      return new Response(JSON.stringify(/availability/.test(String(url)) ? free : { data: [], meta: { last_page: 1 } }), { status: 200 })
+    }))
+    const { onClose } = open({}); fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Pay' } })
+    fireEvent.click(saveButton()); await waitFor(() => expect(formError()).toHaveTextContent('Bad gateway'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(formError()).toHaveTextContent('No'))
+    fireEvent.click(saveButton()); await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const keys = calls.filter(c => c.method === 'POST').map(c => c.key)
+    expect(keys[0]).toBe(keys[1]); expect(keys[2]).not.toBe(keys[1])
   })
 })
 

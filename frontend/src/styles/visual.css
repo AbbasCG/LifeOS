@@ -648,4 +648,4 @@ a.filter-chip { text-decoration: none; color: var(--color-text); }
 .sc-list { display: grid; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; font-size: 14px; }
 .sc-suggest { margin-bottom: 12px; white-space: normal; max-width: 100%; }
 .sc-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-@media (forced-colors: active) { .choice[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; } }
+@media (forced-colors: active) { .choice[aria-checked="true"], .rf-whens .dtp-trigger[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; } }

@@ -18,7 +18,7 @@ import { ErrorMessage } from '../components/ui/Shared'
 import { useText } from '../lib/i18n'
 import { useToast } from '../lib/toast'
 
-const NL: Record<string, string> = {"Active": "Actief", "Add milestone": "Mijlpaal toevoegen", "Add subtask": "Subtaak toevoegen", "Cancel": "Annuleren", "Cancelled": "Geannuleerd", "Category": "Categorie", "Changes saved.": "Wijzigingen opgeslagen.", "Color": "Kleur", "Completed": "Voltooid", "Create item": "Item maken", "Created.": "Gemaakt.", "Daily": "Dagelijks", "Deadline": "Deadline", "Description": "Beschrijving", "Does not repeat": "Herhaalt niet", "Edit item": "Item bewerken", "End": "Einde", "Fixed commitment": "Vaste afspraak", "Flexible block": "Flexibel blok", "Goal": "Doel", "High": "Hoog", "In progress": "Bezig", "Inbox": "Inbox", "Low": "Laag", "Medium": "Gemiddeld", "Milestone title": "Titel van mijlpaal", "Milestones": "Mijlpalen", "More options": "Meer opties", "Morning, evening…": "Ochtend, avond…", "Notes": "Notities", "Paused": "Gepauzeerd", "Personal": "Persoonlijk", "Priority": "Prioriteit", "Progress": "Voortgang", "Project": "Project", "Recurrence": "Herhaling", "Remind me": "Herinner mij", "Remind me at": "Herinner mij om", "Remove": "Verwijderen", "Repeat": "Herhalen", "Routine": "Routine", "Save": "Opslaan", "Saving…": "Opslaan…", "Start": "Start", "Status": "Status", "Study": "Studie", "Subtask title": "Titel van subtaak", "Subtasks": "Subtaken", "Tags (comma separated)": "Labels (komma-gescheiden)", "Target": "Streefwaarde", "Task": "Taak", "This is a fixed commitment. I confirm I want to change its time.": "Dit is een vaste afspraak. Ik bevestig dat ik de tijd wil wijzigen.", "Time boundary": "Tijdsgrens", "Title": "Titel", "To do": "Te doen", "Today": "Vandaag", "Tomorrow": "Morgen", "Type": "Type", "Until it’s logged that day (week, for weekly habits).": "Tot het die dag is vastgelegd (week, bij wekelijkse gewoonten).", "Urgent": "Urgent", "Weekly": "Wekelijks", "Work (default)": "Werk (standaard)"}
+const NL: Record<string, string> = {"Active": "Actief", "Add milestone": "Mijlpaal toevoegen", "Add subtask": "Subtaak toevoegen", "Cancel": "Annuleren", "Cancelled": "Geannuleerd", "Category": "Categorie", "Changes saved.": "Wijzigingen opgeslagen.", "Color": "Kleur", "Completed": "Voltooid", "Create item": "Item maken", "Created.": "Gemaakt.", "Daily": "Dagelijks", "Deadline": "Deadline", "Description": "Beschrijving", "Does not repeat": "Herhaalt niet", "Edit item": "Item bewerken", "End": "Einde", "Fixed commitment": "Vaste afspraak", "Flexible block": "Flexibel blok", "Goal": "Doel", "High": "Hoog", "In progress": "Bezig", "Inbox": "Inbox", "Low": "Laag", "Medium": "Gemiddeld", "Milestone title": "Titel van mijlpaal", "Milestones": "Mijlpalen", "More options": "Meer opties", "Morning, evening…": "Ochtend, avond…", "Notes": "Notities", "Paused": "Gepauzeerd", "Personal": "Persoonlijk", "Priority": "Prioriteit", "Progress": "Voortgang", "Project": "Project", "Recurrence": "Herhaling", "Remind me": "Herinner mij", "Remind me at": "Herinner mij om", "Remove": "Verwijderen", "Repeat": "Herhalen", "Routine": "Routine", "Save": "Opslaan", "Saving…": "Opslaan…", "Start": "Start", "Status": "Status", "Study": "Studie", "Subtask title": "Titel van subtaak", "Subtasks": "Subtaken", "Tags (comma separated)": "Labels (komma-gescheiden)", "Target": "Streefwaarde", "Task": "Taak", "This is a fixed commitment. I confirm I want to change its time.": "Dit is een vaste afspraak. Ik bevestig dat ik de tijd wil wijzigen.", "Time boundary": "Tijdsgrens", "Title": "Titel", "To do": "Te doen", "Type": "Type", "Until it’s logged that day (week, for weekly habits).": "Tot het die dag is vastgelegd (week, bij wekelijkse gewoonten).", "Urgent": "Urgent", "Weekly": "Wekelijks", "Work (default)": "Werk (standaard)"}
 /** `t` for this dialog: the usual three-language text, with Dutch for every English phrase listed above (others pass their own). */
 function useT() { const base = useText(); return (en: string, ar: string, nl?: string) => base(en, ar, nl ?? NL[en]) }
 const STATUSES = ['inbox', 'todo', 'in_progress', 'completed', 'cancelled']
@@ -36,7 +36,7 @@ type Step = { title: string; completed: boolean }
  */
 export function RecordForm({ resource, item, onSave, onClose }: { resource: string; item: Partial<RecordItem>; onSave: () => void; onClose: () => void }) {
   const t = useT(), label = useStatusLabel(), toast = useToast()
-  const saving = useRef(false), helperId = useId(), zoneId = useId(), explainId = useId()
+  const saving = useRef(false), helperId = useId(), zoneId = useId(), explainId = useId(), removeDueId = useId()
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const wantsLists = resource === 'tasks', projects = useRecords('projects'), categories = useRecords('categories'), goals = useRecords('goals'), tasks = useRecords('tasks')
   const [subtasks, setSubtasks] = useState<Step[]>((((resource === 'projects' || resource === 'goals') ? item.milestones : item.subtasks) as Step[]) || [])
@@ -55,6 +55,11 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const formId = `record-form-${resource}`
   // The day, start and length of the calendar session travel in the same request as the task (the server books or moves it atomically).
   const exec = useExecution(item), closed = status === 'completed' || status === 'cancelled'
+  // A deadline earlier than the end of the session is said calmly (a date-only deadline ends with its day).
+  const dueInstant = hasDeadline && due ? deadlineInstant(noTime ? `${due.slice(0, 10)}T23:59` : due) : null
+  const lateAfter = !!dueInstant && !!exec.booking && exec.day !== '' && Date.parse(dueInstant) < Date.parse(exec.booking.ends_at)
+  const removing = !hasDeadline && !!item.id && !!openedDue.field
+  const pastMessage = t('Choose a time that has not passed.', 'اختر وقتًا لم يمضِ.', 'Kies een tijd die nog niet voorbij is.')
   // Unsaved work = any posted field or subtask that differs from what the form opened with (hidden inputs carry the choice buttons' values).
   const opened = useRef<string | null>(null)
   const snapshot = useCallback(() => {
@@ -90,6 +95,9 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
         Object.assign(data, hasDeadline ? duePayload({ field: due, noTime }, item.id ? openedDue : null) : item.id && openedDue.field ? { due_at: null } : {})
         const plan = exec.payload(closed, over)
         if (!plan) { setError(t('Choose a start time and a duration of at least 5 minutes.', 'اختر وقت بداية ومدة لا تقل عن 5 دقائق.', 'Kies een starttijd en een duur van minstens 5 minuten.')); return }
+        // A time that is already over (the start was picked earlier and has since passed) is said calmly, before anything is sent.
+        const sched = plan.schedule
+        if (sched && Date.parse(sched.starts_at) + plan.estimated_minutes * 60_000 <= Date.now()) { setError(pastMessage); return }
         Object.assign(data, plan)
       }
       for (const key of ['project_id', 'goal_id', 'category_id', 'task_id']) if (key in data) data[key] = data[key] ? Number(data[key]) : null
@@ -100,10 +108,12 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
       if (resource === 'tasks') keys.current.set(signature, key)
       try { await api(`/api/${resource}${item.id ? `/${item.id}` : ''}`, item.id ? 'PATCH' : 'POST', data, resource === 'tasks' ? { 'Idempotency-Key': key } : undefined) }
       catch (err) {
-        if (!(err instanceof ApiError && err.status === 0)) keys.current.delete(signature)
+        // The key is dropped only for an answer that is final (4xx). A dropped connection, a 5xx or a timeout may have saved it: the retry carries the same key.
+        if (err instanceof ApiError && err.status >= 400 && err.status < 500) keys.current.delete(signature)
         // A taken time: nothing was saved, the dialog stays as it is, and the conflict dialog says what is in the way.
         const taken = resource === 'tasks' ? parseConflict(err) : null
-        if (taken) setConflict(taken); else setError((err as Error).message)
+        if (taken) setConflict(taken)
+        else setError(err instanceof ApiError && err.status === 422 && err.errors?.['schedule.ends_at'] ? pastMessage : (err as Error).message)
         return
       }
       keys.current.delete(signature)
@@ -130,7 +140,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const setPicked = (key: string) => (value: string) => setPick(p => ({ ...p, [key]: value }))
 
   const tasksFields = <>
-    <ExecutionSection exec={exec} closed={closed} busy={busy} />
+    <ExecutionSection exec={exec} closed={closed} busy={busy} lateAfter={lateAfter} />
     <div className="field-block"><span className="field-title">{t('Priority', 'الأولوية')}</span><ChoiceGroup label={t('Priority', 'الأولوية')} variant="tiles" columns={4} name="priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
     <div className="field-block"><span className="field-title">{t('Status', 'الحالة')}</span><ChoiceGroup label={t('Status', 'الحالة')} name="status" value={status} onChange={setStatus} options={STATUSES.map(s => ({ value: s, label: label(s) }))} /></div>
     <div className="field-block"><span className="field-title">{t('Repeat', 'التكرار')}</span><ChoiceGroup label={t('Repeat', 'التكرار')} variant="tiles" columns={3} name="recurrence" value={recurrence} onChange={setRecurrence} options={[{ value: '', label: t('Does not repeat', 'بلا تكرار'), icon: icon(X) }, { value: 'daily', label: t('Daily', 'يومياً'), icon: icon(Repeat) }, { value: 'weekly', label: t('Weekly', 'أسبوعياً'), icon: icon(CalendarDays) }]} /></div>
@@ -143,7 +153,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
       <summary><ChevronDown size={16} aria-hidden="true" />{t('More options', 'خيارات متقدمة')}</summary>
       <div className="rf-more-body">
         <div className="field-block full rf-deadline-box">
-          <label className="inline rf-notime"><input type="checkbox" checked={hasDeadline} aria-describedby={explainId} onChange={e => { setHasDeadline(e.target.checked); if (e.target.checked && !due) setDue(whenField('today', '')) }} />{t('Do you have a deadline for finishing it?', 'هل لديك موعد نهائي لإنجاز المهمة؟', 'Heb je een deadline om de taak af te ronden?')}</label>
+          <label className="inline rf-notime"><input type="checkbox" checked={hasDeadline} aria-describedby={removing ? `${explainId} ${removeDueId}` : explainId} onChange={e => { setHasDeadline(e.target.checked); if (e.target.checked && !due) setDue(whenField('today', '')) }} />{t('Do you have a deadline for finishing it?', 'هل لديك موعد نهائي لإنجاز المهمة؟', 'Heb je een deadline om de taak af te ronden?')}</label>
           <small id={explainId} className="muted rf-explain"><span>{t('Execution time: when I will work on the task.', 'موعد التنفيذ: الوقت الذي سأعمل فيه على المهمة.', 'Uitvoeringstijd: wanneer ik aan de taak werk.')}</span> <span>{t('Deadline: the last moment I must have finished it by.', 'الموعد النهائي: آخر موعد يجب أن أنجزها قبله.', 'Deadline: het laatste moment waarop de taak klaar moet zijn.')}</span></small>
           {hasDeadline ? <>
             <div role="group" aria-label={t('Deadline (due)', 'الموعد النهائي (الاستحقاق)', 'Deadline (uiterste datum)')} aria-describedby={typedTimesShifted() ? `${helperId} ${zoneId}` : helperId}>
@@ -153,7 +163,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
               <label className="inline rf-notime"><input type="checkbox" checked={noTime} aria-describedby={helperId} onChange={e => setNoTime(e.target.checked)} />{t('No specific time', 'بدون وقت محدد', 'Geen vaste tijd')}</label></div>
             <ZoneNote id={zoneId} />
             <small id={helperId} className="muted" aria-live="polite">{noTime ? t('Due any time that day. It counts as overdue only after the day ends.', 'مستحقة في أي وقت من ذلك اليوم، وتُعدّ متأخرة بعد انتهاء اليوم فقط.', 'Op elk moment die dag. Pas te laat als de dag voorbij is.') : t('It counts as overdue after this time.', 'تُعدّ متأخرة بعد هذا الوقت.', 'Te laat na dit tijdstip.')}</small></>
-          : item.id && openedDue.field ? <small className="muted" role="status">{t('Saving will remove the deadline.', 'سيؤدي الحفظ إلى حذف الموعد النهائي.', 'Opslaan verwijdert de deadline.')}</small> : null}
+          : removing ? <small id={removeDueId} className="muted">{t('Saving will remove the deadline.', 'سيؤدي الحفظ إلى حذف الموعد النهائي.', 'Opslaan verwijdert de deadline.')}</small> : null}
         </div>
         <label className="full">{t('Description', 'الوصف')}<textarea name="description" defaultValue={item.description || ''} rows={3} /></label>
         <label>{t('Remind me', 'ذكّرني')}<DateTimeField kind="datetime" name="remind_at" defaultValue={fieldOf(item.remind_at as string | null | undefined)} /></label>

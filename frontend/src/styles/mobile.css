@@ -52,8 +52,8 @@ img, svg, video, canvas { max-width: 100%; }
 .choice.tone-high[aria-checked="true"] { background: var(--color-warning); border-color: var(--color-warning); color: var(--color-on-warning); }
 .choice.tone-low[aria-checked="true"] { background: var(--color-text-muted); border-color: var(--color-text-muted); color: var(--color-surface); }
 /* Selection is also shown by a check mark, so it does not depend on colour alone. The empty alternative text keeps it out of the accessible name. */
-.choice-tiles .choice, .qa-whens .choice { position: relative; }
-.choice-tiles .choice[aria-checked="true"]::after, .qa-whens .choice[aria-checked="true"]::after { content: "✓" / ""; position: absolute; inset-block-start: 3px; inset-inline-end: 7px; font-size: 12px; font-weight: 800; line-height: 1; }
+.choice-tiles .choice, .qa-whens .choice, .rf-whens .dtp-trigger { position: relative; }
+.choice-tiles .choice[aria-checked="true"]::after, .qa-whens .choice[aria-checked="true"]::after, .rf-whens .dtp-trigger[aria-checked="true"]::after { content: "✓" / ""; position: absolute; inset-block-start: 3px; inset-inline-end: 7px; font-size: 12px; font-weight: 800; line-height: 1; }
 .field-block { display: grid; gap: 8px; min-width: 0; }
 .field-title { font-size: 13px; font-weight: 700; color: var(--color-text-muted); letter-spacing: .01em; }
 

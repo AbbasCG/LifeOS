@@ -23,15 +23,22 @@ export function choiceOf(day: string, now = new Date()): DayChoice {
 
 export const validMinutes = (minutes: number) => Number.isInteger(minutes) && minutes >= MIN_DURATION && minutes <= MAX_DURATION
 
-/** The start a freshly chosen day gets: the next half hour for today (never in the past), 09:00 for any other day. */
-export function defaultStart(day: string, now = new Date()): string {
-  return day === accountDay(now) ? nextHalfHour(now, accountZone()) : DEFAULT_START
+/** Where a freshly chosen day starts: the next half hour for today (never in the past), 09:00 for any other day; with no half hour left today, tomorrow 09:00. */
+export function defaultWhen(day: string, now = new Date()): { day: string; start: string } {
+  if (day !== accountDay(now)) return { day, start: DEFAULT_START }
+  const next = nextHalfHour(now, accountZone())
+  return next === '23:59' ? { day: shiftDay(day, 1), start: DEFAULT_START } : { day, start: next }
 }
-/** A start the user already chose, moved to a day: kept, unless that day is today and the time has passed (then the next half hour). */
-export function startOnDay(day: string, start: string, now = new Date()): string {
-  if (!/^\d{2}:\d{2}$/.test(start)) return defaultStart(day, now)
+/** A start the user already chose, moved to a day: kept, unless that day is today and the time has passed (then the day's default). */
+export function whenFor(day: string, start: string, now = new Date()): { day: string; start: string } {
+  if (!/^\d{2}:\d{2}$/.test(start)) return defaultWhen(day, now)
   const at = deadlineInstant(`${day}T${start}`)
-  return day === accountDay(now) && (at === null || Date.parse(at) < now.getTime()) ? defaultStart(day, now) : start
+  return day === accountDay(now) && (at === null || Date.parse(at) < now.getTime()) ? defaultWhen(day, now) : { day, start }
+}
+/** The start as the clock will really show it: a time the clock skips (02:30 on the spring day) is 03:30. */
+export function settledStart(day: string, start: string): string {
+  const real = deadlineField(deadlineInstant(`${day}T${start}`))
+  return real ? real.slice(11, 16) : start
 }
 
 /** The length of a session in whole minutes. */
@@ -41,10 +48,11 @@ export type Booking = { starts_at: string; ends_at: string; endDay: string; endT
 /**
  * The booking a day, a start and a length mean: both instants (real elapsed time, so a day with a clock change is 23 or 25 hours long)
  * and the end as the account's wall clock (`endDay` differs from `day` when it passes midnight). null while any of them is not valid.
+ * `savedStart`: the saved instant of an unchanged start (the second 02:30 of the autumn day reads the same as the first on the wall clock).
  */
-export function bookingOf(day: string, start: string, minutes: number): Booking | null {
+export function bookingOf(day: string, start: string, minutes: number, savedStart?: string): Booking | null {
   if (!day || !/^\d{2}:\d{2}$/.test(start) || !validMinutes(minutes)) return null
-  const startsAt = deadlineInstant(`${day}T${start}`)
+  const startsAt = savedStart ?? deadlineInstant(`${day}T${start}`)
   if (!startsAt) return null
   const endsAt = new Date(Date.parse(startsAt) + minutes * 60_000).toISOString(), end = deadlineField(endsAt)
   return { starts_at: startsAt, ends_at: endsAt, endDay: end.slice(0, 10), endTime: end.slice(11, 16) }

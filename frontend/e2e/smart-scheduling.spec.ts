@@ -93,6 +93,7 @@ test('the acceptance flow: a new 15-minute task, 15:30, one Save, it is in the c
     await expect(dialog.getByText(/Estimate|Scheduled execution|Execution end/)).toHaveCount(0)              // no second length field, no typed end
     await pick(page, dayTile(dialog), day)
     await expect(dayTile(dialog)).toHaveAttribute('aria-checked', 'true')
+    expect(await dayTile(dialog).evaluate(el => getComputedStyle(el, '::after').content)).toMatch(/✓/)   // a visible selected cue beyond colour
     await pick(page, start(dialog), '15:30')
     await dialog.getByRole('radio', { name: '15', exact: true }).click()
     await expect(endLine(dialog)).toHaveText('Ends 15:45')
@@ -151,8 +152,10 @@ test('a new task saved with no schedule is just a task: no session, no deadline,
   try {
     const dialog = await openNew(page, title)
     await expect(dialog.getByRole('checkbox', { name: /Do you have a deadline/ })).not.toBeChecked().catch(async () => { await dialog.getByText('More options').click(); await expect(dialog.getByRole('checkbox', { name: /Do you have a deadline/ })).not.toBeChecked() })
+    await dialog.getByRole('radio', { name: '45', exact: true }).click()   // the estimate can be set without scheduling
     await save(dialog).click(); await expect(dialog).toBeHidden()
     const [task] = await tasksTitled(page, title); id = task.id
+    expect(task.estimated_minutes).toBe(45)
     expect(task.due_at).toBeNull(); expect(task.schedule).toBeNull(); expect(await sessionsOf(page, id)).toHaveLength(0)
   } finally { if (id) await cleanup(page, id) }
 })
