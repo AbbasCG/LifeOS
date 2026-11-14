@@ -34,7 +34,7 @@ type Step = { title: string; completed: boolean }
  * drop-downs); long lists (project, goal, category, task) are a searchable picker; rarely used fields sit under "More options".
  * The posted data is the same as the old form's, field for field.
  */
-export function RecordForm({ resource, item, onSave, onClose }: { resource: string; item: Partial<RecordItem>; onSave: () => void; onClose: () => void }) {
+export function RecordForm({ resource, item, onSave, onClose, focusTime }: { resource: string; item: Partial<RecordItem>; onSave: () => void; onClose: () => void; /** Open with the cursor on the start time (after "choose another time"), not on the title. */ focusTime?: boolean }) {
   const t = useT(), label = useStatusLabel(), toast = useToast()
   const saving = useRef(false), helperId = useId(), zoneId = useId(), explainId = useId(), removeDueId = useId()
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
@@ -55,6 +55,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
   const formId = `record-form-${resource}`
   // The day, start and length of the calendar session travel in the same request as the task (the server books or moves it atomically).
   const exec = useExecution(item), closed = status === 'completed' || status === 'cancelled'
+  useEffect(() => { if (focusTime) document.getElementById(exec.startId)?.focus() }, [])   // eslint-disable-line react-hooks/exhaustive-deps
   // A deadline earlier than the end of the session is said calmly (a date-only deadline ends with its day).
   const dueInstant = hasDeadline && due ? deadlineInstant(noTime ? `${due.slice(0, 10)}T23:59` : due) : null
   const lateAfter = !!dueInstant && !!exec.booking && exec.day !== '' && Date.parse(dueInstant) < Date.parse(exec.booking.ends_at)
@@ -200,7 +201,7 @@ export function RecordForm({ resource, item, onSave, onClose }: { resource: stri
     <SheetCancel>{t('Cancel', 'إلغاء')}</SheetCancel>
     <button type="submit" form={formId} className="primary" aria-disabled={busy || undefined} onClick={e => { if (busy) e.preventDefault() }}>{busy ? t('Saving…', 'جارٍ الحفظ…') : t('Save', 'حفظ')}</button></>}>
     <form id={formId} onSubmit={submit} className="form-grid record-form">
-      <label className="full rf-title-field">{t('Title', 'العنوان')}<input data-autofocus name="title" className="rf-title" defaultValue={item.title} required maxLength={200} autoComplete="off" enterKeyHint="done" /></label>
+      <label className="full rf-title-field">{t('Title', 'العنوان')}<input data-autofocus={focusTime ? undefined : true} name="title" className="rf-title" defaultValue={item.title} required maxLength={200} autoComplete="off" enterKeyHint="done" /></label>
       {resource === 'tasks' ? tasksFields : otherFields}
     </form>
     {conflict && <ScheduleConflictDialog key={conflict.requested.starts_at} conflict={conflict} onClose={() => setConflict(null)} onChoose={() => document.getElementById(exec.startId)?.focus()}

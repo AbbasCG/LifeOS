@@ -115,3 +115,14 @@ describe('a phrase says WHEN TO DO the task, never its deadline', () => {
     expect(parseCapture('call mum tomorrow', now).schedule).toBeUndefined()
   })
 })
+
+describe('a time with no day word is reported as such', () => {
+  it('hasDay is false for "call the dentist at 3pm" (the tile chooses the day), true with a day word, and the time is the account clock', () => {
+    const bare = readCapture('call the dentist at 3pm', now)
+    expect(bare.hasDay).toBe(false); expect(bare.time).toBe('15:00')
+    for (const phrase of ['call tomorrow at 3pm', 'call today at 3pm', 'bel vandaag om 15:00', 'اتصل بكرة الساعة 3 مساء', 'call the day after tomorrow at 3pm']) {
+      const r = readCapture(phrase, now); expect(r.hasDay, phrase).toBe(true); expect(r.time, phrase).toBe('15:00')
+    }
+    expect(readCapture('buy milk', now)).toMatchObject({ hasDay: false, time: null })
+  })
+})

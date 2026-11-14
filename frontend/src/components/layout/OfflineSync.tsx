@@ -52,13 +52,14 @@ function SyncSheet({ items, online, onClose }: { items: Pending[]; online: boole
   } as const
   const reason = (i: Pending) => i.reason === 'deleted' ? t('No longer exists (deleted on another device).', 'لم تعد موجودة (حُذفت على جهاز آخر).')
     : i.reason === 'changed' ? t('Changed on another device since then.', 'تغيّرت على جهاز آخر منذ ذلك الحين.')
-      : i.message || t('The server did not accept it.', 'لم يقبلها الخادم.')
+      : t('The server did not accept it.', 'لم يقبلها الخادم.', 'De server heeft het niet geaccepteerd.')
   async function sendAll() {
     setBusy(true)
     try {
       const s = await sendAllPending()
       refreshLists()
       if (s.offline) toast(t('Still offline. The rest stays on this device.', 'ما زلت غير متصل. يبقى الباقي على هذا الجهاز.'), 'error')
+      else if (s.unscheduled) toast(t('Added, but not scheduled: the time had passed or was taken.', 'أُضيفت، لكن دون جدولة: الوقت مضى أو أصبح محجوزًا.', 'Toegevoegd, maar niet ingepland: de tijd was voorbij of bezet.'), 'info')
       else toast(s.conflict
         ? t(`${s.sent + s.already} sent. ${s.conflict} need(s) your decision.`, `أُرسل ${s.sent + s.already}. ${s.conflict} يحتاج قرارك.`)
         : t(`${s.sent + s.already} change(s) sent.`, `أُرسل ${s.sent + s.already} تغيير.`))

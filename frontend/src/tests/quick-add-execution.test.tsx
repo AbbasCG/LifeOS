@@ -9,7 +9,8 @@ import QuickAdd from '../components/layout/QuickAdd'
 import { setAccountZone } from '../lib/accountDay'
 import { CALENDAR_CHANGED } from '../lib/taskSchedule'
 import { openQuickAdd, TASKS_CHANGED } from '../lib/quickAdd'
-import { pendingItems, sendPending, setOfflineOwner, createTaskOrQueue } from '../lib/offline'
+import { pendingItems, sendPending, setOfflineOwner, createTaskOrQueue, openSync } from '../lib/offline'
+import OfflineSync from '../components/layout/OfflineSync'
 
 /**
  * Quick Add uses the dialog's model: the day tiles say WHEN TO DO IT (a calendar session), never a deadline, and nothing is scheduled by
@@ -49,7 +50,7 @@ async function open(language = 'en') {
   return screen.findByRole('textbox', { name: language === 'ar' ? 'المهمة' : 'Task' })
 }
 const type = (input: HTMLElement, value: string) => fireEvent.change(input, { target: { value } })
-const add = () => fireEvent.click(screen.getByRole('button', { name: 'Add task' }))
+const add = () => fireEvent.click(screen.getByRole('button', { name: /^(Add task|إضافة المهمة)$/ }))
 const tile = (name: string | RegExp) => screen.getByRole('radio', { name })
 
 beforeEach(() => {
@@ -142,11 +143,131 @@ describe('Quick add: «when do you want to do it?»', () => {
     expect(line.querySelector('bdi[dir="ltr"]')).toHaveTextContent('17:00–19:00')
   })
 
-  it('refuses a time that has already passed before sending anything', async () => {
+  it('a time that has already passed saves the task WITHOUT a time (never blocked), and says so before and after', async () => {
     const input = await open()
-    type(input, 'Too late today at 8am'); add()
-    expect(await screen.findByText('Choose a time that has not passed.')).toBeInTheDocument()
-    expect(posts()).toHaveLength(0)
+    type(input, 'Too late today at 8am for 45 minutes')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: 08:00 has passed: it will be added without a time')
+    add()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(posts()[0].body).toMatchObject({ title: 'Too late today at 8am for 45 minutes', estimated_minutes: 45 })
+    for (const key of ['schedule', 'due_at', 'due_date']) expect(posts()[0].body).not.toHaveProperty(key)
+    expect(await screen.findByText('Added. 08:00 has passed, so it was not scheduled.')).toBeInTheDocument()
+  })
+
+  it('a start in the past with an end in the future ("at 10:30pm for 2 hours" at 23:00) is treated the same', async () => {
+    const input = await open()
+    type(input, 'Late job at 10:30pm for 2 hours')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('22:30 has passed')
+    add()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(posts()[0].body).not.toHaveProperty('schedule'); expect(posts()[0].body!.estimated_minutes).toBe(120)
+  })
+
+  it('says it in Arabic: the line and the toast, with the time isolated', async () => {
+    const input = await open('ar')
+    type(input, 'مهمة اليوم الساعة 8 صباحا')
+    expect(screen.getByText(/فُهم:/)).toHaveTextContent('فُهم: مضى 08:00: ستُضاف دون وقت')
+    add()
+    expect(await screen.findByText(/أُضيفت\. الساعة .*08:00.* مضت، لذا لم تُجدول\./)).toBeInTheDocument()
+  })
+
+  it('a time with no day word follows the tile: Tomorrow + "at 3pm" is tomorrow 15:00; Not scheduled + "at 11:45pm" is today', async () => {
+    const input = await open()
+    fireEvent.click(tile('Tomorrow')); type(input, 'Call the dentist at 3pm')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Tomorrow 15:00–15:30')
+    add()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(posts()[0].body!.schedule.starts_at).toBe('2026-11-12T02:00:00.000Z')   // 15:00 on the 12th in Auckland
+    cleanup(); post = ok
+    const again = await open()
+    type(again, 'Call the vet at 11:45pm')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Today 23:45–Tomorrow 00:15')
+  })
+
+  it('a day word in the phrase still wins over the tile', async () => {
+    const input = await open()
+    fireEvent.click(tile('Today')); type(input, 'Plan tomorrow at 3pm')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Tomorrow 15:00–15:30')
+  })
+
+  it('with no half hour left today, Today becomes Tomorrow 09:00 and the tile and the line say so', async () => {
+    vi.setSystemTime(new Date('2026-11-11T10:40:00Z'))   // 23:40 in Auckland
+    const input = await open()
+    type(input, 'Last call'); fireEvent.click(tile('Today'))
+    expect(tile('Tomorrow')).toHaveAttribute('aria-checked', 'true'); expect(tile('Today')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Tomorrow 09:00–09:30 (today is almost over)')
+  })
+
+  it('always shows 24-hour times in the line, the toast and the conflict dialog, even when the 12-hour clock is chosen', async () => {
+    localStorage.setItem('lifeos-hour-cycle', '12'); localStorage.setItem('lifeos-clock', '12')
+    let n = 0
+    post = () => ++n === 1 ? { status: 422, body: conflictBody() } : ok()
+    const input = await open()
+    type(input, 'Clock check'); fireEvent.click(tile('Tomorrow'))
+    expect(screen.getByText(/Understood:/).textContent).not.toMatch(/AM|PM/i)
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Tomorrow 09:00–09:30')
+    add()
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog.textContent).not.toMatch(/AM|PM/i)
+    fireEvent.click(within(dialog).getByRole('button', { name: /Suggest the first free time/ }))
+    const toast = await screen.findByText(/Added and scheduled/)
+    expect(toast.textContent).toBe('Added and scheduled: Tomorrow 09:15–09:45')
+  })
+
+  it('an error is tied to the field and goes away when the text or the tile changes', async () => {
+    post = () => ({ status: 500, body: { message: 'Server error' } })
+    const input = await open()
+    type(input, 'Needs fixing'); add()
+    const message = await screen.findByText('Server error')
+    expect(input).toHaveAttribute('aria-invalid', 'true'); expect(input.getAttribute('aria-describedby')).toContain(message.id)
+    fireEvent.click(tile('Tomorrow'))
+    expect(screen.queryByText('Server error')).toBeNull(); expect(input).not.toHaveAttribute('aria-invalid')
+    add(); await screen.findByText('Server error')
+    type(input, 'Needs fixing now')
+    expect(screen.queryByText('Server error')).toBeNull()
+  })
+
+  it('a server "time not in the future" answer is said in plain words, not as the raw message', async () => {
+    post = () => ({ status: 422, body: { message: 'The schedule.ends_at field must be a date after now.', errors: { 'schedule.ends_at': ['raw'] } } })
+    const input = await open('ar')
+    type(input, 'مهمة'); fireEvent.click(tile('غدًا')); add()
+    expect(await screen.findByText('اختر وقتًا لم يمضِ.')).toBeInTheDocument()
+  })
+
+  it('a retry after a dropped answer (502) reuses the client_id and the Idempotency-Key, in a scheduled and a not-scheduled body; a final refusal (422) starts a new one', async () => {
+    let n = 0
+    post = () => ++n === 1 ? { status: 502, body: { message: 'Bad gateway' } } : ok()
+    const input = await open()
+    type(input, 'Retry me'); add()
+    await screen.findByText('Bad gateway'); add()
+    await waitFor(() => expect(posts()).toHaveLength(2))
+    expect(posts()[1].body!.client_id).toBe(posts()[0].body!.client_id)
+    cleanup(); calls.length = 0; n = 0
+    post = () => ++n === 1 ? { status: 502, body: { message: 'Bad gateway' } } : ok()
+    const second = await open()
+    type(second, 'Retry booked'); fireEvent.click(tile('Tomorrow')); add()
+    await screen.findByText('Bad gateway'); add()
+    await waitFor(() => expect(posts()).toHaveLength(2))
+    expect(posts()[1].body!.client_id).toBe(posts()[0].body!.client_id)
+    expect(posts()[0].headers['Idempotency-Key']).toBe(posts()[0].body!.client_id)
+    expect(posts()[1].headers['Idempotency-Key']).toBe(posts()[0].headers['Idempotency-Key'])
+    // A final refusal (422) means nothing was saved: the next try is a new action with a new id.
+    cleanup(); calls.length = 0; n = 0
+    post = () => ++n === 1 ? { status: 422, body: { message: 'Nope', errors: { title: ['x'] } } } : ok()
+    const third = await open()
+    type(third, 'Refused once'); add()
+    await screen.findByText('Nope'); add()
+    await waitFor(() => expect(posts()).toHaveLength(2))
+    expect(posts()[1].body!.client_id).not.toBe(posts()[0].body!.client_id)
+  })
+
+  it('"Choose another time" puts the cursor on the start time, not the title', async () => {
+    post = () => ({ status: 422, body: conflictBody() })
+    const input = await open()
+    type(input, 'Focus check'); fireEvent.click(tile('Tomorrow')); add()
+    fireEvent.click(await within(await screen.findByRole('alertdialog')).findByRole('button', { name: 'Choose another time' }))
+    await screen.findByLabelText('Title')
+    await waitFor(() => expect(screen.getByLabelText('Start time')).toHaveFocus())
   })
 
   it('a double click on Add creates one task', async () => {
@@ -254,14 +375,89 @@ describe('offline: the queue keeps the time', () => {
     expect(pendingItems()).toHaveLength(0)
   })
 
-  it('a time taken by then leaves the item as a conflict with the server message: not dropped, no task created', async () => {
+  it('a time taken by then keeps the TASK: it is re-sent without the schedule and without the Idempotency-Key, same client_id', async () => {
     const queued = await item()
-    post = () => ({ status: 422, body: conflictBody() })
+    post = c => c.body?.schedule ? { status: 422, body: conflictBody() } : ok()
+    expect(await sendPending(queued)).toBe('unscheduled_taken')
+    expect(pendingItems()).toHaveLength(0)
+    expect(posts()).toHaveLength(2)
+    expect(posts()[1].body).toEqual({ title: 'Pay rent', estimated_minutes: 45, client_id: queued.payload.client_id })
+    expect(posts()[1].headers['Idempotency-Key']).toBeUndefined()
+  })
+
+  it('a time that has passed by then is kept the same way', async () => {
+    const queued = await item()
+    post = c => c.body?.schedule ? { status: 422, body: { message: 'x', errors: { 'schedule.ends_at': ['past'] } } } : ok()
+    expect(await sendPending(queued)).toBe('unscheduled_passed')
+    expect(pendingItems()).toHaveLength(0); expect(posts()[1].body).not.toHaveProperty('schedule')
+  })
+
+  it('any other refusal keeps the item as a conflict row (not dropped), and so does a failing plain resend', async () => {
+    const queued = await item()
+    post = () => ({ status: 422, body: { message: 'The title field is required.', errors: { title: ['required'] } } })
     expect(await sendPending(queued)).toBe('conflict')
-    const left = pendingItems()
-    expect(left).toHaveLength(1)
-    expect(left[0]).toMatchObject({ id: queued.id, state: 'conflict', reason: 'rejected', message: 'This time is already booked.' })
-    expect(left[0].payload).toEqual(queued.payload)
-    expect(posts()).toHaveLength(1)
+    expect(pendingItems()[0]).toMatchObject({ id: queued.id, state: 'conflict', reason: 'rejected' })
+    expect(pendingItems()[0].payload).toEqual(queued.payload); expect(posts()).toHaveLength(1)
+    post = c => c.body?.schedule ? { status: 422, body: conflictBody() } : { status: 500, body: { message: 'boom' } }
+    expect(await sendPending(pendingItems()[0])).toBe('conflict')
+    expect(pendingItems()).toHaveLength(1)
+  })
+
+  it('the queued toast says the time is checked again on send', async () => {
+    setOfflineOwner(1); vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const input = await open()
+    type(input, 'Offline plan'); fireEvent.click(tile('Tomorrow')); add()
+    expect(await screen.findByText(/The time is checked again when you send it/)).toBeInTheDocument()
+    expect(pendingItems()[0].payload).toMatchObject({ schedule: { starts_at: '2026-11-11T20:00:00.000Z' } })
+  })
+
+  it('Waiting to sync words a conflict row in the app language, never the raw server message', async () => {
+    const queued = await item()
+    post = () => ({ status: 422, body: { message: 'The title field is required.', errors: { title: ['required'] } } })
+    await sendPending(queued)
+    localStorage.setItem('lifeos-language', 'ar')
+    render(wrap(<OfflineSync />)); act(() => openSync())
+    expect(await screen.findByText('لم يقبلها الخادم.')).toBeInTheDocument()
+    expect(screen.queryByText(/title field is required/)).toBeNull()
+  })
+})
+
+describe('clock changes and an account zone that is not the browser\'s', () => {
+  // The browser here is whatever the test machine is; the account is elsewhere, so every instant is the account's wall clock.
+  const cases: [string, string, string, string, string][] = [
+    ['Europe/Amsterdam', 'spring change 2026-03-29', '2026-03-28T20:00:00Z', 'Tomorrow 09:00–09:30', '2026-03-29T07:00:00.000Z'],
+    ['Europe/Amsterdam', 'autumn change 2026-10-25', '2026-10-24T20:00:00Z', 'Tomorrow 09:00–09:30', '2026-10-25T08:00:00.000Z'],
+    ['America/Los_Angeles', 'US spring change 2026-03-08', '2026-03-07T22:00:00Z', 'Tomorrow 09:00–09:30', '2026-03-08T16:00:00.000Z'],
+    ['America/Los_Angeles', 'US autumn change 2026-11-01', '2026-10-31T20:00:00Z', 'Tomorrow 09:00–09:30', '2026-11-01T17:00:00.000Z'],
+    ['Pacific/Auckland', 'NZ spring change 2026-09-27', '2026-09-26T05:00:00Z', 'Tomorrow 09:00–09:30', '2026-09-26T20:00:00.000Z'],
+  ]
+  it.each(cases)('%s, %s: the Tomorrow tile is 09:00 on the account\'s clock', async (zone, _label, now, line, starts) => {
+    setAccountZone(zone); vi.setSystemTime(new Date(now))
+    const input = await open()
+    type(input, 'Zone check'); fireEvent.click(tile('Tomorrow'))
+    expect(screen.getByText(/Understood:/)).toHaveTextContent(`Understood: ${line}`)
+    add()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(posts()[0].body!.schedule.starts_at).toBe(starts)
+  })
+
+  it('a session across the spring gap is 2 real hours: 01:30 + 2 h ends at 04:30 on the wall clock', async () => {
+    setAccountZone('Europe/Amsterdam'); vi.setSystemTime(new Date('2026-03-28T20:00:00Z'))
+    const input = await open()
+    type(input, 'Night shift tomorrow at 1:30am for 2 hours')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Tomorrow 01:30–04:30')
+    add()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(posts()[0].body).toMatchObject({ estimated_minutes: 120, schedule: { starts_at: '2026-03-29T00:30:00.000Z' } })
+  })
+
+  it('a session across the autumn repeat is 2 real hours: 01:30 + 2 h ends at 02:30 on the wall clock', async () => {
+    setAccountZone('Europe/Amsterdam'); vi.setSystemTime(new Date('2026-10-24T20:00:00Z'))
+    const input = await open()
+    type(input, 'Night shift tomorrow at 1:30am for 2 hours')
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Tomorrow 01:30–02:30')
+    add()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(posts()[0].body!.schedule.starts_at).toBe('2026-10-24T23:30:00.000Z')
   })
 })

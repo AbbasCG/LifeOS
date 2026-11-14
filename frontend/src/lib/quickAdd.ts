@@ -9,8 +9,6 @@ export const openQuickAdd = () => window.dispatchEvent(new Event(QUICK_ADD))
 export const openQuickAddByVoice = () => window.dispatchEvent(new CustomEvent(QUICK_ADD, { detail: { voice: true } }))
 
 export type When = 'today' | 'tomorrow' | 'week' | 'nextweek' | 'none'
-/** What the Quick Add date tiles hold: one of the quick choices, or a day picked on the calendar. */
-export type QuickWhen = When | 'custom'
 export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
 /** The coming Monday as a day ('YYYY-MM-DD') in the account's calendar; a Monday asks for the one after it. */
@@ -30,13 +28,6 @@ export function dueFor(when: When, now = new Date()): string | null {
     : today
   // After 17:00, "today" means tonight (23:00) rather than a deadline that has already passed.
   if (when === 'today' && Date.parse(accountInstant(day, 17)) <= now.getTime()) return accountInstant(day, 23)
-  return accountInstant(day, 17)
-}
-
-/** A day picked on the calendar ('YYYY-MM-DD'): 17:00 that day, or 23:00 tonight when it is today and 17:00 has passed. Empty or invalid: no date. */
-export function dueForDay(day: string, now = new Date()): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
-  if (day === accountDay(now)) return dueFor('today', now)
   return accountInstant(day, 17)
 }
 
@@ -131,7 +122,6 @@ export function spokenHints(text: string): { when?: When; priority?: Priority } 
   const hints: { when?: When; priority?: Priority } = {}
   if (has('next week', 'volgende week') || /(الاسبوع|اسبوع)\s+(القادم|الجاي|الجايه|الجاي)/.test(s)) hints.when = 'nextweek'
   else if (has('tomorrow', 'morgen', 'غدا', 'بكره', 'بكرا')) hints.when = 'tomorrow'
-  else if (has('this week', 'deze week') || /هذا\s+الاسبوع/.test(s)) hints.when = 'week'
   else if (has('today', 'tonight', 'vandaag', 'vanavond', 'اليوم', 'الليله')) hints.when = 'today'
   if (has('urgent', 'urgently', 'asap', 'dringend', 'عاجل', 'مستعجل', 'ضروري')) hints.priority = 'urgent'
   else if (has('important', 'high priority', 'belangrijk', 'hoge prioriteit', 'مهم', 'اولويه عاليه')) hints.priority = 'high'

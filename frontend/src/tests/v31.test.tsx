@@ -58,6 +58,16 @@ describe('Quick add by voice', () => {
     expect(vi.mocked(fetch).mock.calls.some(c => String(c[0]).includes('/api/tasks'))).toBe(false)
   })
 
+  it('a spoken "today" does not pick a day (nothing is booked from a word); "tomorrow" does', async () => {
+    shell()
+    act(() => openQuickAddByVoice())
+    await waitFor(() => expect(FakeRecognition.last?.started).toBe(true))
+    act(() => FakeRecognition.last!.say('water the plants today'))
+    expect(screen.getByLabelText('Task')).toHaveValue('water the plants today')
+    expect(screen.getByRole('radio', { name: 'Not scheduled' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Today' })).toHaveAttribute('aria-checked', 'false')
+  })
+
   it('asks before listening the first time on a device', async () => {
     localStorage.removeItem('lifeos-voice-consent')
     shell()

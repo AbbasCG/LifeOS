@@ -88,7 +88,7 @@ describe('sending, only when asked, without silent overwrites', () => {
     queueCompletion()
     enqueue({ kind: 'task.create', label: 'Buy milk', payload: { title: 'Buy milk', client_id: '11111111-2222-4333-8444-555555555555' } })
     enqueue({ kind: 'habit.log', label: 'Read', payload: { habit_id: 3, date: '2027-01-04', completed: true } })
-    expect(await sendAllPending()).toEqual({ sent: 3, already: 0, conflict: 0, offline: false })
+    expect(await sendAllPending()).toEqual({ sent: 3, already: 0, conflict: 0, offline: false, unscheduled: 0 })
     expect(pendingItems()).toEqual([])
     expect(JSON.parse(calls(fetcher, 'PATCH')[0][1]!.body as string)).toEqual({ status: 'completed' })
     expect(JSON.parse(calls(fetcher, 'POST')[0][1]!.body as string).client_id).toBe('11111111-2222-4333-8444-555555555555')

@@ -2060,7 +2060,7 @@ No horizontal overflow on any screen in English desktop, English phone and Arabi
 ## Testing
 - **Vitest:** `v20.test.tsx` (7 tests):
   - quick-choice due dates;
-  - Quick add posts title, priority and due date and signals lists;
+  - Quick add posts title, priority and, only when a day is chosen, a calendar time (`schedule.starts_at`, never a deadline) and signals lists (this was a due date before the execution-time model below);
   - it opens from the PWA shortcut;
   - offline, it says so and does not post;
   - rings, priorities and deadlines are spoken;
@@ -3590,3 +3590,10 @@ Listed from `git diff origin/main --stat` and the new files. Tests were not run 
 - **Addendum to V81 (outbound sync):** `OutboundSync` now handles token-refresh failures (`OutboundSync.php:98-110`): a `RateLimitedException` stores `retry_after` (at least 30 s) and finishes the run as `rate_limited`; a plain `ProviderException` from the refresh finishes the run as `failed` (or `partial` if something was already pushed) with a scrubbed error (`SecretRedactor::scrub`). Neither revokes the account or notifies the person.
 - **Addendum to V81 (reconnect):** a read-only reconnect clears the write grant only when the provider reported scopes; a response without a scope field says nothing, so the grant stays (`IntegrationController::callback`, lines 148-151).
 - **Still open (not fixed):** the `403 permission_denied` answer of `POST sync/push` is not audited. This is an open policy decision for the owner, documented by a skipped test, `test_the_outbound_push_refused_by_the_permissions_is_not_audited_today` in `SyncEngineTest`.
+
+## Execution time in Quick Add and the task dialog
+- **Two separate things.** *When do you want to do it?* is the execution time: a day, ONE 24-hour start and a duration (`estimated_minutes`). *Deadline* is optional, off by default, and is never derived from the execution time.
+- **One atomic save.** `POST/PATCH /api/tasks` accept `schedule: {starts_at}`; the server derives the end from `estimated_minutes`, books the calendar session in the same transaction as the task, and a refused time saves nothing (422 with the structured `conflict` and a suggestion; an `Idempotency-Key` makes a retry safe).
+- **Quick Add** uses the same model: the day tiles are Today, Tomorrow, Pick a date and Not scheduled (the default; nothing is created automatically). A chosen day books the dialog's default start for that day (next half hour today, otherwise 09:00; with no half hour left today it becomes tomorrow 09:00) for the parsed length (30 by default). A phrase such as "tomorrow at 7pm for one hour" sets the start and the length and wins over the tile; a time with no day word ("at 3pm") goes on the tile's day; a start that has already passed adds the task without a time and says so. The "Understood" line and the toast show the booking in plain 24-hour words. Quick Add never sends `due_at` / `due_date`.
+- **A taken time** keeps the sheet open and shows the conflict dialog: choose another time (opens the full dialog with the draft and the plan, cursor on the start time), use the suggested time (sent once), or view the conflicting item. **Offline**, the task is queued with its `schedule`; if the time is taken or has passed when it is sent, the task is added WITHOUT a time (same `client_id`, no Idempotency-Key) and the user is told.
+- Tests: `quick-add-execution.test.tsx`, `capture.test.ts`, `e2e/quick-add-execution.spec.ts`.

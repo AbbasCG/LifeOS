@@ -165,6 +165,8 @@ test('"Choose another time" opens the full dialog with the same draft, the chose
     await expect(dialog.getByLabel('Title')).toHaveValue(title)
     await expect(dialog.getByRole('radio', { name: 'Tomorrow' })).toHaveAttribute('aria-checked', 'true')
     await expect(dialog.locator('label', { hasText: /^Start time/ }).locator('.dtp-trigger')).toContainText('09:00')
+    // The cursor is on the start time, ready to pick another one.
+    await expect(dialog.locator('label', { hasText: /^Start time/ }).locator('.dtp-trigger')).toBeFocused()
     await expect(await deadlineSwitch(dialog)).not.toBeChecked()
     expect(await find(page, title)).toHaveLength(0)
   } finally { await cleanup(page, [title, blocker]) }
@@ -189,6 +191,22 @@ test('More details opens prefilled (day, start, length), the deadline stays off,
     const [saved] = await find(page, title)
     expect(saved.due_at).toBeNull()
     expect(saved.schedule).toMatchObject({ starts_at: iso(zonedInstant(`${day}T09:00`, zone)), ends_at: iso(zonedInstant(`${day}T09:45`, zone)) })
+  } finally { await cleanup(page, [title]) }
+})
+
+test('a time that has already passed adds the task without a time and says so', async ({ page, setLanguage }, testInfo) => {
+  await setLanguage('en')
+  const day = await emptyDay(page, dayOf(testInfo) + 11), title = stamp('past') + ' today at 6am for 45 minutes'
+  try {
+    await eveOf(page, day)   // the app's clock reads 13:00 Amsterdam time on the day before `day`: 6am has gone by
+    const quick = await openQuickAdd(page)
+    await quick.getByRole('textbox', { name: 'Task' }).fill(title)
+    await expect(quick.getByText(/Understood:/)).toHaveText('Understood: 06:00 has passed: it will be added without a time')
+    await quick.getByRole('button', { name: 'Add task' }).click()
+    await expect(page.getByText('Added. 06:00 has passed, so it was not scheduled.')).toBeVisible()
+    await expect(sheet(page)).toBeHidden()
+    const [saved] = await find(page, title)
+    expect(saved.due_at).toBeNull(); expect(saved.schedule ?? null).toBeNull(); expect(saved.estimated_minutes).toBe(45)
   } finally { await cleanup(page, [title]) }
 })
 
