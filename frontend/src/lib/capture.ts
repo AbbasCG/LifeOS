@@ -1,12 +1,14 @@
-import type { RecordItem } from './api'
+import type { NewTask } from './api'
 import { accountDay, accountZone, shiftDay, wallClockToInstant } from './accountDay'
 
 /**
  * Quick Add's natural phrases, in English, Arabic and Dutch: "tomorrow at 7pm for one hour",
  * "بكرة الساعة 5 مساءً لمدة ساعتين", "morgen om 17:00 voor 30 minuten".
  *
- * Only the day offset (today or tomorrow), the time of day and the length are read. The title is never rewritten, and a
- * phrase that is not understood changes nothing. Days and clock times are the account's (V27), like the Quick Add tiles.
+ * Only the day offset (today, tomorrow, the day after), the time of day and the length are read. A time with no day word is reported
+ * (`hasDay: false`) so Quick Add puts it on the day its tile says; `schedule.starts_at` then assumes today. The day and time are WHEN TO DO THE
+ * TASK (`schedule.starts_at`, the account's wall clock), never a deadline: the deadline is not derived from them. The length is the
+ * estimate. The title is never rewritten, and a phrase that is not understood changes nothing. Days and clock times are the account's (V27).
  * A bare "at 5" / "om 5 uur" / "الساعة 5" is taken as 05:00, as before; a marker ("pm", "مساء", "'s middags") says otherwise.
  */
 
@@ -23,6 +25,7 @@ function fold(text: string) {
 const word = (pattern: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`, 'iu')
 
 const AFTER_TOMORROW = word('day after tomorrow|overmorgen|بعد\\s+(?:غد|غدا|بكره|بكرا)')
+const TODAY = word('today|tonight|vandaag|vanavond|اليوم|الليله')
 const TOMORROW = word('tomorrow|morgen|غدا|بكره|بكرا')
 
 const AM = '(?:am|a\\.m\\.|صباحا|فجرا)'
@@ -89,22 +92,27 @@ function readTime(folded: string): Time | null {
 }
 
 export type CaptureReading = {
-  task: Partial<RecordItem>
-  /** What was read from the text, so Quick Add can show it before saving. */
-  found: { due: boolean; duration: boolean }
+  task: NewTask
+  /** What was read from the text, so Quick Add can show it before saving. `start`: a day and time of day, read as the start of the session. */
+  found: { start: boolean; duration: boolean }
+  /** Whether a day word (today, tomorrow, the day after) was read. Without one the time belongs to the day Quick Add's tile says. */
+  hasDay: boolean
+  /** The clock time that was read, 'HH:mm' (the account's wall clock), or null. */
+  time: string | null
 }
 
 export function readCapture(text: string, now = new Date()): CaptureReading {
   const folded = fold(text)
-  const task: Partial<RecordItem> = { title: text.trim(), status: 'inbox', estimated_minutes: 30 }
-  const found = { due: false, duration: false }
+  const task: NewTask = { title: text.trim(), status: 'inbox', estimated_minutes: 30 }
+  const found = { start: false, duration: false }
 
   const time = readTime(folded)
+  const hasDay = AFTER_TOMORROW.test(folded) || TOMORROW.test(folded) || TODAY.test(folded)
   if (time) {
     const offset = AFTER_TOMORROW.test(folded) ? 2 : TOMORROW.test(folded) ? 1 : 0
     const [y, m, d] = shiftDay(accountDay(now), offset).split('-').map(Number)
-    task.due_at = wallClockToInstant(y, m, d, time.hour, time.minute, 0, accountZone()).toISOString()
-    found.due = true
+    task.schedule = { starts_at: wallClockToInstant(y, m, d, time.hour, time.minute, 0, accountZone()).toISOString() }
+    found.start = true
   }
 
   for (const { pattern, minutes } of DURATION) {
@@ -114,9 +122,10 @@ export function readCapture(text: string, now = new Date()): CaptureReading {
     found.duration = true
     break
   }
-  return { task, found }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return { task, found, hasDay, time: time ? `${pad(time.hour)}:${pad(time.minute)}` : null }
 }
 
-export function parseCapture(text: string, now = new Date()): Partial<RecordItem> {
+export function parseCapture(text: string, now = new Date()): NewTask {
   return readCapture(text, now).task
 }

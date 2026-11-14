@@ -143,22 +143,22 @@ describe('Quick add', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Task' })).toBeNull())
   })
 
-  it('the date tile is a real radio in the "When" group, unchecked until a day is picked', async () => {
+  it('the date tile is a real radio in the "When do you want to do it?" group, unchecked until a day is picked', async () => {
     await show()
-    const when = screen.getByRole('radiogroup', { name: 'When' })
+    const when = screen.getByRole('radiogroup', { name: 'When do you want to do it?' })
     const date = within(when).getByRole('radio', { name: /Pick a date/ })
     expect(date).toHaveAttribute('aria-checked', 'false')
     expect(date).toHaveAttribute('aria-haspopup', 'dialog')
     expect(date).not.toHaveAttribute('aria-expanded')
-    expect(within(when).getAllByRole('radio')).toHaveLength(5)
+    expect(within(when).getAllByRole('radio')).toHaveLength(4)
   })
 
-  it('an arrow key reaches the date tile without opening the picker or changing "When"', async () => {
+  it('an arrow key reaches the date tile without opening the picker or changing the day', async () => {
     const uninstall = installRadioGroups()
     try {
       await show(); await act(async () => { await Promise.resolve() })
-      const when = screen.getByRole('radiogroup', { name: 'When' })
-      const week = within(when).getByRole('radio', { name: 'This week' }), date = within(when).getByRole('radio', { name: /Pick a date/ })
+      const when = screen.getByRole('radiogroup', { name: 'When do you want to do it?' })
+      const week = within(when).getByRole('radio', { name: 'Tomorrow' }), date = within(when).getByRole('radio', { name: /Pick a date/ })
       week.focus(); fireEvent.click(week)
       fireEvent.keyDown(week, { key: 'ArrowRight' })
       expect(date).toHaveFocus()

@@ -18,11 +18,13 @@ export function useExecution(item: Partial<RecordItem>) {
     return { current, split, draft: current && !split ? sessionDraft(current) : null }
   })
   const estimate = Number(item.estimated_minutes) || DEFAULT_DURATION
-  const [day, setDay] = useState(opened.draft?.day ?? ''), [start, setStart] = useState(opened.draft?.start ?? '')
+  // A NEW task can open with a plan already chosen (Quick Add's "More details"): its day and start fill the fields; nothing is saved until Save.
+  const [plan] = useState(() => !item.id && item.planned?.starts_at ? deadlineField(item.planned.starts_at) : '')
+  const [day, setDay] = useState(opened.draft?.day ?? plan.slice(0, 10)), [start, setStart] = useState(opened.draft?.start ?? plan.slice(11, 16))
   const [minutes, setMinutes] = useState(String(opened.draft?.minutes ?? estimate))
   const [custom, setCustom] = useState(() => !DURATIONS.includes(Number(opened.draft?.minutes ?? estimate)))
   // Until the user types a start, every day he chooses gets that day's own default; once he has, his time is kept (unless it has passed today).
-  const touched = useRef(!!opened.draft), minutesTouched = useRef(false)
+  const touched = useRef(!!opened.draft || !!plan), minutesTouched = useRef(false)
 
   const pickDay = (next: string) => {
     if (!next) { setDay(''); return }

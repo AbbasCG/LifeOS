@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, emptyDay, eveOf, removeBooked } from './fixtures'
 
 /**
  * Real speech recognition needs a microphone and the browser's speech service, so the page gets a stand-in that
@@ -86,7 +86,8 @@ test('"Add a task by voice" opens Quick add listening; the phrase sets the chips
     localStorage.setItem('lifeos-voice-consent', 'yes')
   })
   await setLanguage('en')
-  await page.goto('/')
+  const day = await emptyDay(page, 14)
+  await eveOf(page, day)   // the app's "tomorrow" is this empty day, so the booking cannot meet the demo data
   await page.getByRole('banner').getByRole('button', { name: 'Add a task by voice' }).click()
   const sheet = page.getByRole('dialog', { name: 'Quick add' })
   await expect(sheet.getByRole('textbox', { name: 'Task' })).toHaveValue('E2E voice task tomorrow urgent')
@@ -96,12 +97,12 @@ test('"Add a task by voice" opens Quick add listening; the phrase sets the chips
   await sheet.getByRole('button', { name: 'Add task' }).click()
   const response = await saved
   expect(response.status()).toBe(201)
-  const task = (await response.json()).data as { id: number; priority: string }
+  const task = (await response.json()).data as { id: number; priority: string; due_at: string | null; schedule?: { starts_at: string } | null }
   expect(task.priority).toBe('urgent')
-  await page.evaluate(async id => {
-    const token = decodeURIComponent(document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '')
-    await fetch(`/api/tasks/${id}`, { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json', 'X-XSRF-TOKEN': token } })
-  }, task.id)
+  // "tomorrow" said aloud is the day to DO it (a calendar session), never a deadline.
+  expect(task.due_at).toBeNull()
+  expect(task.schedule?.starts_at).toBeTruthy()
+  await removeBooked(page, task.id)
 })
 
 test('dictating "next week" lights the date tile instead of changing nothing visible', async ({ page, setLanguage }) => {
@@ -123,5 +124,5 @@ test('dictating "next week" lights the date tile instead of changing nothing vis
   await expect(sheet.getByRole('textbox', { name: 'Task' })).toHaveValue('E2E send the report next week')
   // The chosen day is shown on the date tile (it is set), and no other "When" tile claims to be selected. Nothing is saved.
   await expect(sheet.locator('.qa-pick.is-set')).toBeVisible()
-  for (const name of ['Today', 'Tomorrow', 'This week']) await expect(sheet.getByRole('radio', { name })).toHaveAttribute('aria-checked', 'false')
+  for (const name of ['Today', 'Tomorrow', 'Not scheduled']) await expect(sheet.getByRole('radio', { name })).toHaveAttribute('aria-checked', 'false')
 })

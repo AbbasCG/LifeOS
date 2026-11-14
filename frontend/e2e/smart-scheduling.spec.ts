@@ -62,13 +62,13 @@ async function openEdit(page: Page, title: string, name = /Edit item|تعديل 
   await expect(dialog).toBeVisible()
   return dialog
 }
-/** The full new-task dialog: Quick Add (with "No date", so no deadline is pre-filled) then "More details". */
+/** The full new-task dialog: Quick Add (nothing is scheduled and no deadline is pre-filled by default) then "More details". */
 async function openNew(page: Page, title: string) {
   await page.goto('/tasks')
   await page.getByRole('button', { name: 'Add task' }).first().click()
   const quick = page.getByRole('dialog', { name: 'Quick add' })
   await quick.getByLabel('Task').fill(title)
-  await quick.getByRole('radio', { name: 'No date' }).click()
+  await expect(quick.getByRole('radio', { name: 'Not scheduled' })).toHaveAttribute('aria-checked', 'true')
   await quick.getByRole('button', { name: 'More details' }).click()
   const dialog = page.getByRole('dialog', { name: /Create item/ })
   await expect(dialog).toBeVisible()

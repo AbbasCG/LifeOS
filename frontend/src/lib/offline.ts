@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ApiError, type RecordItem } from './api'
+import { api, ApiError, type NewTask, type RecordItem } from './api'
 
 /**
  * Offline capture (V23). Three small actions can be kept on this device while there is no connection: adding a task,
@@ -18,7 +18,8 @@ export type Pending = {
   reason?: 'changed' | 'deleted' | 'rejected'
   message?: string
 }
-export type SendResult = 'sent' | 'already' | 'conflict' | 'offline'
+/** 'unscheduled_taken' / 'unscheduled_passed': the task was added, but its time was taken (or had passed) by the time it was sent, so it has no calendar time. */
+export type SendResult = 'sent' | 'already' | 'conflict' | 'offline' | 'unscheduled_taken' | 'unscheduled_passed'
 
 export const OFFLINE_CHANGED = 'lifeos:offline-changed'
 /** Ask the app shell to open "Waiting to sync". */
@@ -69,11 +70,20 @@ export function usePending() {
   return items
 }
 
-/** Add a task now, or keep it on this device when offline. The client_id makes a repeated send harmless. */
-export async function createTaskOrQueue(task: Partial<RecordItem>): Promise<'created' | 'queued'> {
-  const payload = { ...task, client_id: uuid() }
+/**
+ * The headers a queued or live task creation carries: a task with a `schedule` (a booked time) also sends its client_id as the
+ * Idempotency-Key, so a repeated send (lost response, replay from the queue) books the time once.
+ */
+const createHeaders = (payload: Record<string, unknown>) => payload.schedule && typeof payload.client_id === 'string' ? { 'Idempotency-Key': payload.client_id } : undefined
+
+/**
+ * Add a task now, or keep it on this device when offline. The client_id makes a repeated send harmless. A `schedule` is sent in the
+ * same request (one atomic save); a refused time throws the server's 422 (see parseConflict) and nothing is saved or queued.
+ */
+export async function createTaskOrQueue(task: NewTask, clientId?: string): Promise<'created' | 'queued'> {
+  const payload = { ...task, client_id: clientId ?? uuid() }
   if (isOffline()) { enqueue({ kind: 'task.create', label: String(task.title ?? ''), payload }); return 'queued' }
-  try { await api('/api/tasks', 'POST', payload); return 'created' } catch (e) {
+  try { await api('/api/tasks', 'POST', payload, createHeaders(payload)); return 'created' } catch (e) {
     if (!isOffline(e)) throw e
     enqueue({ kind: 'task.create', label: String(task.title ?? ''), payload }); return 'queued'
   }
@@ -95,6 +105,13 @@ export async function logHabitOrQueue(habit: { id: number; title: string }, date
 
 const notFound = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 403)
 
+/** The server refused the booked time: taken (`schedule_conflict`) or not in the future (`schedule.*` errors). Not any other 422. */
+function refusedTime(e: unknown): 'taken' | 'passed' | null {
+  if (!(e instanceof ApiError) || e.status !== 422) return null
+  if ((e.data?.conflict as { code?: unknown } | undefined)?.code === 'schedule_conflict') return 'taken'
+  return Object.keys(e.errors ?? {}).some(k => k.startsWith('schedule')) ? 'passed' : null
+}
+
 /**
  * Send one queued item. `force` sends a completion even though the task changed elsewhere (the user decided).
  * Returns 'offline' and keeps the item when the connection drops again.
@@ -105,7 +122,15 @@ export async function sendPending(item: Pending, force = false): Promise<SendRes
   }
   try {
     if (item.kind === 'task.create') {
-      await api('/api/tasks', 'POST', item.payload)
+      try { await api('/api/tasks', 'POST', item.payload, createHeaders(item.payload)) } catch (e) {
+        // The time was taken (or had passed) while the task waited: keep the task, without a time, rather than losing it. Same client_id.
+        const why = item.payload.schedule ? refusedTime(e) : null
+        if (!why) throw e
+        const plain = { ...item.payload }; delete plain.schedule
+        await api('/api/tasks', 'POST', plain)
+        discard(item.id)
+        return why === 'taken' ? 'unscheduled_taken' : 'unscheduled_passed'
+      }
     } else if (item.kind === 'habit.log') {
       const { habit_id, date, completed } = item.payload as { habit_id: number; date: string; completed: boolean }
       await api(`/api/habits/${habit_id}/entry`, 'PUT', { date, completed })
@@ -129,11 +154,12 @@ export async function sendPending(item: Pending, force = false): Promise<SendRes
 
 /** Send every waiting item, oldest first; conflicts stay for the user. Stops when the connection drops. */
 export async function sendAllPending() {
-  const summary = { sent: 0, already: 0, conflict: 0, offline: false }
+  const summary = { sent: 0, already: 0, conflict: 0, offline: false, unscheduled: 0 }
   for (const item of pendingItems().filter(i => i.state === 'waiting')) {
     const result = await sendPending(item)
     if (result === 'offline') { summary.offline = true; break }
     if (result === 'sent') summary.sent++
+    else if (result === 'unscheduled_taken' || result === 'unscheduled_passed') { summary.sent++; summary.unscheduled++ }
     else if (result === 'already') summary.already++
     else summary.conflict++
   }

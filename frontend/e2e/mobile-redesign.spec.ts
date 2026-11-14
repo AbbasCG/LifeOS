@@ -1,4 +1,4 @@
-import { test, expect, noHorizontalOverflow } from './fixtures'
+import { test, expect, noHorizontalOverflow, emptyDay, eveOf, removeBooked, zonedInstant } from './fixtures'
 import type { Page } from '@playwright/test'
 
 /**
@@ -16,10 +16,9 @@ async function call(page: Page, method: string, path: string, body?: unknown) {
 const stamp = () => `E2E mobile ${Date.now()}${Math.floor(Math.random() * 1000)}`
 async function findTask(page: Page, title: string) {
   const r = await call(page, 'GET', `/api/tasks?search=${encodeURIComponent(title)}&per_page=5`)
-  return (r.body?.data as { id: number; title: string; priority: string; due_at: string | null; estimated_minutes: number | null; project_id: number | null }[] ?? []).find(t => t.title === title)
+  return (r.body?.data as { id: number; title: string; priority: string; due_at: string | null; schedule?: { starts_at: string; ends_at: string } | null; estimated_minutes: number | null; project_id: number | null }[] ?? []).find(t => t.title === title)
 }
-async function removeTask(page: Page, title: string) { const t = await findTask(page, title); if (t) await call(page, 'DELETE', `/api/tasks/${t.id}`) }
-const dayIn = (at: string | Date, zone: string) => new Date(at).toLocaleDateString('en-CA', { timeZone: zone })
+async function removeTask(page: Page, title: string) { const t = await findTask(page, title); if (t) await removeBooked(page, t.id) }
 
 /** What a sheet must satisfy on a phone: inside the screen, inputs >= 16px, every control >= 44px, nothing widens the page. */
 async function expectPhoneSheet(page: Page) {
@@ -64,19 +63,22 @@ for (const [name, width, height] of sizes) {
       // The Add button is a full-width target; the date and priority choices are direct buttons with icons.
       const box = (await add.boundingBox())!
       expect(box.height).toBeGreaterThanOrEqual(52); expect(box.width).toBeGreaterThan(width * 0.8)
-      for (const g of ['When', 'Priority']) await expect(page.getByRole('radiogroup', { name: g }).locator('svg').first()).toBeVisible()
+      for (const g of ['When do you want to do it?', 'Priority']) await expect(page.getByRole('radiogroup', { name: g }).locator('svg').first()).toBeVisible()
       const title = stamp()
       try {
         await page.locator('dialog[open] [data-autofocus]').fill(title)
         await add.tap()
         await expect.poll(async () => (await findTask(page, title))?.priority).toBe('medium')
+        // Nothing is created automatically: no deadline and no calendar time.
+        const saved = (await findTask(page, title))!
+        expect(saved.due_at).toBeNull(); expect(saved.schedule ?? null).toBeNull()
       } finally { await removeTask(page, title) }
     })
 
-    test('Quick add: "Tomorrow" and "Urgent" are one tap each and are saved', async ({ page, setLanguage }) => {
+    test('Quick add: "Tomorrow" and "Urgent" are one tap each and are saved (as a calendar time, not a deadline)', async ({ page, setLanguage }) => {
       await setLanguage('en')
-      await page.goto('/')
-      const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
+      const day = await emptyDay(page, 14), zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
+      await eveOf(page, day)   // the app's "tomorrow" is this empty day
       await page.getByRole('button', { name: 'Quick add' }).first().tap()
       const title = stamp()
       try {
@@ -86,16 +88,17 @@ for (const [name, width, height] of sizes) {
         await expect(page.getByRole('radio', { name: 'Tomorrow' })).toHaveAttribute('aria-checked', 'true')
         await page.getByRole('button', { name: 'Add task', exact: true }).tap()
         await expect.poll(async () => (await findTask(page, title))?.priority).toBe('urgent')
-        expect(dayIn((await findTask(page, title))!.due_at!, zone)).toBe(dayIn(new Date(Date.now() + 86_400_000), zone))
+        const saved = (await findTask(page, title))!
+        expect(saved.due_at).toBeNull()
+        expect(new Date(saved.schedule!.starts_at).toISOString()).toBe(zonedInstant(`${day}T09:00`, zone))
       } finally { await removeTask(page, title) }
     })
 
-    test('Quick add: a day picked on the calendar is saved', async ({ page, setLanguage }) => {
+    test('Quick add: a day picked on the calendar is saved as that day at 09:00', async ({ page, setLanguage }) => {
       await setLanguage('en')
-      await page.goto('/')
-      const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
+      const day = await emptyDay(page, 16), zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
       await page.getByRole('button', { name: 'Quick add' }).first().tap()
-      const title = stamp(), day = dayIn(new Date(Date.now() + 9 * 86_400_000), zone)
+      const title = stamp()
       try {
         await page.locator('dialog[open] [data-autofocus]').fill(title)
         await page.locator('.qa-pick .dtp-trigger').tap()
@@ -105,7 +108,8 @@ for (const [name, width, height] of sizes) {
         await picker.getByRole('button', { name: 'Done' }).tap()
         await expect(page.locator('.qa-pick')).toHaveClass(/is-set/)
         await page.getByRole('button', { name: 'Add task', exact: true }).tap()
-        await expect.poll(async () => (await findTask(page, title))?.due_at ? dayIn((await findTask(page, title))!.due_at!, zone) : null).toBe(day)
+        await expect.poll(async () => { const at = (await findTask(page, title))?.schedule?.starts_at; return at ? new Date(at).toISOString() : null }).toBe(zonedInstant(`${day}T09:00`, zone))
+        expect((await findTask(page, title))!.due_at).toBeNull()
       } finally { await removeTask(page, title) }
     })
 

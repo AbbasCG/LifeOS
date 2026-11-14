@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { nextWeekDay, dueFor, dueForDay } from '../lib/quickAdd'
-import { setAccountZone } from '../lib/accountDay'
+import { nextWeekDay, dueFor } from '../lib/quickAdd'
+import { accountInstant, setAccountZone } from '../lib/accountDay'
 import premium from '../styles/premium.css?raw'
 import theme from '../styles/theme.css?raw'
 import mobile from '../styles/mobile.css?raw'
@@ -37,7 +37,7 @@ describe('dictated "next week" is visible', () => {
   it('saves exactly the same due date as the old hidden "next week" choice', () => {
     setAccountZone('Europe/Amsterdam')
     for (const now of ['2027-03-10T09:00:00Z', '2027-03-14T23:30:00Z', '2027-03-15T09:00:00Z']) {
-      expect(dueForDay(nextWeekDay(new Date(now)), new Date(now))).toBe(dueFor('nextweek', new Date(now)))
+      expect(accountInstant(nextWeekDay(new Date(now)), 17)).toBe(dueFor('nextweek', new Date(now)))
     }
   })
 })

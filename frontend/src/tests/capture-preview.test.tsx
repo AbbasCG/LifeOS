@@ -18,14 +18,14 @@ describe('Quick add shows what it understood before saving', () => {
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('shows the time and length from a Dutch phrase, and nothing for plain text', async () => {
+  it('shows the booking (day, start and computed end) from a Dutch phrase, and nothing for plain text', async () => {
     localStorage.setItem('lifeos-language', 'en')
     shell(); act(() => openQuickAdd())
     const input = await screen.findByLabelText('Task')
     fireEvent.change(input, { target: { value: 'buy milk' } })
     expect(screen.queryByText(/Understood:/)).not.toBeInTheDocument()
     fireEvent.change(input, { target: { value: 'bel Ahmed morgen om 17:00 voor 30 minuten' } })
-    expect(screen.getByText(/Understood:/)).toHaveTextContent(/Understood:.*(5:00|17:00).*30 min/)
+    expect(screen.getByText(/Understood:/)).toHaveTextContent('Understood: Tomorrow 17:00–17:30')
     // Nothing is saved by looking.
     expect(vi.mocked(fetch).mock.calls.some(c => String(c[0]).includes('/api/tasks'))).toBe(false)
   })
@@ -34,6 +34,6 @@ describe('Quick add shows what it understood before saving', () => {
     localStorage.setItem('lifeos-language', 'ar')
     shell(); act(() => openQuickAdd())
     fireEvent.change(await screen.findByLabelText('المهمة'), { target: { value: 'اتصل بأحمد بكرة الساعة 5 مساءً لمدة ساعتين' } })
-    expect(screen.getByText(/فُهم:/)).toHaveTextContent(/120 دقيقة/)
+    expect(screen.getByText(/فُهم:/)).toHaveTextContent('فُهم: غدًا 17:00–19:00')
   })
 })

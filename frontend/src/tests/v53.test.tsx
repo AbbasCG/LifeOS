@@ -10,8 +10,7 @@ import { ChoiceGroup, PickerField } from '../components/ui/Choice'
 import { BottomSheet } from '../components/visual'
 import { RecordForm } from '../features/RecordForm'
 import IntegrationsSettings from '../features/settings/IntegrationsSettings'
-import { dueFor, dueForDay, openQuickAdd } from '../lib/quickAdd'
-import { accountDay } from '../lib/accountDay'
+import { openQuickAdd } from '../lib/quickAdd'
 import mobile from '../styles/mobile.css?raw'
 
 const wrap = (children: ReactNode) => <ThemeProvider><LanguageProvider><MemoryRouter><ToastProvider>{children}</ToastProvider></MemoryRouter></LanguageProvider></ThemeProvider>
@@ -28,17 +27,6 @@ function server(routes: { match: RegExp; method?: string; body: unknown; status?
 }
 beforeEach(() => { cleanup(); localStorage.clear(); localStorage.setItem('lifeos-language', 'en') })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
-
-describe('a day picked on the calendar', () => {
-  it('is 17:00 that day, tonight when it is today and 17:00 has passed, and nothing when empty or invalid', () => {
-    const now = new Date('2027-03-22T10:00:00Z')
-    expect(dueForDay('2027-04-02', now)).toBe(dueFor('tomorrow', now) && dueForDay('2027-04-02', now))
-    expect(dueForDay('2027-04-02', now)).toMatch(/^2027-04-0[12]T/)
-    expect(dueForDay(accountDay(now), now)).toBe(dueFor('today', now))
-    expect(dueForDay('', now)).toBeNull()
-    expect(dueForDay('soon', now)).toBeNull()
-  })
-})
 
 describe('choice groups replace drop-downs', () => {
   function Demo() {
@@ -140,38 +128,44 @@ describe('Quick add', () => {
   }
   const post = () => vi.mocked(fetch).mock.calls.filter(c => (c[1] as RequestInit | undefined)?.method === 'POST' && String(c[0]).endsWith('/api/tasks')).map(c => JSON.parse((c[1] as RequestInit).body as string) as Record<string, unknown>)
 
-  it('adds a task in two moves from the defaults: type, then the big Add button (today, normal)', async () => {
+  it('adds a task in two moves from the defaults: type, then the big Add button (not scheduled, normal, no deadline)', async () => {
     const input = await open()
     expect(screen.getByRole('button', { name: 'Add task' })).toBeDisabled()
     fireEvent.change(input, { target: { value: 'Pay rent' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add task' }))
     await waitFor(() => expect(post()).toHaveLength(1))
     expect(post()[0]).toMatchObject({ title: 'Pay rent', priority: 'medium', status: 'todo' })
-    expect(typeof post()[0].due_at).toBe('string')
+    expect(post()[0]).not.toHaveProperty('due_at')
+    expect(post()[0]).not.toHaveProperty('schedule')
   })
   it('shows date and priority as direct one-tap choices with icons, and sends them', async () => {
     const input = await open()
-    const when = screen.getByRole('radiogroup', { name: 'When' }), prio = screen.getByRole('radiogroup', { name: 'Priority' })
-    for (const name of ['Today', 'Tomorrow', 'This week', 'No date']) expect(within(when).getByRole('radio', { name })).toBeInTheDocument()
+    const when = screen.getByRole('radiogroup', { name: 'When do you want to do it?' }), prio = screen.getByRole('radiogroup', { name: 'Priority' })
+    for (const name of ['Today', 'Tomorrow', 'Not scheduled']) expect(within(when).getByRole('radio', { name })).toBeInTheDocument()
+    expect(within(when).queryByRole('radio', { name: 'This week' })).toBeNull()
     for (const name of ['Urgent', 'High', 'Normal', 'Low']) expect(within(prio).getByRole('radio', { name })).toBeInTheDocument()
-    expect(when.querySelectorAll('svg').length).toBeGreaterThanOrEqual(4)
+    expect(when.querySelectorAll('svg').length).toBeGreaterThanOrEqual(3)
     expect(screen.getByRole('radio', { name: /Pick a date/ })).toBeInTheDocument()
     fireEvent.change(input, { target: { value: 'Call the bank' } })
     fireEvent.click(within(when).getByRole('radio', { name: 'Tomorrow' }))
     fireEvent.click(within(prio).getByRole('radio', { name: 'Urgent' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add task' }))
     await waitFor(() => expect(post()).toHaveLength(1))
-    expect(post()[0]).toMatchObject({ title: 'Call the bank', priority: 'urgent', due_at: dueFor('tomorrow') })
+    expect(post()[0]).toMatchObject({ title: 'Call the bank', priority: 'urgent' })
+    expect(post()[0].schedule).toEqual({ starts_at: expect.any(String) })
+    expect(post()[0]).not.toHaveProperty('due_at')
   })
-  it('"No date" sends no due date; Log a habit and More details stay available', async () => {
+  it('"Not scheduled" sends no time and no deadline; Log a habit and More details stay available', async () => {
     const input = await open()
     fireEvent.change(input, { target: { value: 'Someday' } })
-    fireEvent.click(screen.getByRole('radio', { name: 'No date' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Tomorrow' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Not scheduled' }))
     expect(screen.getByRole('button', { name: /Log a habit/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /More details/ })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Add task' }))
     await waitFor(() => expect(post()).toHaveLength(1))
-    expect(post()[0].due_at).toBeNull()
+    expect(post()[0]).not.toHaveProperty('due_at')
+    expect(post()[0]).not.toHaveProperty('schedule')
   })
 })
 

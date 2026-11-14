@@ -12,8 +12,8 @@ describe('workspace preferences',()=>{
  it('applies and saves dark mode',async()=>{render(<ThemeProvider><LanguageProvider><Preferences/></LanguageProvider></ThemeProvider>);fireEvent.click(screen.getByText('Dark'));await waitFor(()=>expect(document.documentElement.dataset.theme).toBe('dark'));expect(localStorage.getItem('lifeos-theme')).toBe('dark')})
 })
 describe('quick capture',()=>{
- it('creates a reviewable tomorrow evening draft',()=>{const draft=parseCapture('Tomorrow at 7 PM, study Laravel for one hour.',new Date(2026,9,19,12));expect(draft.estimated_minutes).toBe(60);expect(new Date(draft.due_at!).getHours()).toBe(19);expect(new Date(draft.due_at!).getDate()).toBe(20);expect(draft.status).toBe('inbox')})
- it('preserves plain Arabic capture without inventing a date',()=>{const draft=parseCapture('مراجعة الدرس');expect(draft.title).toBe('مراجعة الدرس');expect(draft.due_at).toBeUndefined()})
+ it('creates a reviewable tomorrow evening draft',()=>{const draft=parseCapture('Tomorrow at 7 PM, study Laravel for one hour.',new Date(2026,9,19,12));expect(draft.estimated_minutes).toBe(60);expect(new Date(draft.schedule!.starts_at).getHours()).toBe(19);expect(new Date(draft.schedule!.starts_at).getDate()).toBe(20);expect(draft.due_at).toBeUndefined();expect(draft.status).toBe('inbox')})
+ it('preserves plain Arabic capture without inventing a date',()=>{const draft=parseCapture('مراجعة الدرس');expect(draft.title).toBe('مراجعة الدرس');expect(draft.due_at).toBeUndefined();expect(draft.schedule).toBeUndefined()})
 })
 describe('API behavior',()=>{
  it('uses cookie credentials and sends CSRF headers',async()=>{document.cookie='XSRF-TOKEN=test-token';const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({ok:true}),{status:200}));vi.stubGlobal('fetch',fetcher);await api('/api/tasks','POST',{title:'Read'});expect(fetcher).toHaveBeenCalledWith('/api/tasks',expect.objectContaining({credentials:'include',headers:expect.objectContaining({'X-XSRF-TOKEN':'test-token'})}))})
