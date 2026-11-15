@@ -59,6 +59,8 @@ class WorkspaceTest extends TestCase
 
     public function test_focus_tracks_elapsed_time_once_and_excludes_pauses(): void
     {
+        // Frozen: with the real clock, a second boundary between the start and the first pause made this 301 instead of 300.
+        $this->freezeTime();
         $this->actingAs(User::factory()->create());
         $id = $this->postJson('/api/focus-sessions', ['duration_seconds' => 1500, 'kind' => 'focus'])->assertCreated()->json('id');
         $this->travel(5)->minutes();
