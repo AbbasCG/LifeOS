@@ -59,3 +59,31 @@ test('changes made offline wait on the device, are sent only on request, and con
     for (const t of (await call(page, 'GET', `/api/tasks?search=${encodeURIComponent(`E2E offline`)}&per_page=50&due=`))?.data ?? []) if (String(t.title).includes(String(stamp))) await call(page, 'DELETE', `/api/tasks/${t.id}`)
   }
 })
+
+test('Quick add is fetched while the page is idle, so it opens instantly and still saves offline from the service worker cache', async ({ page, context, setLanguage, guard }) => {
+  guard.allowConsole(/Failed to load resource|ERR_INTERNET_DISCONNECTED/)
+  await setLanguage('en')
+  const chunks: string[] = []
+  page.on('request', r => { if (/\/assets\/QuickAddSheet-/.test(r.url())) chunks.push(r.url()) })
+  const added = `E2E offline quick ${Date.now()}`
+  await page.goto('/tasks')
+  // Idle preload: the sheet's script is requested without the user asking, and the service worker keeps a copy.
+  await expect.poll(() => chunks.length, { timeout: 15_000 }).toBeGreaterThan(0)
+  await expect.poll(() => page.evaluate(async () => { for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) if (/\/assets\/QuickAddSheet-/.test(r.url)) return true; return false }), { timeout: 15_000 }).toBe(true)
+  const before = chunks.length
+  await context.setOffline(true)
+  try {
+    await page.getByRole('button', { name: 'Quick add' }).filter({ visible: true }).first().click()
+    const sheet = page.getByRole('dialog', { name: 'Quick add' })
+    await sheet.getByRole('textbox', { name: 'Task' }).fill(added)
+    await sheet.getByRole('button', { name: /Add task/ }).click()
+    await expect(page.getByText('Saved on this device. Send it from “Waiting to sync” when you’re online.').first()).toBeVisible()
+    expect(chunks.length, 'opening the sheet needs no new download').toBe(before)
+  } finally {
+    await context.setOffline(false)
+    // A toast can cover the pill on a phone: click through the DOM.
+    await page.getByRole('button', { name: /waiting to sync/ }).dispatchEvent('click')
+    const sync = page.getByRole('dialog', { name: 'Waiting to sync' })
+    await sync.getByRole('button', { name: /Discard/ }).first().dispatchEvent('click')
+  }
+})
