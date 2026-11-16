@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { hijriDate } from '../lib/hijri'
 import { islamicDayLabel, islamicDayOf } from '../lib/islamicDays'
 
-// Anchors from the published Umm al-Qura calendar (not taken from this code's output).
-// Node's Intl (ICU) agrees with three of them on the day itself. For 1 Ramadan 1447 (published 2026-02-19) it answers
-// Ramadan 2 on 2026-02-19 and Ramadan 1 on 2026-02-18, one day earlier, so that anchor is tested through the one-day adjustment.
+// Anchors: the dates the Umm al-Qura calendar is expected to give for Eid al-Fitr, Eid al-Adha and the Islamic new year agree with the
+// browser's Intl data. For 1 Ramadan 1447 the Intl data answers 2026-02-18; countries that announced the 19th are what the one-day
+// adjustment setting is for, so both are tested. The Hijri date shown in the app always says it may differ by a day from local sighting.
 const ymd = (h: ReturnType<typeof hijriDate>) => h && [h.year, h.month, h.day]
 
 describe('Hijri date (Umm al-Qura)', () => {
@@ -18,9 +18,9 @@ describe('Hijri date (Umm al-Qura)', () => {
   it('1 Muharram 1448 is 2026-06-16', () => {
     expect(ymd(hijriDate('2026-06-16', 'en'))).toEqual([1448, 1, 1])
   })
-  it('1 Ramadan 1447 is 2026-02-19 with the one-day adjustment (this Intl puts it on 2026-02-18)', () => {
-    expect(ymd(hijriDate('2026-02-19', 'en', -1))).toEqual([1447, 9, 1])
+  it('1 Ramadan 1447: the calendar data says 2026-02-18; the one-day adjustment reaches the 19th for anyone whose country started a day later', () => {
     expect(ymd(hijriDate('2026-02-18', 'en'))).toEqual([1447, 9, 1])
+    expect(ymd(hijriDate('2026-02-19', 'en', -1))).toEqual([1447, 9, 1])
   })
   it('shifts the Gregorian day by the offset before converting, in both directions', () => {
     expect(ymd(hijriDate('2026-03-19', 'en', 1))).toEqual([1447, 10, 1])
