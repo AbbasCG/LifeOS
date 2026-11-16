@@ -61,6 +61,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('assistant/proposals/{id}/apply', [AssistantController::class, 'apply']);
         Route::post('assistant/proposals/{id}/undo', [AssistantController::class, 'undo']);
         Route::post('assistant/proposals/{id}/dismiss', [AssistantController::class, 'dismiss']);
+        Route::post('today/reorganize', [AssistantController::class, 'reorganize'])->middleware('throttle:assistant');
         Route::get('copilot/conversations', [CopilotController::class, 'index']);
         Route::delete('copilot/conversations', [CopilotController::class, 'destroyAll']);
         Route::get('copilot/conversations/{id}', [CopilotController::class, 'show'])->whereUuid('id');

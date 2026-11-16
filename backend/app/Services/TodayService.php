@@ -18,7 +18,7 @@ class TodayService
 {
     public const DEFAULT_FOCUS_TARGET = 240;
 
-    public function __construct(private BriefingService $briefing, private PlanningService $planning, private CalendarService $calendar, private CheckinService $checkins, private GoalIntelligence $goals) {}
+    public function __construct(private BriefingService $briefing, private PlanningService $planning, private CalendarService $calendar, private CheckinService $checkins, private GoalIntelligence $goals, private DayReorganizer $reorganizer) {}
 
     /**
      * @return array<string, mixed>
@@ -116,6 +116,8 @@ class TodayService
             'windows' => collect($windows)->map(fn (array $w) => ['start' => $w[0]->toIso8601String(), 'end' => $w[1]->toIso8601String()]),
             'deadlines' => $deadlines->take(10)->values(),
             'progress' => $progress,
+            // Cheap signal for the "Reorganize my day" suggestion (a few queries, no planning run).
+            'reorganize' => $this->reorganizer->hint($user, $occurrences),
         ];
     }
 

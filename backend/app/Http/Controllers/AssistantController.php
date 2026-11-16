@@ -7,6 +7,7 @@ use App\Models\AssistantProposal;
 use App\Services\AssistantActions;
 use App\Services\AssistantService;
 use App\Services\ConversationService;
+use App\Services\DayReorganizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -76,6 +77,17 @@ class AssistantController extends Controller
     public function dismiss(Request $request, string $id, AssistantActions $actions): JsonResponse
     {
         return response()->json($actions->dismiss($this->find($request, $id))->present());
+    }
+
+    /**
+     * "Reorganize my day": a deterministic preview (no AI provider involved) of re-placed work. Writes only the proposal row.
+     */
+    public function reorganize(Request $request, DayReorganizer $reorganizer): JsonResponse
+    {
+        $user = $request->user();
+        $result = $reorganizer->propose($user, ($user->preferences()['language'] ?? 'en') === 'ar');
+
+        return response()->json(['proposal' => $result['proposal']?->present(), 'summary' => $result['summary'], 'explanation' => $result['explanation']]);
     }
 
     private function find(Request $request, string $id): AssistantProposal

@@ -731,7 +731,7 @@ class AssistantActions
      * @param  list<array<string, mixed>>  $actions
      * @param  list<string>  $explanation
      */
-    private function store(User $user, string $kind, string $provider, string $summary, array $explanation, array $actions): AssistantProposal
+    public function store(User $user, string $kind, string $provider, string $summary, array $explanation, array $actions): AssistantProposal
     {
         AssistantProposal::where('user_id', $user->id)->where('status', 'pending')->where('expires_at', '<', now())->update(['status' => 'expired']);
 
@@ -787,7 +787,7 @@ class AssistantActions
      * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $free
      * @return array{0: CarbonImmutable, 1: CarbonImmutable}|null
      */
-    private function takeSlot(array &$free, int $minutes, int $break): ?array
+    public function takeSlot(array &$free, int $minutes, int $break): ?array
     {
         foreach ($free as $i => [$s, $e]) {
             if ($s->diffInMinutes($e) >= $minutes) {
