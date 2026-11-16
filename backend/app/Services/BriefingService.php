@@ -91,16 +91,20 @@ class BriefingService
         $overdue = $openTasks->filter(fn (Task $task) => $task->due_at && $task->due_at->isPast())->count();
 
         $isWorkDay = in_array($dayStart->dayOfWeek, $prefs['work_days'] ?? [1, 2, 3, 4, 5]);
-        $workStart = $dayStart->setTimeFromTimeString($prefs['work_start'] ?? '09:00');
-        $workEnd = $dayStart->setTimeFromTimeString($prefs['work_end'] ?? '17:00');
-        $availableMinutes = $isWorkDay ? (int) $workStart->diffInMinutes($workEnd) : 0;
+        // Ramadan hours on a day of Ramadan mode, and no prayer or iftar windows in the available time (both are off unless turned on).
+        $planning = app(PlanningService::class);
+        $config = $planning->config($user);
+        [$startText, $endText] = $planning->workHours($config, $dayStart);
+        $workStart = $dayStart->setTimeFromTimeString($startText);
+        $workEnd = $dayStart->setTimeFromTimeString($endText);
+        $availableMinutes = $isWorkDay ? max(0, (int) $workStart->diffInMinutes($workEnd) - $planning->protectedMinutes($config, $workStart, $workEnd)) : 0;
         $bookedMinutes = (int) $events->sum(function (array $event) use ($workStart, $workEnd) {
             $start = max($event['starts_at'], $workStart);
             $end = min($event['ends_at'], $workEnd);
 
             return $end > $start ? $start->diffInMinutes($end) : 0;
         });
-        $remainingWork = $isWorkDay && $now < $workEnd ? (int) max($now, $workStart)->diffInMinutes($workEnd) : 0;
+        $remainingWork = $isWorkDay && $now < $workEnd ? max(0, (int) max($now, $workStart)->diffInMinutes($workEnd) - $planning->protectedMinutes($config, max($now, $workStart), $workEnd)) : 0;
 
         $habits = $this->habits($user, $dayStart);
         $goals = Goal::where('user_id', $user->id)

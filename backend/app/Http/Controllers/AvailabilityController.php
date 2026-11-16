@@ -25,12 +25,16 @@ class AvailabilityController extends Controller
         for ($d = 0; $d < $days; $d++) {
             $local = $first->addDays($d);
             $workDay = in_array($local->dayOfWeek, $c['work_days'], true);
-            $start = max($local->setTimeFromTimeString($c['work_start'])->utc(), CarbonImmutable::now()->startOfMinute());
-            $slots = $workDay ? $planner->freeIntervals($start, $local->setTimeFromTimeString($c['work_end'])->utc(), $busy) : [];
+            // On a day of Ramadan mode the work hours are the Ramadan ones; prayer and iftar windows are not offered as free time.
+            [$workStart, $workEnd] = $planner->workHours($c, $local);
+            $start = max($local->setTimeFromTimeString($workStart)->utc(), CarbonImmutable::now()->startOfMinute());
+            $slots = $workDay ? $planner->freeIntervals($start, $local->setTimeFromTimeString($workEnd)->utc(), $busy, 0, $c) : [];
             $slots = array_values(array_filter($slots, fn (array $s) => $s[0]->diffInMinutes($s[1]) >= $minimum));
             $result[] = [
                 'date' => $local->toDateString(),
                 'work_day' => $workDay,
+                'work_start' => $workStart,
+                'work_end' => $workEnd,
                 'free_minutes' => (int) array_sum(array_map(fn (array $s) => $s[0]->diffInMinutes($s[1]), $slots)),
                 'slots' => array_map(fn (array $s) => ['starts_at' => $s[0]->toIso8601String(), 'ends_at' => $s[1]->toIso8601String(), 'minutes' => (int) $s[0]->diffInMinutes($s[1])], $slots),
             ];

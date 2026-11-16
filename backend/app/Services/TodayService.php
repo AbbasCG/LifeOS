@@ -34,7 +34,7 @@ class TodayService
         $occurrences = $this->calendar->occurrences($user, $day->utc(), $day->addDay()->utc());
         $busy = $occurrences->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
 
-        $slots = collect($windows)->flatMap(fn (array $w, string $area) => collect($this->planning->freeIntervals(max($w[0], $now)->utc(), $w[1]->utc(), $busy, $c['break']))
+        $slots = collect($windows)->flatMap(fn (array $w, string $area) => collect($this->planning->freeIntervals(max($w[0], $now)->utc(), $w[1]->utc(), $busy, $c['break'], $c))
             ->map(fn (array $f) => ['area' => $area, 'starts_at' => $f[0]->toIso8601String(), 'ends_at' => $f[1]->toIso8601String(), 'minutes' => (int) $f[0]->diffInMinutes($f[1])]))
             ->filter(fn (array $s) => $s['minutes'] >= 30)->sortBy('starts_at')->values();
         $peak = $c['focus_start'] && $c['focus_end'] ? ['start' => $c['focus_start'], 'end' => $c['focus_end']] : null;

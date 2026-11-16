@@ -355,10 +355,14 @@ class CopilotPlanner
                         continue;
                     }
                     $preferred = $a === 'work' && $c['focus_start'] && $c['focus_end'] ? [$day->setTimeFromTimeString($c['focus_start']), $day->setTimeFromTimeString($c['focus_end'])] : null;
+                    if ($preferred && $this->planning->ramadanDay($c, $day)) {
+                        // Ramadan hours are shorter than the usual day: the peak-focus preference never reaches outside them.
+                        $preferred = [max($preferred[0], $window[0]), min($preferred[1], $window[1])];
+                    }
                     $slot = null;
                     foreach (array_filter([$preferred, $window]) as [$from, $to]) {
                         $from = max($from, $earliest);
-                        $slot = $from < $to ? collect($this->planning->freeIntervals($from->utc(), $to->utc(), $busy))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes) : null;
+                        $slot = $from < $to ? collect($this->planning->freeIntervals($from->utc(), $to->utc(), $busy, 0, $c))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes) : null;
                         if ($slot) {
                             break;
                         }
@@ -578,7 +582,7 @@ class CopilotPlanner
                 $target = $day->addDays($d);
                 foreach ($this->planning->windows($c, $target) as $window) {
                     $from = max($window[0], $d === 0 ? $until : $window[0], $now->addMinutes(15));
-                    $free = $from < $window[1] ? collect($this->planning->freeIntervals($from->utc(), $window[1]->utc(), $busy))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes) : null;
+                    $free = $from < $window[1] ? collect($this->planning->freeIntervals($from->utc(), $window[1]->utc(), $busy, 0, $c))->first(fn ($f) => $f[0]->diffInMinutes($f[1]) >= $minutes) : null;
                     if ($free) {
                         $slot = [$free[0], $free[0]->addMinutes($minutes)];
                         break;

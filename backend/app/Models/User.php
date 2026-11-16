@@ -63,7 +63,13 @@ class User extends Authenticatable
      * Display-only and calendar preferences that are always returned, with these values when the user never saved them.
      * `week_start` is a Carbon/JS day number (0 = Sunday ... 6 = Saturday); 1 (Monday) is what every account had before the setting existed.
      */
-    public const PREFERENCE_DEFAULTS = ['week_start' => 1, 'calendar_system' => 'gregorian', 'hijri_offset' => 0];
+    public const PREFERENCE_DEFAULTS = [
+        'week_start' => 1, 'calendar_system' => 'gregorian', 'hijri_offset' => 0,
+        // Prayer times and Ramadan mode: opt-in, off by default. The coordinates live only here and are never logged or sent to an AI provider.
+        'prayer_enabled' => false, 'prayer_lat' => null, 'prayer_lng' => null, 'prayer_method' => 'umm_al_qura', 'prayer_asr' => 'standard',
+        'prayer_before' => 10, 'prayer_after' => 20, 'jumuah_after' => 75,
+        'ramadan_mode' => 'off', 'ramadan_work_start' => '10:00', 'ramadan_work_end' => '15:00', 'iftar_minutes' => 45,
+    ];
 
     /**
      * The first day of this user's week (0 = Sunday ... 6 = Saturday), Monday when unset or out of range.

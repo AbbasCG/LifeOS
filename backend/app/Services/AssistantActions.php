@@ -74,16 +74,17 @@ class AssistantActions
         }));
         $durations = $this->durations($items, $availableMinutes, $c['break']);
 
-        $windowStart = $day->setTimeFromTimeString($startAfter ?? $c['work_start']);
+        [$workStart, $workEnd] = $this->planning->workHours($c, $day);
+        $windowStart = $day->setTimeFromTimeString($startAfter ?? $workStart);
         if ($day->isSameDay($now) && $windowStart < $now) {
             $windowStart = $now->addMinutes(15 - $now->minute % 15)->startOfMinute();
         }
         $needed = array_sum($durations) + $c['break'] * max(0, count($durations) - 1);
-        $windowEnd = max($day->setTimeFromTimeString($c['work_end']), $windowStart->addMinutes($needed + 60));
+        $windowEnd = max($day->setTimeFromTimeString($workEnd), $windowStart->addMinutes($needed + 60));
         $windowEnd = min($windowEnd, $day->setTime(22, 0));
         $occurrences = $this->calendar->occurrences($user, $day->utc(), $day->addDay()->utc());
         $busy = $occurrences->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
-        $free = $this->planning->freeIntervals($windowStart->utc(), $windowEnd->utc(), $busy, $c['break']);
+        $free = $this->planning->freeIntervals($windowStart->utc(), $windowEnd->utc(), $busy, $c['break'], $c);
 
         $actions = [];
         $skipped = [];
@@ -194,8 +195,9 @@ class AssistantActions
                         continue;
                     }
                     $t = CarbonImmutable::parse($target['date'], $c['tz']);
-                    $from = max($t->setTimeFromTimeString($c['work_start']), $now->setTimezone($c['tz'])->addMinutes(15));
-                    $free = $this->planning->freeIntervals($from->utc(), $t->setTimeFromTimeString($c['work_end'])->utc(), $busy, $c['break']);
+                    [$targetStart, $targetEnd] = $this->planning->workHours($c, $t);
+                    $from = max($t->setTimeFromTimeString($targetStart), $now->setTimezone($c['tz'])->addMinutes(15));
+                    $free = $this->planning->freeIntervals($from->utc(), $t->setTimeFromTimeString($targetEnd)->utc(), $busy, $c['break'], $c);
                     $slot = $this->takeSlot($free, $minutes, $c['break']);
                     if (! $slot) {
                         continue;
@@ -317,7 +319,8 @@ class AssistantActions
             $need = max(15, $task->estimated_minutes - (int) $task->actual_minutes);
             $placed = false;
             foreach ($days as $i => $day) {
-                $end = CarbonImmutable::parse($day['date'], $c['tz'])->setTimeFromTimeString($c['work_end']);
+                $dayStart = CarbonImmutable::parse($day['date'], $c['tz']);
+                $end = $dayStart->setTimeFromTimeString($this->planning->workHours($c, $dayStart)[1]);
                 if ($end <= $now->addMinutes(30) || $day['free_minutes'] < $need) {
                     continue;
                 }
@@ -384,7 +387,7 @@ class AssistantActions
                 if ($start >= $window[1]) {
                     continue;
                 }
-                $free = $this->planning->freeIntervals($start->utc(), $window[1]->utc(), $busy, $c['break']);
+                $free = $this->planning->freeIntervals($start->utc(), $window[1]->utc(), $busy, $c['break'], $c);
                 $slot = $this->takeSlot($free, $minutes, $c['break']);
                 if (! $slot && collect($free)->contains(fn ($f) => $f[0]->diffInMinutes($f[1]) >= 30)) {
                     $minutes = (int) (floor(collect($free)->map(fn ($f) => $f[0]->diffInMinutes($f[1]))->max() / 5) * 5);

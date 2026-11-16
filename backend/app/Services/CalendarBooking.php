@@ -136,6 +136,10 @@ class CalendarBooking
         $config = $planner->config($user);
         // One read of everything that could be in the way; the loop below only filters it with the same overlap rule.
         $busy = $this->calendar->conflicts($user, $earliest, $horizon->addSeconds($seconds), $ignoreEventId, $ignoreOccurrence);
+        // Only the suggestion keeps clear of prayer and iftar windows (when the user turned them on); what may be booked, and what clashes, is unchanged.
+        foreach ($planner->protectedIntervals($config, $earliest, $horizon->addSeconds($seconds)) as [$from, $to]) {
+            $busy->push(['starts_at' => $from, 'ends_at' => $to]);
+        }
         $firstDay = $earliest->setTimezone($config['tz'])->startOfDay();
         for ($d = 0; $d <= self::SUGGEST_DAYS; $d++) {
             $window = $planner->windows($config, $firstDay->addDays($d))['work'] ?? null;
