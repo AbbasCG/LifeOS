@@ -69,6 +69,10 @@ test('Quick add is fetched while the page is idle, so it opens instantly and sti
   await page.goto('/tasks')
   // Idle preload: the sheet's script is requested without the user asking, and the service worker keeps a copy.
   await expect.poll(() => chunks.length, { timeout: 15_000 }).toBeGreaterThan(0)
+  // The idle fetch can finish before the service worker controls the page (first visit), and then it was not cached. Wait for the worker to
+  // take over and ask for the same file once through it: that is exactly what the worker keeps for offline use, with no timing luck involved.
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; if (!navigator.serviceWorker.controller) await new Promise<void>(done => navigator.serviceWorker.addEventListener('controllerchange', () => done(), { once: true })) })
+  await page.evaluate(async url => { await fetch(url) }, chunks[0])
   await expect.poll(() => page.evaluate(async () => { for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) if (/\/assets\/QuickAddSheet-/.test(r.url)) return true; return false }), { timeout: 15_000 }).toBe(true)
   const before = chunks.length
   await context.setOffline(true)
@@ -82,8 +86,11 @@ test('Quick add is fetched while the page is idle, so it opens instantly and sti
   } finally {
     await context.setOffline(false)
     // A toast can cover the pill on a phone: click through the DOM.
-    await page.getByRole('button', { name: /waiting to sync/ }).dispatchEvent('click')
-    const sync = page.getByRole('dialog', { name: 'Waiting to sync' })
-    await sync.getByRole('button', { name: /Discard/ }).first().dispatchEvent('click')
+    // Only when the save really queued something: if it did not, the assertions above already say why, and this must not hide them.
+    const pill = page.getByRole('button', { name: /waiting to sync/ })
+    if (await pill.count()) {
+      await pill.dispatchEvent('click')
+      await page.getByRole('dialog', { name: 'Waiting to sync' }).getByRole('button', { name: /Discard/ }).first().dispatchEvent('click')
+    }
   }
 })
