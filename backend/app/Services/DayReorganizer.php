@@ -197,7 +197,7 @@ class DayReorganizer
                     if ($largest >= 30) {
                         $minutes = (int) (floor($largest / 5) * 5);
                         $slot = $this->actions->takeSlot($day['free'], $minutes, $c['break']);
-                        $slot && $shortened[] = $task->title.' ('.$minutes.')';
+                        $slot && $shortened[] = $task->title.' ('.$minutes.' '.$t('min', 'د').')';
                     }
                 }
                 if ($slot) {
@@ -309,7 +309,7 @@ class DayReorganizer
             $explanation[] = $t('Moved sessions free time today for you; new sessions never use that time, so you can accept each change on its own.', 'الجلسات المنقولة تُفرغ وقتاً اليوم لك؛ ولا تستخدمه الجلسات الجديدة، فيمكنك قبول كل تغيير على حدة.');
         }
         if ($shortened) {
-            $explanation[] = $t('Shortened to fit today: '.implode(', ', $shortened).' minutes.', 'قُصّرت لتناسب اليوم: '.implode('، ', $shortened).' دقيقة.');
+            $explanation[] = $t('Shortened to fit today: '.implode(', ', $shortened).'.', 'قُصّرت لتناسب اليوم: '.implode('، ', $shortened).'.');
         }
         if ($cut) {
             $explanation[] = $t('Only the first '.$cap.' minutes were placed for: '.implode(', ', $cut).'. Ask again later for the rest, or split the task.', 'وُضعت أول '.$cap.' دقيقة فقط لـ: '.implode('، ', $cut).'. اطلب مجدداً لاحقاً لبقية الوقت، أو قسّم المهمة.');

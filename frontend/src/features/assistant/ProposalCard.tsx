@@ -98,7 +98,7 @@ export function ProposalCard({ proposal: initial, onChange }: { proposal: Assist
             {open ? <input type="checkbox" checked={selected.includes(action.id)} onChange={() => toggle(action.id)} /> : done ? <CheckCircle2 size={16} className="ok" /> : <span className="dot" />}
             <span className="proposal-title">{action.title}</span>
             {keptReason && <small className="chip">{keptReason}</small>}
-            {action.source && <small className="chip">{{ missed: t('Missed session', 'جلسة فائتة', 'Gemiste sessie'), due: t('Due today', 'مستحقة اليوم', 'Vandaag aan de beurt'), overflow: t('Moved to lighten the day', 'نُقلت لتخفيف اليوم', 'Verplaatst om de dag lichter te maken') }[action.source]}</small>}
+            {action.source && <small className="chip">{{ missed: t('Missed session', 'جلسة فائتة', 'Gemiste sessie'), due: t('Due or overdue', 'مستحقة أو متأخرة', 'Aan de beurt of te laat'), overflow: t('Moved to lighten the day', 'نُقلت لتخفيف اليوم', 'Verplaatst om de dag lichter te maken') }[action.source]}</small>}
             {action.type === 'move_event' && !action.source && proposal.kind !== 'rebalance' && <small className="chip move-chip">{t('Moves an existing block', 'ينقل فترة قائمة')}</small>}
           </label>
           {action.type === 'create_event' && action.source && action.reason && <span className="move-detail"><small className="muted">{action.reason}</small></span>}

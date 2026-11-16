@@ -59,7 +59,7 @@ test('slipped work: the card, the preview with reasons, Apply books exactly one 
     const dialog = page.getByRole('dialog', { name: 'Reorganize my day' })
     const row = dialog.locator('li', { hasText: task.title })
     await expect(row).toBeVisible()
-    await expect(row).toContainText('Due today')
+    await expect(row).toContainText('Due or overdue')
     await expect(row.locator('.move-detail')).not.toBeEmpty()
     await expect(row.locator('.proposal-time')).toContainText(/\d{2}:\d{2}–\d{2}:\d{2}/)
     // Previewing changed nothing.
@@ -149,7 +149,7 @@ test('Arabic at 320 px: the entry and the preview do not overflow and have no ac
     await card.getByRole('button', { name: 'أعد التنظيم' }).click()
     const dialog = page.getByRole('dialog', { name: 'أعد تنظيم يومي' })
     await expect(dialog.locator('li', { hasText: task.title })).toBeVisible()
-    await expect(dialog.getByText('مستحقة اليوم').first()).toBeVisible()
+    await expect(dialog.getByText('مستحقة أو متأخرة').first()).toBeVisible()
     expect(await page.evaluate(() => {
       const d = document.querySelector('dialog[open]')!, inner = d.querySelector('.sheet-inner')!
       return [document.documentElement.scrollWidth - document.documentElement.clientWidth, d.scrollWidth - d.clientWidth, inner.scrollWidth - inner.clientWidth]
