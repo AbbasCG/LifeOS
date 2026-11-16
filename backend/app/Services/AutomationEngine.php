@@ -185,7 +185,7 @@ class AutomationEngine
                 }
                 $tz = $user->timezone();
                 $now = CarbonImmutable::now($tz);
-                $day = $now->format('H:i') < ($this->planning->config($user)['work_end']) ? $now : $now->addDay();
+                $day = $now->format('H:i') < $this->planning->workHours($this->planning->config($user), $now)[1] ? $now : $now->addDay();
                 $proposal = $this->assistant->proposeSchedule($user, $day->toDateString(), max(30, min(240, $task->estimated_minutes)), [['title' => $task->title, 'task_id' => $task->id, 'minutes' => max(30, min(240, $task->estimated_minutes))]], null, $ar, 'automation');
                 if ($proposal->actions === []) {
                     return ['skipped', $ar ? 'لا يوجد وقت متاح قريباً.' : 'No free time available soon.', ['proposal' => $proposal->id]];

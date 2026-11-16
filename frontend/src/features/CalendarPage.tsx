@@ -27,8 +27,9 @@ import { ScheduleConflictDialog } from '../components/ui/ScheduleConflictDialog'
 import type { ScheduleConflict, Slot } from '../lib/scheduleConflict'
 import { sourceName } from '../lib/sources'
 import { useCalendarZone } from '../lib/useCalendarZone'
+import { usePrayerRange, windowLabel } from '../lib/prayer'
 import type { ZoneShift } from '../lib/zoneShift'
-import { formatClock } from '../lib/clock'
+import { formatClock, formatClockRange } from '../lib/clock'
 
 const HOUR = HOUR_PX
 /** "Amsterdam (GMT+1)" for a timezone id; the browser's own zone when none is given. */
@@ -87,6 +88,8 @@ export default function CalendarPage() {
   const days = Array.from({ length: Math.round((end.getTime() - start.getTime()) / 86400000) }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return d })
   const availability = useApi<Availability>(`/api/availability?date=${localDate(start)}&days=${days.length}`)
   const timed = view === 'day' || view === 'week'
+  // Prayer windows (only when the account turned prayer times on): one read for the whole shown range, drawn as read-only bands in the day and week views.
+  const prayer = usePrayerRange(timed ? localDate(start) : null, days.length)
   // A task is scheduled when the server says so (it knows sessions outside this period too); the visible items only add to that.
   const scheduledTaskIds = new Set(data.items.map(e => e.task_id).filter(Boolean))
   const unscheduled = tasks.items.filter(task => !scheduleOf(task) && !scheduledTaskIds.has(task.id))
@@ -335,6 +338,8 @@ export default function CalendarPage() {
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropHint({ dayIndex, minutes: pointerMinutes(e) }) }}
               onDragLeave={() => setDropHint(null)}
               onDrop={e => dropOnDay(e, day, pointerMinutes(e))}>
+              {prayer?.days.flatMap(d => d.windows).map(w => { const ps = zs.viewDate(new Date(w.starts_at)), pe = zs.viewDate(new Date(w.ends_at)), box = blockBox(day, ps, pe); if (minutesInto(day, pe) <= 0 || minutesInto(day, ps) >= 24 * 60) return null
+                const name = windowLabel(w, t), range = formatClockRange(ps, pe); return <div key={w.starts_at} className="free-band prayer-band" role="note" aria-label={`${t('Prayer time', 'وقت الصلاة', 'Gebedstijd')}: ${name}, ${range}`} data-prayer={w.prayer} style={{ top: box.top, height: box.height }}><span aria-hidden="true">{name}</span></div> })}
               {showFree && free?.slots.map(slot => { const top = minutesInto(day, zs.viewDate(new Date(slot.starts_at))) / 60 * HOUR, height = slot.minutes / 60 * HOUR; return <div key={slot.starts_at} className="free-band" style={{ top, height }} aria-hidden="true">{height >= 26 && <span>{t(`Free ${minutesLabel(slot.minutes, false)}`, `متاح ${minutesLabel(slot.minutes, true)}`)}</span>}</div> })}
               {Array.from({ length: 24 }, (_, h) => { const hh = `${String(h).padStart(2, '0')}:00`; return <button key={h} className="slot" tabIndex={placing ? 0 : -1} style={{ top: h * HOUR, height: HOUR }} aria-label={placing ? t(`Schedule at ${hh}`, `جدولة الساعة ${isolate(hh)}`) : t(`Add event at ${hh}`, `إضافة موعد الساعة ${isolate(hh)}`)} onClick={() => slotClick(day, h)} /> })}
               {dropHint?.dayIndex === dayIndex && <div className="drop-hint" style={{ top: dropHint.minutes / 60 * HOUR }}><span>{time(atMinutes(day, dropHint.minutes))}</span></div>}

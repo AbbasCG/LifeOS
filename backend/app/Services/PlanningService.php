@@ -66,7 +66,64 @@ class PlanningService
             'study_end' => $prefs['study_end'] ?? null,
             'personal_start' => $prefs['personal_start'] ?? null,
             'personal_end' => $prefs['personal_end'] ?? null,
+            // Regional calendar (opt-in, off by default): prayer windows and Ramadan mode. Key names are the preference names.
+            'prayer' => PrayerTimes::fromPrefs($prefs),
+            'ramadan_mode' => $prefs['ramadan_mode'] ?? 'off',
+            'hijri_offset' => (int) ($prefs['hijri_offset'] ?? 0),
+            'ramadan_work_start' => $prefs['ramadan_work_start'] ?? '10:00',
+            'ramadan_work_end' => $prefs['ramadan_work_end'] ?? '15:00',
         ];
+    }
+
+    /**
+     * Whether Ramadan mode applies to a local day (mode on, or auto and the Hijri month is Ramadan).
+     *
+     * @param  array<string, mixed>  $c
+     */
+    public function ramadanDay(array $c, CarbonImmutable $localDay): bool
+    {
+        return Ramadan::activeFor($c, $localDay->setTimezone($c['tz'])->toDateString());
+    }
+
+    /**
+     * The work hours of a local day as H:i strings: the user's, or the Ramadan hours on a day of Ramadan.
+     *
+     * @param  array<string, mixed>  $c
+     * @return array{0: string, 1: string}
+     */
+    public function workHours(array $c, CarbonImmutable $localDay): array
+    {
+        if ($this->ramadanDay($c, $localDay) && $c['ramadan_work_end'] > $c['ramadan_work_start']) {
+            return [$c['ramadan_work_start'], $c['ramadan_work_end']];
+        }
+
+        return [$c['work_start'], $c['work_end']];
+    }
+
+    /**
+     * Prayer windows and the iftar window that touch [from, to), merged, or nothing when prayer times are off.
+     *
+     * @param  array<string, mixed>  $c
+     * @return list<array{0: CarbonImmutable, 1: CarbonImmutable}>
+     */
+    public function protectedIntervals(array $c, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        return ($c['prayer'] ?? null) instanceof PrayerTimes ? $c['prayer']->protectedIntervals($from->utc(), $to->utc()) : [];
+    }
+
+    /**
+     * Minutes of [from, to) taken by protected windows.
+     *
+     * @param  array<string, mixed>  $c
+     */
+    public function protectedMinutes(array $c, CarbonImmutable $from, CarbonImmutable $to): int
+    {
+        $total = 0;
+        foreach ($this->protectedIntervals($c, $from, $to) as [$s, $e]) {
+            $total += max(0, min($e->getTimestamp(), $to->getTimestamp()) - max($s->getTimestamp(), $from->getTimestamp()));
+        }
+
+        return intdiv($total, 60);
     }
 
     /**
@@ -80,7 +137,8 @@ class PlanningService
         $day = $localDay->setTimezone($c['tz'])->startOfDay();
         $windows = [];
         if (in_array($day->dayOfWeek, $c['work_days'], true)) {
-            $windows['work'] = [$day->setTimeFromTimeString($c['work_start']), $day->setTimeFromTimeString($c['work_end'])];
+            [$workStart, $workEnd] = $this->workHours($c, $day);
+            $windows['work'] = [$day->setTimeFromTimeString($workStart), $day->setTimeFromTimeString($workEnd)];
         }
         foreach (['study', 'personal'] as $area) {
             if (($c["{$area}_start"] ?? null) && ($c["{$area}_end"] ?? null) && $c["{$area}_start"] < $c["{$area}_end"]) {
@@ -149,11 +207,12 @@ class PlanningService
         $dayStates = [];
         for ($d = 0; $d < $days; $d++) {
             $local = $first->addDays($d);
+            [$workStart, $workEnd] = $this->workHours($c, $local);
             $dayStates[$d] = [
                 'date' => $local->toDateString(),
                 'work_day' => in_array($local->dayOfWeek, $c['work_days'], true),
-                'start' => $local->setTimeFromTimeString($c['work_start'])->utc(),
-                'end' => $local->setTimeFromTimeString($c['work_end'])->utc(),
+                'start' => $local->setTimeFromTimeString($workStart)->utc(),
+                'end' => $local->setTimeFromTimeString($workEnd)->utc(),
                 'focus' => $c['focus_start'] && $c['focus_end'] ? [$local->setTimeFromTimeString($c['focus_start'])->utc(), $local->setTimeFromTimeString($c['focus_end'])->utc()] : null,
                 'windows' => collect($this->windows($c, $local))->map(fn (array $w) => [$w[0]->utc(), $w[1]->utc()])->all(),
                 'planned' => 0,
@@ -254,7 +313,7 @@ class PlanningService
             if ($task->due_at && $windowStart->addMinutes($minutes) > $task->due_at) {
                 return null;
             }
-            $free = $this->freeIntervals($windowStart, $window[1], $busy, $c['break']);
+            $free = $this->freeIntervals($windowStart, $window[1], $busy, $c['break'], $c);
             $candidates = $free;
             $focusWindow = $used === 'work' ? $day['focus'] : null;
             if ($preferFocus && $focusWindow) {
@@ -296,17 +355,37 @@ class PlanningService
         return match ($area) {
             'study' => $c['study_limit'] ?? $length,
             'personal' => $c['personal_limit'] ?? $length,
-            default => $c['daily_limit'] ?? (int) floor($length * 0.85),
+            default => $c['daily_limit'] ?? $this->automaticWorkLimit($c, $window, $length),
         };
     }
 
     /**
+     * The automatic work limit: 85% of the window. On a day of Ramadan it is 75% of the usual limit (85% of the user's normal work hours),
+     * never more than the shorter Ramadan window itself. An explicit daily_focus_limit never reaches this.
+     *
+     * @param  array<string, mixed>  $c
+     * @param  array{0: CarbonImmutable, 1: CarbonImmutable}  $window
+     */
+    private function automaticWorkLimit(array $c, array $window, int $length): int
+    {
+        if (! $this->ramadanDay($c, $window[0])) {
+            return (int) floor($length * 0.85);
+        }
+        $usual = (int) floor(CarbonImmutable::parse('2000-01-01 '.$c['work_start'])->diffInMinutes(CarbonImmutable::parse('2000-01-01 '.$c['work_end'])) * 0.85);
+
+        return min($length, (int) floor($usual * 0.75));
+    }
+
+    /**
      * Free intervals inside [start, end) after removing busy time and a trailing break after each busy block.
+     * With the planning config $c, the prayer and iftar windows (when the user turned them on) are removed too; they carry their own margins,
+     * so no break is added after them. Callers that show or place planned time pass $c; booking an explicit event never goes through here.
      *
      * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $busy
+     * @param  array<string, mixed>|null  $c
      * @return list<array{0: CarbonImmutable, 1: CarbonImmutable}>
      */
-    public function freeIntervals(CarbonImmutable $start, CarbonImmutable $end, array $busy, int $break = 0): array
+    public function freeIntervals(CarbonImmutable $start, CarbonImmutable $end, array $busy, int $break = 0, ?array $c = null): array
     {
         if ($end <= $start) {
             return [];
@@ -330,8 +409,39 @@ class PlanningService
         if ($cursor < $end) {
             $free[] = [$cursor, $end];
         }
+        if ($c !== null && $free !== []) {
+            $free = $this->withoutProtected($free, $this->protectedIntervals($c, $start, $end));
+        }
 
         return array_values(array_filter($free, fn (array $f) => $f[0]->diffInMinutes($f[1]) >= 5));
+    }
+
+    /**
+     * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $free
+     * @param  list<array{0: CarbonImmutable, 1: CarbonImmutable}>  $protected  merged and sorted
+     * @return list<array{0: CarbonImmutable, 1: CarbonImmutable}>
+     */
+    private function withoutProtected(array $free, array $protected): array
+    {
+        foreach ($protected as [$ps, $pe]) {
+            $next = [];
+            foreach ($free as [$s, $e]) {
+                if ($pe <= $s || $ps >= $e) {
+                    $next[] = [$s, $e];
+
+                    continue;
+                }
+                if ($ps > $s) {
+                    $next[] = [$s, $ps];
+                }
+                if ($pe < $e) {
+                    $next[] = [$pe, $e];
+                }
+            }
+            $free = $next;
+        }
+
+        return $free;
     }
 
     /**
@@ -445,9 +555,12 @@ class PlanningService
         for ($d = 0; $d < $days; $d++) {
             $local = $first->addDays($d);
             $workDay = in_array($local->dayOfWeek, $c['work_days'], true);
-            $ws = $local->setTimeFromTimeString($c['work_start']);
-            $we = $local->setTimeFromTimeString($c['work_end']);
-            $capacity = $workDay ? (int) $ws->diffInMinutes($we) : 0;
+            [$workStart, $workEnd] = $this->workHours($c, $local);
+            $ws = $local->setTimeFromTimeString($workStart);
+            $we = $local->setTimeFromTimeString($workEnd);
+            // Prayer and iftar windows are not time to plan or book against, so they come off the day's capacity (and so off its free minutes).
+            $protected = $workDay ? $this->protectedMinutes($c, $ws, $we) : 0;
+            $capacity = $workDay ? max(0, (int) $ws->diffInMinutes($we) - $protected) : 0;
             $fixed = (int) $events->where('kind', 'fixed')->sum(fn (array $e) => $overlap($e['starts_at'], $e['ends_at'], $ws, $we));
             $flexible = (int) $events->where('kind', '!=', 'fixed')->sum(fn (array $e) => $overlap($e['starts_at'], $e['ends_at'], $ws, $we));
             // Day load is measured against working hours; blocks in study or personal windows don't count towards it.
@@ -457,6 +570,7 @@ class PlanningService
                 'date' => $local->toDateString(),
                 'work_day' => $workDay,
                 'capacity_minutes' => $capacity,
+                'protected_minutes' => $protected,
                 'fixed_minutes' => $fixed,
                 'existing_flexible_minutes' => $flexible,
                 'planned_minutes' => $planned,

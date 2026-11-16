@@ -56,7 +56,7 @@ class DayPlanner
 
             return [$isTaskBlock ? $o['starts_at'] : $o['starts_at']->subMinutes($c['buffer']), $isTaskBlock ? $o['ends_at'] : $o['ends_at']->addMinutes($c['buffer'])];
         })->merge($reserved)->all();
-        $free = collect($windows)->map(fn (array $w) => $this->planning->freeIntervals($w[0]->utc(), $w[1]->utc(), $busy))->all();
+        $free = collect($windows)->map(fn (array $w) => $this->planning->freeIntervals($w[0]->utc(), $w[1]->utc(), $busy, 0, $c))->all();
         $freeMinutes = (int) collect($free)->flatten(1)->sum(fn (array $f) => $f[0]->diffInMinutes($f[1]));
         $windowMinutes = (int) collect($windows)->sum(fn (array $w) => $w[0]->diffInMinutes($w[1]));
         $committed = (int) $occurrences->sum(function (array $o) use ($windows) {
@@ -75,6 +75,9 @@ class DayPlanner
         $capacity = (int) floor($freeMinutes * $capacityFactor);
         if ($c['daily_limit']) {
             $capacity = min($capacity, $c['daily_limit']);
+        } elseif ($this->planning->ramadanDay($c, $day)) {
+            // Ramadan days are lighter: with no explicit limit the automatic one is 75% of the usual.
+            $capacity = (int) floor($capacity * 0.75);
         }
         $capacity = max(0, $capacity - $lost);
 
