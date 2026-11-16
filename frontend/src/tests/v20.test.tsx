@@ -62,6 +62,14 @@ describe('quick add', () => {
     expect(await screen.findByRole('textbox', { name: 'Task' })).toBeInTheDocument()
   })
 
+  it('after the shortcut, "More details" still opens the full form (the sheet stays mounted when the param is cleared)', async () => {
+    stub()
+    render(wrap(<QuickAdd />, '/?add=task'))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Task' }), { target: { value: 'Call the bank' } })
+    fireEvent.click(screen.getByRole('button', { name: /More details/ }))
+    expect(await screen.findByLabelText('Title')).toHaveValue('Call the bank')
+  })
+
   it('keeps the task on this device when offline instead of posting it', async () => {
     const fetcher = stub()
     setOfflineOwner(1)

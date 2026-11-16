@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, emptyDay } from './fixtures'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -46,10 +46,8 @@ test('the calendar and the task session show a 24-hour clock in en, ar and nl, i
   await page.goto('/')
   const settings = (await call(page, 'GET', '/api/settings')).body as { timezone: string; language?: string }
   const stamp = Date.now()
-  const day = await page.evaluate(([zone, days]) => {
-    const t = new Date(Date.now() + (days as number) * 86_400_000)
-    return t.toLocaleDateString('en-CA', { timeZone: zone as string })
-  }, [ZONE, 3] as const)
+  // A day with nothing on it (the demo data has weekly events, so a fixed offset collides on some weekdays).
+  const day = await emptyDay(page, 3)
   const created: number[] = []
   let taskId: number | null = null
   const evening = `Evening class ${stamp}`, midnight = `Midnight call ${stamp}`, task = `Write the report ${stamp}`
