@@ -14,7 +14,7 @@ import { accountZone } from '../../lib/accountDay'
 /**
  * Reviewable changes suggested by the assistant. Nothing changes until the user approves specific items.
  */
-export function ProposalCard({ proposal: initial }: { proposal: AssistantProposal }) {
+export function ProposalCard({ proposal: initial, onChange }: { proposal: AssistantProposal; onChange?: (proposal: AssistantProposal, step: 'apply' | 'dismiss' | 'undo') => void }) {
   const t = useText(), { language } = useLanguage(), toast = useToast()
   const [proposal, setProposal] = useState(initial), [selected, setSelected] = useState<string[]>(initial.actions.map(a => a.id))
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [naming, setNaming] = useState(false), [templateName, setTemplateName] = useState('')
@@ -30,7 +30,7 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
     setBusy(true); setError('')
     try {
       const next = await api<AssistantProposal>(`/api/assistant/proposals/${proposal.id}/${path}`, 'POST', path === 'apply' ? { action_ids: selected } : undefined)
-      setProposal(next)
+      setProposal(next); onChange?.(next, path)
       if (path === 'apply') toast(taskKind
         ? t(`${next.results?.length ?? 0} task change(s) applied.`, `طُبّق ${next.results?.length ?? 0} تغيير على المهام.`)
         : t(`${next.results?.length ?? 0} change(s) applied to your calendar.`, `طُبّق ${next.results?.length ?? 0} تغيير على تقويمك.`))
@@ -56,7 +56,7 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
   const canTemplate = proposal.actions.some(a => a.type === 'create_event') && proposal.kind !== 'template'
   const chosen = proposal.actions.filter(a => selected.includes(a.id)), mixed = chosen.some(a => a.type === 'move_event') && chosen.some(a => a.type === 'create_event')
   const verb = proposal.kind === 'rebalance' || (chosen.length > 0 && chosen.every(a => a.type === 'move_event')) ? t('Move', 'انقل') : t('Add', 'أضف')
-  const heading = { rebalance: t('Suggested changes', 'تغييرات مقترحة'), goal_plan: t('Proposed tasks', 'مهام مقترحة'), triage: t('New deadlines', 'مواعيد جديدة'), find_time: t('Time found for your tasks', 'وقت مقترح لمهامك'), template: t('Week from your template', 'أسبوع من قالبك'), plan_week: t('Proposed week plan', 'خطة الأسبوع المقترحة'), prioritize: t('Your priorities, planned first', 'أولوياتك مخططة أولاً'), focus_blocks: t('Proposed focus blocks', 'فترات تركيز مقترحة'), reorganize_day: t('Reorganized day', 'يوم مُعاد تنظيمه') }[proposal.kind] ?? t('Proposed schedule', 'جدول مقترح')
+  const heading = { rebalance: t('Suggested changes', 'تغييرات مقترحة'), goal_plan: t('Proposed tasks', 'مهام مقترحة'), triage: t('New deadlines', 'مواعيد جديدة'), find_time: t('Time found for your tasks', 'وقت مقترح لمهامك'), template: t('Week from your template', 'أسبوع من قالبك'), plan_week: t('Proposed week plan', 'خطة الأسبوع المقترحة'), prioritize: t('Your priorities, planned first', 'أولوياتك مخططة أولاً'), focus_blocks: t('Proposed focus blocks', 'فترات تركيز مقترحة'), reorganize_day: t('Reorganized day', 'يوم مُعاد تنظيمه'), reorganize: t('Reorganized day', 'يوم مُعاد تنظيمه', 'Heringerichte dag') }[proposal.kind] ?? t('Proposed schedule', 'جدول مقترح')
   const applyLabel = proposal.kind === 'goal_plan' ? t(`Create ${selected.length} task(s)`, `أنشئ ${selected.length} مهمة`) : proposal.kind === 'triage' ? t(`Reschedule ${selected.length} task(s)`, `أعد جدولة ${selected.length} مهمة`) : mixed ? t(`Apply ${selected.length} change(s)`, `طبّق ${selected.length} تغيير`) : `${verb} ${selected.length} ${t('to calendar', 'إلى التقويم')}`
   // Read at a glance: counts first, then moves, then the new items grouped per day with times only.
   const created = proposal.actions.filter(a => a.type === 'create_event' || a.type === 'create_task').length
@@ -98,8 +98,10 @@ export function ProposalCard({ proposal: initial }: { proposal: AssistantProposa
             {open ? <input type="checkbox" checked={selected.includes(action.id)} onChange={() => toggle(action.id)} /> : done ? <CheckCircle2 size={16} className="ok" /> : <span className="dot" />}
             <span className="proposal-title">{action.title}</span>
             {keptReason && <small className="chip">{keptReason}</small>}
-            {action.type === 'move_event' && proposal.kind !== 'rebalance' && <small className="chip move-chip">{t('Moves an existing block', 'ينقل فترة قائمة')}</small>}
+            {action.source && <small className="chip">{{ missed: t('Missed session', 'جلسة فائتة', 'Gemiste sessie'), due: t('Due today', 'مستحقة اليوم', 'Vandaag aan de beurt'), overflow: t('Moved to lighten the day', 'نُقلت لتخفيف اليوم', 'Verplaatst om de dag lichter te maken') }[action.source]}</small>}
+            {action.type === 'move_event' && !action.source && proposal.kind !== 'rebalance' && <small className="chip move-chip">{t('Moves an existing block', 'ينقل فترة قائمة')}</small>}
           </label>
+          {action.type === 'create_event' && action.source && action.reason && <span className="move-detail"><small className="muted">{action.reason}</small></span>}
           {action.type === 'move_event' && (action.reason || action.conflicts) && <span className="move-detail">
             {action.reason && <details className="move-why"><summary><Lightbulb size={12} aria-hidden="true" />{t('Why', 'لماذا')}</summary><small className="muted">{action.reason}</small></details>}
             {action.conflicts && (action.conflicts.length === 0
