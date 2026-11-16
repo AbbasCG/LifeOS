@@ -7,6 +7,7 @@ import { accountDay, shiftDay } from '../../lib/accountDay'
 import { ChoiceGroup } from '../../components/ui/Choice'
 import { DateTimeField } from '../../components/ui/DateTimePicker'
 import { ZoneNote } from '../../components/ui/ZoneNote'
+import PrayerOverlapNote from '../../components/PrayerOverlapNote'
 import { ScheduleBadge, SlotChoices } from './ScheduleParts'
 import { useText } from '../../lib/i18n'
 import { useLanguage } from '../../contexts/LanguageContext'
@@ -63,6 +64,7 @@ export function ExecutionSection({ exec, closed, busy, lateAfter }: { exec: Exec
       {choice !== 'none' && <>
         <p id={endId} className="rf-end">{end && <><CalendarCheck size={16} aria-hidden="true" />{t('Ends', 'النهاية', 'Einde')} {end}</>}</p>
         <div aria-live="polite">{lateAfter && <p className="sched-notice"><CalendarClock size={16} aria-hidden="true" />{t('The scheduled session is after the deadline.', 'الجلسة المجدولة بعد الموعد النهائي.', 'De ingeplande sessie valt na de deadline.')}</p>}</div>
+        <PrayerOverlapNote start={booking?.starts_at} end={booking?.ends_at} />
         <ZoneNote />
         <SlotChoices task={{ id: 0, estimated_minutes: committed }} from={day} label={t('Suggested times', 'أوقات مقترحة', 'Voorgestelde tijden')} busy={busy} onPick={slot => { if (!busy) exec.fill(slot) }} />
         <small className="muted">{t('Saving puts it in your calendar.', 'الحفظ يضعها في التقويم.', 'Opslaan zet de taak in je agenda.')}</small></>}

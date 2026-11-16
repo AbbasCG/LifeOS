@@ -27,9 +27,11 @@ import { HALF_WIDTH, normalizeToday, useDevice, type TodayLayout, type TodaySect
 import { HabitBurst } from './progress/Journey'
 
 import { lazyPart } from '../lib/lazyPart'
+import { usePrayerPrefs } from '../lib/prayerStore'
 
 // What is not on screen at first (widgets under "More for today", optional sections, the customizers) loads on
 // demand, so Today's own chunk stays small on phones.
+const PrayerToday = lazyPart(() => import('./today/PrayerToday').then(m => m.default))
 const DashboardCustomizer = lazyPart(() => import('./DashboardCustomizer').then(m => m.default))
 const TodayCustomizer = lazyPart(() => import('./today/TodayCustomizer').then(m => m.TodayCustomizer))
 const FocusToday = lazyPart(() => import('./today/FocusToday').then(m => m.FocusToday))
@@ -87,6 +89,7 @@ export default function Dashboard() {
   const [error, setError] = useState(''), [busy, setBusy] = useState<number | null>(null), [burst, setBurst] = useState<number | null>(null), [customizing, setCustomizing] = useState(false)
   const [queued, setQueued] = useState<number[]>([]), toast = useToast()
   const settings = useApi<{ dashboard?: Partial<DashboardLayout>; today_layout?: TodayLayout }>('/api/settings')
+  const prayerOn = usePrayerPrefs().enabled
   const device = useDevice(), [customizingTop, setCustomizingTop] = useState(false)
   const layout = normalizeLayout(settings.data?.dashboard)
   const data = briefing.data
@@ -170,6 +173,7 @@ export default function Dashboard() {
       <p className="muted">{greeting}{t(', ', '، ')}{auth.user?.name.split(' ')[0]}</p>
       <button type="button" className="icon-button today-customize" onClick={() => setCustomizingTop(true)} aria-label={t('Customize Today', 'تخصيص «اليوم»')} title={t('Customize Today', 'تخصيص «اليوم»')}><SlidersHorizontal size={19} /></button>
     </header>
+    {prayerOn && <Suspense fallback={null}><PrayerToday /></Suspense>}
     <ErrorMessage error={error || briefing.error || overview.error || today.error} />
     <div className="today-top">{place(top.order.filter(id => !top.hidden.includes(id)))}</div>
     <InstallBanner />

@@ -16,9 +16,11 @@ import { makeShift, type ZoneShift } from '../lib/zoneShift'
 import { isAlreadyScheduled } from '../lib/taskSchedule'
 import { TaskSessionPanel } from './tasks/ScheduleParts'
 import { formatClock, formatFullDayTime } from '../lib/clock'
+import PrayerOverlapNote from '../components/PrayerOverlapNote'
 
 type Draft = Partial<CalendarOccurrence> & { starts_at?: string; ends_at?: string }
 type Scope = 'occurrence' | 'series'
+const validTime = (v: string) => !Number.isNaN(new Date(v).getTime())
 const REMINDERS = [null, 0, 5, 10, 15, 30, 60, 120, 1440]
 
 /** `shift` says which timezone the times are drawn in (see lib/zoneShift): the form shows and edits them there. */
@@ -111,6 +113,7 @@ export default function EventForm({ item, tasks, known = [], shift = NO_SHIFT, o
       <label className="full">{t('Title', 'العنوان')}<input data-autofocus required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label>{t('Start', 'البداية')}<DateTimeField kind="datetime" required value={start} onChange={setStart} /></label>
       <label>{t('End', 'النهاية')}<DateTimeField kind="datetime" required value={end} onChange={setEnd} min={start} /></label>
+      <PrayerOverlapNote className="full" start={validTime(start) ? shift.realDate(new Date(start)).toISOString() : null} end={validTime(end) ? shift.realDate(new Date(end)).toISOString() : null} />
       <label>{t('Type', 'النوع')}<select value={kind} onChange={e => setKind(e.target.value)}><option value="fixed">{t('Fixed commitment', 'موعد ثابت')}</option><option value="flexible">{t('Flexible block', 'فترة مرنة')}</option></select></label>
       {!(item.recurring && scope === 'occurrence') && <label>{t('Reminder', 'التذكير')}<select value={remind} onChange={e => setRemind(e.target.value)}>{REMINDERS.map(m => <option key={String(m)} value={m == null ? '' : m}>{m == null ? t('Default', 'افتراضي') : m === 0 ? t('At start time', 'عند البداية') : m >= 60 ? t(`${m / 60} h before`, `قبل ${m / 60} س`) : t(`${m} min before`, `قبل ${m} د`)}</option>)}</select></label>}
       {!(item.recurring && scope === 'occurrence') && <label className="full">{t('Linked task', 'مهمة مرتبطة')}<select value={taskId} onChange={e => setTaskId(e.target.value)}><option value="">—</option>{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}
