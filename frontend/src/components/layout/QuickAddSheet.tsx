@@ -10,6 +10,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useText } from '../../lib/i18n'
 import { useToast } from '../../lib/toast'
 import { BottomSheet } from '../visual'
+import PrayerOverlapNote from '../PrayerOverlapNote'
 import { ChoiceGroup } from '../ui/Choice'
 import { DateTimeField } from '../ui/DateTimePicker'
 import { openHabitSheet } from '../../lib/quickActions'
@@ -136,6 +137,7 @@ export default function QuickAddSheet({ open, voice, setOpen, setVoice }: { open
             {tile('none', t('Not scheduled', 'بدون جدولة', 'Niet ingepland'), CalendarX, () => choose('none'))}
           </div>
         </div>
+        <PrayerOverlapNote start={plan?.starts_at} end={plan?.ends_at} />
         <ChoiceGroup label={t('Priority', 'الأولوية')} variant="tiles" columns={4} value={priority} onChange={setPriority} options={priorities} />
         <div className="qa-more">
           <button type="button" className="quiet quick-habit" onClick={() => { close(); openHabitSheet() }}><Heart size={18} aria-hidden="true" />{t('Log a habit', 'سجّل عادة')}</button>

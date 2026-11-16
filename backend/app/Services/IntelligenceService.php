@@ -121,7 +121,7 @@ class IntelligenceService
 
         $windows = $this->planning->windows($c, $today);
         $busy = $occurrences->filter(fn (array $o) => $o['starts_at'] < $today->addDay()->utc())->map(fn (array $o) => [$o['starts_at'], $o['ends_at']])->all();
-        $focusWindows = collect($windows)->flatMap(fn (array $w, string $area) => collect($this->planning->freeIntervals(max($w[0], $now)->utc(), $w[1]->utc(), $busy, $c['break']))
+        $focusWindows = collect($windows)->flatMap(fn (array $w, string $area) => collect($this->planning->freeIntervals(max($w[0], $now)->utc(), $w[1]->utc(), $busy, $c['break'], $c))
             ->map(fn (array $f) => ['area' => $area, 'starts_at' => $f[0]->toIso8601String(), 'ends_at' => $f[1]->toIso8601String(), 'minutes' => (int) $f[0]->diffInMinutes($f[1])]))
             ->filter(fn (array $s) => $s['minutes'] >= 30)->sortBy('starts_at')->values();
 

@@ -20,6 +20,7 @@ use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\IntelligenceController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PlanningController;
+use App\Http\Controllers\PrayerTimesController;
 use App\Http\Controllers\PushController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\SecurityController;
@@ -96,6 +97,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::get('export', [WorkspaceController::class, 'export']);
         Route::get('briefing', [InsightsController::class, 'briefing']);
         Route::get('availability', [AvailabilityController::class, 'index']);
+        Route::get('prayer-times', [PrayerTimesController::class, 'index']);
         Route::get('calendar', [CalendarController::class, 'index']);
         Route::get('integrations', [IntegrationController::class, 'index']);
         Route::get('integrations/catalog', [IntegrationCatalogController::class, 'index']);
