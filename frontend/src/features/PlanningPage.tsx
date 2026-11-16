@@ -7,7 +7,8 @@ import { deadlineField, deadlineInstant } from '../lib/quickAdd'
 import { accountZone } from '../lib/accountDay'
 import { dayIn } from '../lib/taskSchedule'
 import { ZoneNote } from '../components/ui/ZoneNote'
-import { addDays, minutesLabel, mondayOf } from '../lib/dates'
+import { addDays, minutesLabel, weekStartOf } from '../lib/dates'
+import { useCalendarPrefs } from '../lib/weekStart'
 import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -39,9 +40,10 @@ export default function PlanningPage() {
   const [horizon, setHorizon] = useState<Horizon>('week'), [allWarnings, setAllWarnings] = useState(false)
   const [plan, setPlan] = useState<Plan | null>(null), [draft, setDraft] = useState<Draft[]>([]), [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [editing, setEditing] = useState<{ index: number | null; item: Partial<Draft> } | null>(null)
+  useCalendarPrefs()   // the planning week follows the account's first day of the week
   const recent = useApi<Plan[]>('/api/plans')
   const missed = useApi<{ data: MissedBlock[] }>('/api/plans/missed')
-  const insights = useApi<PlannedVsActual>(`/api/plans/insights?from=${mondayOf()}&days=7`)
+  const insights = useApi<PlannedVsActual>(`/api/plans/insights?from=${weekStartOf()}&days=7`)
   const openTasks = useApi<{ data: RecordItem[] }>('/api/tasks?due=open&sort=priority&per_page=100')
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export default function PlanningPage() {
   const range = useMemo(() => {
     const today = localDate()
     if (horizon === 'today') return { date: today, days: 1 }
-    if (horizon === 'next_week') return { date: addDays(mondayOf(), 7), days: 7 }
+    if (horizon === 'next_week') return { date: addDays(weekStartOf(), 7), days: 7 }
     return { date: today, days: 7 }
   }, [horizon])
 

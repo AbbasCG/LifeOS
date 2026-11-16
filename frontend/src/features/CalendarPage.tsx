@@ -13,6 +13,9 @@ import { useApi } from '../lib/useApi'
 import { useText } from '../lib/i18n'
 import { announce } from '../lib/announce'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useCalendarPrefs } from '../lib/weekStart'
+import { hijriRange, useHijri } from '../lib/useHijri'
+import { HijriNote } from '../components/HijriNote'
 import { useToast } from '../lib/toast'
 import { minutesLabel } from '../lib/dates'
 import { useStatusLabel } from './ResourcePage'
@@ -64,12 +67,15 @@ export default function CalendarPage() {
   const showFree = showFreeWanted && !(zoneView.differs && zoneView.mode === 'device')
   const [preview, setPreview] = useState<Preview | null>(null), [placing, setPlacing] = useState<RecordItem | null>(null), [dropHint, setDropHint] = useState<{ dayIndex: number; minutes: number } | null>(null)
   const scroller = useRef<HTMLDivElement>(null), columns = useRef<(HTMLDivElement | null)[]>([]), drag = useRef<Drag | null>(null), previewRef = useRef<Preview | null>(null), suppressClick = useRef(false)
+  const { weekStart } = useCalendarPrefs(), hijri = useHijri()
   const start = new Date(`${date}T00:00`)
-  if (view === 'month') start.setDate(1); else if (view === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
+  if (view === 'month') start.setDate(1); else if (view === 'week') start.setDate(start.getDate() - ((start.getDay() - weekStart + 7) % 7))
   const end = new Date(start); end.setDate(end.getDate() + (view === 'month' ? new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate() : view === 'day' ? 1 : 7))
   // Week and agenda headings name the dates shown, so moving forward or back is visible at a glance.
   const lastDay = new Date(end); lastDay.setDate(lastDay.getDate() - 1)
   const rangeLabel = `${start.toLocaleDateString(language, { day: 'numeric', month: 'short' })} – ${lastDay.toLocaleDateString(language, { day: 'numeric', month: 'short' })}`
+  const hj = (d: Date) => hijri?.(localDate(d)) ?? null
+  const hijriTitle = hijri ? hijriRange(hj(start), hj(lastDay), view === 'day') : null
   const raw = useCalendar(zs.realDate(start), zs.realDate(end))
   // Items arrive as real instants; the grid works on shifted ones (see lib/zoneShift) and the originals ride along.
   // A block being saved is drawn at its new time on top of what was read from the server (a read that lands meanwhile cannot undo it);
@@ -295,7 +301,7 @@ export default function CalendarPage() {
 
   return <section className="page calendar-page">
     <header className="cal-bar">
-      <h1 ref={heading} tabIndex={-1}>{view === 'day' ? start.toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' }) : view === 'month' ? start.toLocaleDateString(language, { month: 'long', year: 'numeric' }) : <>{view === 'agenda' && <span className="sr-only">{t('Agenda', 'الجدول')}: </span>}{rangeLabel}</>}</h1>
+      <h1 ref={heading} tabIndex={-1}>{view === 'day' ? start.toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' }) : view === 'month' ? start.toLocaleDateString(language, { month: 'long', year: 'numeric' }) : <>{view === 'agenda' && <span className="sr-only">{t('Agenda', 'الجدول')}: </span>}{rangeLabel}</>}{hijri && <HijriNote info={hijriTitle} />}</h1>
       <div className="cal-nav">
         <button className="icon-button" aria-label={t('Previous', 'السابق')} onClick={() => shift(-1)}><ChevronLeft className="flip-rtl" /></button>
         <button className="quiet" onClick={() => setDate(todayKey)}>{t('Today', 'اليوم')}</button>
@@ -320,7 +326,7 @@ export default function CalendarPage() {
     {timed && showFree && <p className="cal-legend"><i aria-hidden="true" />{t('Shaded: free time inside your working hours. Weekends, nights and past time are not shaded.', 'المظلل: وقت متاح ضمن ساعات عملك. عطلات نهاية الأسبوع والليل والوقت الماضي غير مظللة.')}</p>}
     <div className={`calendar-layout ${timed ? 'with-tray' : ''}`} onTouchStart={e => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }} onTouchEnd={e => swipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}>
       {timed ? <div className={`time-grid ${view} ${preview ? 'dragging' : ''} ${placing ? 'placing' : ''}`} style={{ ['--days' as string]: days.length }}>
-        <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === todayKey ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
+        <div className="time-grid-head"><span />{days.map(day => { const free = freeFor(day); return <div key={localDate(day)} className={localDate(day) === todayKey ? 'today' : ''}><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong><HijriNote info={hj(day)} />{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}</div> })}</div>
         <div className="time-grid-body" ref={scroller}>
           <div className="time-gutter">{Array.from({ length: 24 }, (_, h) => <span key={h} style={{ top: h * HOUR }}>{h ? time(new Date(2026, 0, 1, h)) : ''}</span>)}</div>
           {days.map((day, dayIndex) => {
@@ -361,7 +367,7 @@ export default function CalendarPage() {
         const diff = Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${todayKey}T12:00`).getTime()) / 86400000)
         const dayName = diff === 0 ? t('Today', 'اليوم') : diff === 1 ? t('Tomorrow', 'غدًا') : day.toLocaleDateString(language, { weekday: 'long' })
         return <section key={key} className={`agenda-day ${diff === 0 ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)} aria-label={`${dayName} ${day.toLocaleDateString(language, { day: 'numeric', month: 'long' })}`}>
-          <header><span className="agenda-date"><strong>{day.getDate()}</strong><span>{dayName}</span></span>
+          <header><span className="agenda-date"><strong>{day.getDate()}</strong><span>{dayName}</span><HijriNote info={hj(day)} /></span>
             {showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{t(`${minutesLabel(free.free_minutes, false)} free`, `${minutesLabel(free.free_minutes, true)} متاح`)}</small>}
             <button className="icon-button" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}><Plus size={17} /></button></header>
           {events.length === 0 ? <p className="agenda-empty">{t('Open day', 'يوم متاح')}</p> : <ul>{events.map(item => {
@@ -377,7 +383,7 @@ export default function CalendarPage() {
       })}{data.items.length === 0 && <Empty>{t('Nothing scheduled in this period.', 'لا شيء مجدول في هذه الفترة.')}</Empty>}</div> : <div className={`calendar-grid ${view}`}>{days.map(day => {
         const events = eventsOn(day).sort((a, b) => a.starts_at!.localeCompare(b.starts_at!)), free = freeFor(day)
         return <section key={localDate(day)} className={`calendar-day ${localDate(day) === todayKey ? 'today' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => dropOnDay(e, day, null)}>
-          <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong>{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
+          <header><span>{day.toLocaleDateString(language, { weekday: 'short' })}</span><strong>{day.getDate()}</strong><HijriNote info={hj(day)} compact={view === 'month'} />{showFree && free?.work_day && free.free_minutes > 0 && <small className="free-total">{minutesLabel(free.free_minutes, ar)}</small>}<button className="quiet" aria-label={t('Add event', 'إضافة موعد')} onClick={() => { const s = new Date(day); s.setHours(9); setEditing({ starts_at: s.toISOString(), ends_at: new Date(s.getTime() + 3600000).toISOString() }) }}>+</button></header>
           {events.map(item => <article key={item.id} className={`calendar-event kind-${item.kind} ${item.source !== 'lifeos' ? 'external' : ''} ${overlaps.has(item.id) ? 'conflict' : ''} ${item.task_closed ? 'closed' : ''}`}><button className="text-button" data-session={item.event_id ?? undefined} data-task-id={item.task_id ?? undefined} onClick={() => setEditing(item)}><small><bdi dir="ltr">{time(item.starts_at!)}</bdi></small><strong><KindIcon kind={item.kind} source={item.source} size={11} /> {item.title}</strong></button></article>)}
         </section>
       })}</div>}

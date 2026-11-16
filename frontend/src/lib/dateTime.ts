@@ -3,6 +3,8 @@
  * the same strings the native inputs used, so forms keep sending exactly what they sent before. Everything is plain calendar maths
  * (no time zone), so the picker never shifts a day.
  */
+import { accountWeekStart } from './weekStart'
+
 export type HourCycle = 12 | 24
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -29,15 +31,15 @@ export function addMonths(day: string, amount: number): string {
   const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
   return dayKey(target.getUTCFullYear(), target.getUTCMonth() + 1, Math.min(p.d, last))
 }
-/** 0 = Monday ... 6 = Sunday (the app's weeks start on Monday). */
-export const weekdayIndex = (day: string) => { const p = parseDay(day); return p ? (new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay() + 6) % 7 : 0 }
+/** Column of a day in a week that starts on `weekStart` (0 = Sunday ... 6 = Saturday; the account's own, Monday by default): 0 is the first day. */
+export const weekdayIndex = (day: string, weekStart = accountWeekStart()) => { const p = parseDay(day); return p ? (new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay() - weekStart + 7) % 7 : 0 }
 
-/** The six weeks (42 days) shown for the month that contains `day`, starting on a Monday. */
-export function monthGrid(day: string): { day: string; inMonth: boolean }[] {
+/** The six weeks (42 days) shown for the month that contains `day`, starting on the first day of the week. */
+export function monthGrid(day: string, weekStart = accountWeekStart()): { day: string; inMonth: boolean }[] {
   const p = parseDay(day)
   if (!p) return []
   const first = dayKey(p.y, p.m, 1)
-  const start = addDays(first, -weekdayIndex(first))
+  const start = addDays(first, -weekdayIndex(first, weekStart))
   return Array.from({ length: 42 }, (_, i) => { const d = addDays(start, i); return { day: d, inMonth: d.slice(0, 7) === first.slice(0, 7) } })
 }
 

@@ -1,5 +1,6 @@
 import type { RecordItem } from './api'
 import { localDate } from './hooks'
+import { accountWeekStart, startOfWeek } from './weekStart'
 
 /** Ask the app shell to open the habit sheet (from Quick add, Today, a shortcut or a notification). */
 export const HABIT_SHEET = 'lifeos:habit-sheet'
@@ -43,12 +44,7 @@ export async function notify(title: string, options: { body?: string; tag?: stri
 
 export type Habit = RecordItem & { recurrence?: string; current_streak?: number; entries?: { date: string }[] }
 
-/** Monday of the week containing `date` (weekly habits count once per Monday-based week, like their streaks). */
-function weekStart(date: string) {
-  const d = new Date(`${date}T12:00`)
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return localDate(d)
-}
-export const doneNow = (habit: Habit, today = localDate()) => (habit.entries ?? []).some(e => habit.recurrence === 'weekly' ? e.date >= weekStart(today) && e.date <= today : e.date === today)
+/** Weekly habits count once per week of the account's own week start, the same bucket their streaks use on the server. */
+export const doneNow = (habit: Habit, today = localDate(), weekStart = accountWeekStart()) => (habit.entries ?? []).some(e => habit.recurrence === 'weekly' ? e.date >= startOfWeek(today, weekStart) && e.date <= today : e.date === today)
 
 export const HABITS_CHANGED = 'lifeos:habits-changed'

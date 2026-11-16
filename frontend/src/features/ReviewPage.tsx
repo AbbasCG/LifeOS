@@ -8,10 +8,11 @@ import { WeeklyInsights } from './intelligence/WeeklyInsights'
 import { useText } from '../lib/i18n'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../lib/toast'
-import { addDays, minutesLabel, mondayOf } from '../lib/dates'
+import { addDays, minutesLabel, weekStartOf } from '../lib/dates'
 import { useReasonLabel } from '../lib/labels'
 import { localDate } from '../lib/hooks'
-import { accountZone, weekdayOf } from '../lib/accountDay'
+import { accountZone } from '../lib/accountDay'
+import { daysIntoWeek, startOfWeek, useCalendarPrefs } from '../lib/weekStart'
 import { formatDue } from '../lib/dueDate'
 import { useStatusLabel } from './ResourcePage'
 import { PlannedActualBars } from './PlanningPage'
@@ -22,7 +23,9 @@ type Step = typeof STEPS[number]
 type Local = { reflection: WeeklyReviewData['review']['reflection']; decisions: Record<string, ReviewDecision>; priorities: number[] }
 
 export default function ReviewPage() {
-  const [week, setWeek] = useState(() => { const weekday = weekdayOf(localDate()); return weekday === 1 || weekday === 2 ? addDays(mondayOf(), -7) : mondayOf() })
+  // The account's week start may arrive after the page opens; until a week is picked, the default follows it.
+  const { weekStart } = useCalendarPrefs(), [picked, setWeek] = useState<string | null>(null)
+  const week = picked ?? (daysIntoWeek(localDate(), weekStart) <= 1 ? addDays(startOfWeek(localDate(), weekStart), -7) : startOfWeek(localDate(), weekStart))   // the first two days of a week still look back at the last one
   const { data, error, loading, reload } = useApi<WeeklyReviewData>(`/api/reviews/${week}`)
   // Remount the workflow per loaded week so local edits always start from the saved review.
   return data && !loading ? <ReviewWorkflow key={`${week}-${data.review.status}`} week={week} setWeek={setWeek} data={data} reload={reload} /> : <section className="page"><ReviewHeader week={week} setWeek={setWeek} />{error ? <ErrorMessage error={error} /> : <Skeleton height={360} />}</section>
@@ -37,7 +40,7 @@ function ReviewHeader({ week, setWeek, status }: { week: string; setWeek: (w: st
     <div className="toolbar week-switcher">
       <button className="icon-button" aria-label={t('Previous week', 'الأسبوع السابق')} onClick={() => setWeek(addDays(week, -7))}><ChevronLeft className="flip-rtl" /></button>
       <strong>{fmt(week)} – {fmt(end)}</strong>
-      <button className="icon-button" aria-label={t('Next week', 'الأسبوع التالي')} disabled={week >= mondayOf()} onClick={() => setWeek(addDays(week, 7))}><ChevronRight className="flip-rtl" /></button>
+      <button className="icon-button" aria-label={t('Next week', 'الأسبوع التالي')} disabled={week >= weekStartOf()} onClick={() => setWeek(addDays(week, 7))}><ChevronRight className="flip-rtl" /></button>
       {status && <span className={`badge status-${status}`}>{status === 'completed' ? t('Completed', 'مكتملة') : status === 'draft' ? t('Draft saved', 'مسودة محفوظة') : t('Not started', 'لم تبدأ')}</span>}
     </div>
   </header>
