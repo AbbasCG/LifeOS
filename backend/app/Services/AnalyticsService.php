@@ -261,8 +261,8 @@ class AnalyticsService
      */
     private function periods(User $user, CarbonImmutable $now, ?int $projectId, $projectTaskIds): array
     {
-        // Weeks start on Monday, matching the weekly review.
-        $weekStart = $now->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
+        // Weeks start on the user's chosen first day (Monday by default), matching the weekly review.
+        $weekStart = $user->startOfWeek($now)->startOfDay();
         $monthStart = $now->startOfMonth();
         $previousMonthStart = $monthStart->subMonthNoOverflow();
         $measure = function (CarbonImmutable $from, CarbonImmutable $to) use ($user, $projectId, $projectTaskIds): array {
@@ -338,12 +338,12 @@ class AnalyticsService
         $habits = Habit::where('user_id', $user->id)->orderBy('created_at')->limit(50)->get();
         $entries = HabitEntry::whereIn('habit_id', $habits->pluck('id'))->where('date', '>=', $today->subDays(400)->toDateString())->get()->groupBy('habit_id');
 
-        return $habits->map(function (Habit $habit) use ($entries, $from, $today, $days) {
+        return $habits->map(function (Habit $habit) use ($entries, $from, $today, $days, $user) {
             $dates = $entries->get($habit->id, collect())->map(fn (HabitEntry $entry) => substr((string) $entry->date, 0, 10));
             $inRange = $dates->filter(fn (string $date) => $date >= $from->toDateString() && $date <= $today->toDateString())->count();
             $expected = $habit->recurrence === 'weekly' ? (int) ceil($days / 7) : $days;
 
-            return ['id' => $habit->id, 'title' => $habit->title, 'color' => $habit->color, 'completions' => $inRange, 'expected' => $expected, 'consistency' => (int) min(100, round($inRange / max(1, $expected) * 100))] + $this->streaks->calculate($dates, $habit->recurrence, $today);
+            return ['id' => $habit->id, 'title' => $habit->title, 'color' => $habit->color, 'completions' => $inRange, 'expected' => $expected, 'consistency' => (int) min(100, round($inRange / max(1, $expected) * 100))] + $this->streaks->calculate($dates, $habit->recurrence, $today, $user->weekStartDay());
         })->values()->all();
     }
 

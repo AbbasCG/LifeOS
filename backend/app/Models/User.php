@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Carbon\CarbonImmutable;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -56,6 +57,31 @@ class User extends Authenticatable
     public function preferences(): array
     {
         return UserSetting::where('user_id', $this->id)->first()?->preferences ?? [];
+    }
+
+    /**
+     * Display-only and calendar preferences that are always returned, with these values when the user never saved them.
+     * `week_start` is a Carbon/JS day number (0 = Sunday ... 6 = Saturday); 1 (Monday) is what every account had before the setting existed.
+     */
+    public const PREFERENCE_DEFAULTS = ['week_start' => 1, 'calendar_system' => 'gregorian', 'hijri_offset' => 0];
+
+    /**
+     * The first day of this user's week (0 = Sunday ... 6 = Saturday), Monday when unset or out of range.
+     */
+    public function weekStartDay(): int
+    {
+        $value = $this->preferences()['week_start'] ?? 1;
+
+        return is_numeric($value) && (int) $value >= 0 && (int) $value <= 6 ? (int) $value : 1;
+    }
+
+    /**
+     * Midnight of the first day of the user's week containing $date. The week is computed in $date's own timezone, so pass a date already
+     * converted to the user's timezone.
+     */
+    public function startOfWeek(CarbonImmutable $date): CarbonImmutable
+    {
+        return $date->startOfWeek($this->weekStartDay());
     }
 
     /**

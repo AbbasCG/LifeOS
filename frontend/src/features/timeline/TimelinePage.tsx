@@ -16,6 +16,9 @@ import { SendToCalendar } from '../connected/SendToCalendar'
 import type { WriteData } from '../../lib/calendarWrite'
 import { addDays, type TimelineConflict, type TimelineData, type TimelineItem } from '../../lib/timeline'
 import { formatClock } from '../../lib/clock'
+import { startOfWeek, useCalendarPrefs } from '../../lib/weekStart'
+import { useHijri } from '../../lib/useHijri'
+import { HijriNote } from '../../components/HijriNote'
 
 const KIND_ICON = { event: CalendarDays, task: CheckSquare, external_task: ListChecks, focus: Timer, goal: Flag, habit: Repeat } as const
 
@@ -32,7 +35,8 @@ export default function TimelinePage() {
   const [view, setView] = useState<'day' | 'week'>('day'), [anchor, setAnchor] = useState(localDate())
   const [filters, setFilters] = useState<{ sources: string[]; accounts: number[]; areas: string[]; kinds: string[] }>({ sources: [], accounts: [], areas: [], kinds: [] })
   const [showFilters, setShowFilters] = useState(false), [busy, setBusy] = useState<string | null>(null), [failure, setFailure] = useState(''), [moving, setMoving] = useState<TimelineItem | null>(null), [sending, setSending] = useState<TimelineItem | null>(null)
-  const from = view === 'week' ? addDays(anchor, -((new Date(`${anchor}T12:00:00`).getDay() + 6) % 7)) : anchor
+  const { weekStart } = useCalendarPrefs(), hijri = useHijri()
+  const from = view === 'week' ? startOfWeek(anchor, weekStart) : anchor
   const to = view === 'week' ? addDays(from, 6) : anchor
   const query = new URLSearchParams({ from, to })
   for (const [key, values] of Object.entries(filters)) if (values.length) query.set(key, values.join(','))
@@ -139,7 +143,7 @@ export default function TimelinePage() {
       <div className="toolbar center">{activeFilters ? <button className="quiet" onClick={() => setFilters({ sources: [], accounts: [], areas: [], kinds: [] })}>{t('Clear filters', 'مسح التصفية')}</button> : <><Link className="primary" to="/today/plan">{t('Plan my day', 'خطط يومي')}</Link><Link className="quiet" to="/settings/integrations">{t('Connect a calendar', 'اربط تقويماً')}</Link></>}</div>
     </section> : <div className={`timeline-days view-${view} ${loading ? 'is-loading' : ''}`}>
       {days.map(date => { const items = byDay(date); return <section key={date} className={`panel tl-day ${date === localDate() ? 'is-today' : ''}`} aria-label={dayTitle(date)}>
-        <header><h2>{dayTitle(date)}</h2><small className="muted">{t(`${items.length} item(s)`, `${items.length} عنصر`)}</small></header>
+        <header><h2>{dayTitle(date)}<HijriNote info={hijri?.(date) ?? null} /></h2><small className="muted">{t(`${items.length} item(s)`, `${items.length} عنصر`)}</small></header>
         {items.length === 0 ? <p className="muted small">{t('Free', 'متاح')}</p> : <ol className="tl-list">{items.map(i => row(i, view === 'week'))}</ol>}
       </section> })}
     </div>}

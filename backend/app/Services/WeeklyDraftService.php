@@ -50,11 +50,11 @@ class WeeklyDraftService
     }
 
     /**
-     * The Monday of the week a draft prepared now would plan (always the coming week).
+     * The first day (the user's week start) of the week a draft prepared now would plan (always the coming week).
      */
     public static function targetWeek(User $user): CarbonImmutable
     {
-        return CarbonImmutable::now($user->timezone())->startOfWeek(CarbonImmutable::MONDAY)->addWeek();
+        return CarbonImmutable::now($user->timezone())->startOfWeek($user->weekStartDay())->addWeek();
     }
 
     /**

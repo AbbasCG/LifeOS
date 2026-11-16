@@ -62,6 +62,7 @@ class CalendarService
         for ($i = 0; $i < self::MAX_ITERATIONS; $i++) {
             $candidates = match ($rule['freq']) {
                 'daily' => [$at($first->startOfDay()->addDays($i * $interval))],
+                // Deliberately Monday-anchored, not the user's week start: changing it would shift the every-N-weeks phase of existing series.
                 'weekly' => $weekdays->map(fn (int $offset) => $at($first->startOfWeek(CarbonImmutable::MONDAY)->addWeeks($i * $interval)->addDays($offset)))->all(),
                 'monthly' => (function () use ($first, $i, $interval, $at) {
                     $month = $first->startOfMonth()->addMonthsNoOverflow($i * $interval);

@@ -261,7 +261,7 @@ class RecommendationService
 
         // Goals falling behind.
         foreach ($snap['goals']->take(3) as $g) {
-            $out->push(['key' => "goal:{$g['id']}:".$now->startOfWeek()->toDateString(), 'type' => 'goal', 'severity' => $g['status'] === 'behind' ? 'medium' : 'high',
+            $out->push(['key' => "goal:{$g['id']}:".$user->startOfWeek($now)->toDateString(), 'type' => 'goal', 'severity' => $g['status'] === 'behind' ? 'medium' : 'high',
                 'title' => ['en' => "“{$g['title']}” needs attention", 'ar' => "«{$g['title']}» يحتاج إلى اهتمام"],
                 'detail' => $g['reasons'][0] ?? ['en' => 'Progress is behind schedule.', 'ar' => 'التقدم متأخر عن الجدول.'],
                 'confidence' => $g['confidence'], 'sources' => $g['sources'], 'evidence' => ['status' => $g['status'], 'percent' => $g['percent']],

@@ -46,6 +46,7 @@ class SendReminders extends Command
         $now = CarbonImmutable::now($tz);
         $time = $now->format('H:i');
         $ar = ($prefs['language'] ?? 'en') === 'ar';
+        $weekStart = $user->weekStartDay();
         $clock = fn (CarbonImmutable $at) => $at->setTimezone($tz)->format(($prefs['time_format'] ?? '24') === '12' ? 'g:i A' : 'H:i');
 
         foreach (FocusSession::where('user_id', $user->id)->where('status', 'running')->whereNotNull('resumed_at')->get() as $session) {
@@ -70,7 +71,7 @@ class SendReminders extends Command
         // Habits with a reminder time: once a day (daily) or once a week (weekly), until done for that day or week.
         foreach (Habit::where('user_id', $user->id)->whereNotNull('remind_time')->where('remind_time', '<=', $time)->get() as $habit) {
             $weekly = $habit->recurrence === 'weekly';
-            $from = $weekly ? $now->startOfWeek(CarbonImmutable::MONDAY) : $now->startOfDay();
+            $from = $weekly ? $now->startOfWeek($weekStart) : $now->startOfDay();
             if (HabitEntry::where('habit_id', $habit->id)->where('date', '>=', $from->toDateString())->where('date', '<=', $now->toDateString())->exists()) {
                 continue;
             }
@@ -90,7 +91,7 @@ class SendReminders extends Command
         if ($time >= ($prefs['work_start'] ?? '09:00') && in_array($now->dayOfWeek, array_map('intval', $prefs['work_days'] ?? [1, 2, 3, 4, 5]), true)) {
             $notifier->send($user, 'planning', 'daily:'.$user->id.':'.$now->toDateString(), $ar ? 'حان وقت مراجعة خطة اليوم' : 'Time to review today’s plan', ['link' => '/planning']);
         }
-        $reviewDay = ((int) ($prefs['week_start'] ?? 1) + 6) % 7;
+        $reviewDay = ($weekStart + 6) % 7; // the day before the week starts (Sunday for a Monday week)
         if ($now->dayOfWeek === $reviewDay && $time >= '17:00') {
             $notifier->send($user, 'review', 'weekly:'.$user->id.':'.$now->toDateString(), $ar ? 'راجع أسبوعك وخطط للأسبوع القادم' : 'Review your week and plan the next', ['link' => '/review']);
         }

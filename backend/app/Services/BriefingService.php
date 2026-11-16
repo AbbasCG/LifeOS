@@ -155,9 +155,9 @@ class BriefingService
             ->get()
             ->groupBy('habit_id');
 
-        return $habits->map(function (Habit $habit) use ($entries, $today) {
+        return $habits->map(function (Habit $habit) use ($entries, $today, $user) {
             $dates = $entries->get($habit->id, collect())->map(fn (HabitEntry $entry) => substr((string) $entry->date, 0, 10));
-            $stats = $this->streaks->calculate($dates, $habit->recurrence, $today);
+            $stats = $this->streaks->calculate($dates, $habit->recurrence, $today, $user->weekStartDay());
 
             return ['id' => $habit->id, 'title' => $habit->title, 'color' => $habit->color, 'recurrence' => $habit->recurrence, 'routine' => $habit->routine] + $stats + ['at_risk' => ! $stats['done_this_period'] && $stats['current_streak'] > 0];
         })->values();

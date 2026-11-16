@@ -3,7 +3,10 @@ import { Link } from 'react-router'
 import { ArrowUpRight, Check, Flame, Lightbulb, AlertTriangle, PartyPopper, Target, Play, SlidersHorizontal, ClipboardCheck, LayoutGrid, ListChecks } from 'lucide-react'
 import { api, type Briefing, type PlannedVsActual, type Suggestion } from '../lib/api'
 import { FULL_WIDTH, normalizeLayout, type DashboardLayout, type WidgetId } from '../lib/dashboard'
-import { mondayOf } from '../lib/dates'
+import { weekStartOf } from '../lib/dates'
+import { useCalendarPrefs } from '../lib/weekStart'
+import { useHijri } from '../lib/useHijri'
+import { HijriNote } from '../components/HijriNote'
 import { accountZone, weekdayOf } from '../lib/accountDay'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -56,7 +59,8 @@ export function SuggestionCard({ suggestion, index }: { suggestion: Suggestion; 
 
 function ReviewWidget() {
   const t = useText(), { language } = useLanguage(), ar = language === 'ar'
-  const { data } = useApi<PlannedVsActual>(`/api/plans/insights?from=${mondayOf()}&days=7`)
+  useCalendarPrefs()   // the planning week follows the account's first day of the week
+  const { data } = useApi<PlannedVsActual>(`/api/plans/insights?from=${weekStartOf()}&days=7`)
   const totals = data?.totals
   const today = weekdayOf(localDate())
   return <section className="panel reveal review-widget">
@@ -137,7 +141,8 @@ export default function Dashboard() {
     review: <ReviewWidget />,
   }
   const more = layout.order.filter(id => !layout.hidden.includes(id) && !SHOWN_ABOVE.includes(id) && widgets[id] !== null)
-  const date = new Date(`${(data?.date ?? today.data?.date ?? localDate())}T12:00:00`).toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' })
+  const dayKey = data?.date ?? today.data?.date ?? localDate(), hijri = useHijri()
+  const date = new Date(`${dayKey}T12:00:00`).toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'long' })
 
   // V22: the top of Today in the order chosen for this device; hidden sections move into "More for today".
   const top = normalizeToday(settings.data?.today_layout?.[device])
@@ -161,7 +166,7 @@ export default function Dashboard() {
 
   return <section className="page dashboard v20">
     <header className="today-head">
-      <h1>{date}</h1>
+      <h1>{date}{hijri && <HijriNote info={hijri(dayKey)} />}</h1>
       <p className="muted">{greeting}{t(', ', '، ')}{auth.user?.name.split(' ')[0]}</p>
       <button type="button" className="icon-button today-customize" onClick={() => setCustomizingTop(true)} aria-label={t('Customize Today', 'تخصيص «اليوم»')} title={t('Customize Today', 'تخصيص «اليوم»')}><SlidersHorizontal size={19} /></button>
     </header>

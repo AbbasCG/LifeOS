@@ -1,11 +1,10 @@
 import { localDate } from './hooks'
-import { shiftDay, weekdayOf } from './accountDay'
+import { startOfWeek } from './weekStart'
 
-/** Monday of the week containing `date`; with none, of the account's current week (V27). */
-export function mondayOf(date?: Date) {
-  const day = date ? localDate(date) : localDate()
-  return shiftDay(day, -((weekdayOf(day) + 6) % 7))
-}
+/** First day of the week containing `date` (the account's week start, Monday by default); with none, of the account's current week (V27). */
+export function weekStartOf(date?: Date) { return startOfWeek(date ? localDate(date) : localDate()) }
+/** Kept under its old name for callers that predate the week-start setting. */
+export const mondayOf = weekStartOf
 
 export function addDays(day: string, amount: number) {
   const d = new Date(`${day}T12:00`)

@@ -18,11 +18,15 @@ class WeeklyReviewService
     public function __construct(private PlanningService $planner, private HabitStreaks $streaks) {}
 
     /**
-     * Monday of the week containing $date (user timezone).
+     * First day of the user's week (their `week_start` setting, Monday by default) containing $date, in the user's timezone.
+     *
+     * Reviews are stored by this date. When a user changes their first weekday, reviews already saved keep their old dates and are never
+     * rewritten or merged; a read or save for the current week simply resolves to the new boundary (and creates a new row there if none exists).
+     * History lists every stored review by its own date, so a week can overlap an old review that started on another weekday.
      */
     public function weekStart(User $user, string $date): CarbonImmutable
     {
-        return CarbonImmutable::parse($date, $user->timezone())->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
+        return $user->startOfWeek(CarbonImmutable::parse($date, $user->timezone()))->startOfDay();
     }
 
     /**
@@ -64,12 +68,12 @@ class WeeklyReviewService
         $habitModels = Habit::where('user_id', $user->id)->orderBy('created_at')->limit(50)->get();
         $entries = HabitEntry::whereIn('habit_id', $habitModels->pluck('id'))->where('date', '>=', $start->subDays(400)->toDateString())->get()->groupBy('habit_id');
         $lastDay = $end->subDay();
-        $habits = $habitModels->map(function (Habit $habit) use ($entries, $start, $lastDay) {
+        $habits = $habitModels->map(function (Habit $habit) use ($entries, $start, $lastDay, $user) {
             $dates = $entries->get($habit->id, collect())->map(fn (HabitEntry $e) => substr((string) $e->date, 0, 10));
             $done = $dates->filter(fn (string $d) => $d >= $start->toDateString() && $d <= $lastDay->toDateString())->count();
             $expected = $habit->recurrence === 'weekly' ? 1 : 7;
 
-            return ['id' => $habit->id, 'title' => $habit->title, 'color' => $habit->color, 'recurrence' => $habit->recurrence, 'completions' => $done, 'expected' => $expected, 'consistency' => (int) min(100, round($done / $expected * 100))] + $this->streaks->calculate($dates, $habit->recurrence, $lastDay);
+            return ['id' => $habit->id, 'title' => $habit->title, 'color' => $habit->color, 'recurrence' => $habit->recurrence, 'completions' => $done, 'expected' => $expected, 'consistency' => (int) min(100, round($done / $expected * 100))] + $this->streaks->calculate($dates, $habit->recurrence, $lastDay, $user->weekStartDay());
         })->values();
 
         $withDue = $completed->filter(fn (Task $t) => $t->due_at !== null);

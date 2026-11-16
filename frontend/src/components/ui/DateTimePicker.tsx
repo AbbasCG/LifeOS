@@ -4,6 +4,7 @@ import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Clock, X } from '
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useText } from '../../lib/i18n'
 import { accountDay } from '../../lib/accountDay'
+import { useCalendarPrefs, weekdayOrder } from '../../lib/weekStart'
 import { useHourCycle } from '../../lib/useHourCycle'
 import {
   addDays, addMonths, clampDay, formatDay, formatTime, from12, joinDateTime, monthGrid, parseDay, parseTimeInput,
@@ -106,9 +107,10 @@ function PickerSheet({ kind, value, min, max, clearable, anchor, onChange, onClo
   const pickDay = (day: string) => { if ((min && day < min) || (max && day > max)) return; setFocused(day); emit(day, parts.time); if (kind === 'date') onClose() }
   const setTime = (time: string) => emit(kind === 'time' ? '' : parts.date || clampDay(today, min, max), time)
 
-  const grid = useMemo(() => monthGrid(view), [view])
+  const { weekStart } = useCalendarPrefs()
+  const grid = useMemo(() => monthGrid(view, weekStart), [view, weekStart])
   const monthTitle = formatDay(view, language, { month: 'long', year: 'numeric' })
-  const weekdays = useMemo(() => Array.from({ length: 7 }, (_, i) => formatDay(addDays('2024-01-01', i), language, { weekday: 'short' })), [language])
+  const weekdays = useMemo(() => weekdayOrder(weekStart).map(d => formatDay(addDays('2023-12-31', d), language, { weekday: 'short' })), [language, weekStart])   // 2023-12-31 is a Sunday
   const move = (day: string) => { const next = clampDay(day, min, max); setFocused(next); if (next.slice(0, 7) !== view.slice(0, 7)) setView(next); requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>('[data-day-focus]')?.focus()) }
   const onGridKey = (e: React.KeyboardEvent) => {
     const flip = rtl ? -1 : 1

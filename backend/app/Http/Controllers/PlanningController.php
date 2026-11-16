@@ -86,7 +86,7 @@ class PlanningController extends Controller
     {
         $data = $request->validate(['from' => 'sometimes|date_format:Y-m-d', 'days' => 'sometimes|integer|min:1|max:31']);
         $tz = $request->user()->timezone();
-        $from = isset($data['from']) ? CarbonImmutable::parse($data['from'], $tz) : CarbonImmutable::now($tz)->startOfWeek(CarbonImmutable::MONDAY);
+        $from = isset($data['from']) ? CarbonImmutable::parse($data['from'], $tz) : CarbonImmutable::now($tz)->startOfWeek($request->user()->weekStartDay());
 
         return response()->json($planner->plannedVsActual($request->user(), $from, (int) ($data['days'] ?? 7)));
     }

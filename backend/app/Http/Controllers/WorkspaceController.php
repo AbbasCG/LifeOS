@@ -123,10 +123,11 @@ class WorkspaceController extends Controller
             $today = CarbonImmutable::now($request->user()->timezone())->startOfDay();
             $entries = HabitEntry::whereIn('habit_id', $ids)->where('date', '>=', $today->subDays(400)->toDateString())->get()->groupBy('habit_id');
             $streaks = app(HabitStreaks::class);
-            $page->getCollection()->each(function ($habit) use ($entries, $streaks, $today) {
+            $weekStart = $request->user()->weekStartDay();
+            $page->getCollection()->each(function ($habit) use ($entries, $streaks, $today, $weekStart) {
                 $habitEntries = $entries->get($habit->id, collect());
                 $habit->setAttribute('entries', $habitEntries->map(fn ($entry) => ['date' => substr((string) $entry->date, 0, 10)])->values());
-                $habit->forceFill($streaks->calculate($habitEntries->map(fn ($entry) => substr((string) $entry->date, 0, 10)), $habit->recurrence, $today));
+                $habit->forceFill($streaks->calculate($habitEntries->map(fn ($entry) => substr((string) $entry->date, 0, 10)), $habit->recurrence, $today, $weekStart));
             });
         }
 
@@ -321,7 +322,7 @@ class WorkspaceController extends Controller
 
     public function settings(Request $request): JsonResponse
     {
-        return response()->json(UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => ['language' => 'en', 'theme' => 'system', 'timezone' => 'Europe/Amsterdam', 'work_start' => '09:00', 'work_end' => '17:00', 'break_minutes' => 10, 'work_days' => [1, 2, 3, 4, 5]]])->preferences);
+        return response()->json(UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => ['language' => 'en', 'theme' => 'system', 'timezone' => 'Europe/Amsterdam', 'work_start' => '09:00', 'work_end' => '17:00', 'break_minutes' => 10, 'work_days' => [1, 2, 3, 4, 5]]])->preferences + User::PREFERENCE_DEFAULTS);
     }
 
     /**
@@ -348,7 +349,7 @@ class WorkspaceController extends Controller
 
     public function saveSettings(Request $request): JsonResponse
     {
-        $data = $request->validate(['language' => 'sometimes|in:en,ar,nl', 'theme' => 'sometimes|in:light,dark,system', 'discovery' => 'sometimes|array:hints_enabled', 'discovery.hints_enabled' => 'sometimes|boolean', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|min:0|max:6', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'daily_focus_goal' => 'nullable|integer|min:10|max:720', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'ai_connected_data' => 'sometimes|boolean', 'voice_input' => 'sometimes|boolean', 'checkins_enabled' => 'sometimes|boolean', 'buffer_minutes' => 'sometimes|integer|min:0|max:60', 'study_start' => 'nullable|date_format:H:i', 'study_end' => 'nullable|date_format:H:i|required_with:study_start', 'personal_start' => 'nullable|date_format:H:i', 'personal_end' => 'nullable|date_format:H:i|required_with:personal_start', 'study_daily_limit' => 'nullable|integer|min:15|max:900', 'personal_daily_limit' => 'nullable|integer|min:15|max:900', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,updates,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean'] + self::todayLayoutRules());
+        $data = $request->validate(['language' => 'sometimes|in:en,ar,nl', 'theme' => 'sometimes|in:light,dark,system', 'discovery' => 'sometimes|array:hints_enabled', 'discovery.hints_enabled' => 'sometimes|boolean', 'timezone' => 'sometimes|timezone', 'work_start' => 'sometimes|date_format:H:i', 'work_end' => 'sometimes|date_format:H:i', 'break_minutes' => 'sometimes|integer|min:0|max:60', 'work_days' => 'sometimes|array|min:1|max:7', 'work_days.*' => 'integer|min:0|max:6', 'week_start' => 'sometimes|integer|between:0,6', 'calendar_system' => 'sometimes|in:gregorian,hijri', 'hijri_offset' => 'sometimes|integer|between:-2,2', 'time_format' => 'sometimes|in:12,24', 'notifications' => 'sometimes|boolean', 'quiet_start' => 'nullable|date_format:H:i', 'quiet_end' => 'nullable|date_format:H:i', 'widgets' => 'sometimes|array|max:10', 'widgets.*' => 'in:tasks,timeline,focus,insights', 'dashboard' => 'sometimes|array:order,hidden', 'dashboard.order' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.order.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'dashboard.hidden' => 'sometimes|array|max:'.count(self::DASHBOARD_WIDGETS), 'dashboard.hidden.*' => 'distinct|in:'.implode(',', self::DASHBOARD_WIDGETS), 'focus_block_minutes' => 'sometimes|integer|min:15|max:180', 'daily_focus_limit' => 'nullable|integer|min:30|max:900', 'daily_focus_goal' => 'nullable|integer|min:10|max:720', 'focus_start' => 'nullable|date_format:H:i', 'focus_end' => 'nullable|date_format:H:i', 'assistant_external' => 'sometimes|boolean', 'ai_connected_data' => 'sometimes|boolean', 'voice_input' => 'sometimes|boolean', 'checkins_enabled' => 'sometimes|boolean', 'buffer_minutes' => 'sometimes|integer|min:0|max:60', 'study_start' => 'nullable|date_format:H:i', 'study_end' => 'nullable|date_format:H:i|required_with:study_start', 'personal_start' => 'nullable|date_format:H:i', 'personal_end' => 'nullable|date_format:H:i|required_with:personal_start', 'study_daily_limit' => 'nullable|integer|min:15|max:900', 'personal_daily_limit' => 'nullable|integer|min:15|max:900', 'event_remind_minutes' => 'sometimes|integer|min:0|max:1440', 'notification_channels' => 'sometimes|array:reminders,deadlines,calendar,focus,planning,review,updates,system', 'notification_channels.*' => 'array:enabled,push', 'notification_channels.*.enabled' => 'sometimes|boolean', 'notification_channels.*.push' => 'sometimes|boolean'] + self::todayLayoutRules());
         UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => []]);
         $prefs = DB::transaction(function () use ($request, $data) {
             // The previous zone is read AFTER the per-user lock, so two concurrent saves cannot both recompute from the same stale zone.
@@ -369,7 +370,7 @@ class WorkspaceController extends Controller
             return $prefs;
         });
 
-        return response()->json($prefs);
+        return response()->json($prefs + User::PREFERENCE_DEFAULTS);
     }
 
     public function overview(Request $request): JsonResponse

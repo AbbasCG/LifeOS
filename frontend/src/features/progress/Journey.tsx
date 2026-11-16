@@ -1,6 +1,7 @@
 import { m, useReducedMotion } from 'motion/react'
 import { Check } from 'lucide-react'
 import { useText } from '../../lib/i18n'
+import { useCalendarPrefs } from '../../lib/weekStart'
 
 /**
  * A goal as a journey: each milestone is a stop on the path; finished stretches fill in, the next stop pulses.
@@ -24,13 +25,13 @@ export function GoalJourney({ milestones, color }: { milestones: { title: string
   </div>
 }
 
-/** Last 12 weeks of a habit, one square per day (weeks as columns, Monday first). */
+/** Last 12 weeks of a habit, one square per day (weeks as columns, starting on the account's first day of the week). */
 export function HabitHeatmap({ dates, color, today }: { dates: string[]; color?: string | null; today: string }) {
-  const t = useText()
+  const t = useText(), { weekStart } = useCalendarPrefs()
   const done = new Set(dates)
   const end = new Date(`${today}T12:00:00`)
   const start = new Date(end); start.setDate(start.getDate() - 83)
-  const lead = (start.getDay() + 6) % 7
+  const lead = (start.getDay() - weekStart + 7) % 7
   const days = Array.from({ length: 84 }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })
   const count = days.filter(d => done.has(d)).length
   return <div className="habit-heatmap" role="img" aria-label={t(`Done on ${count} of the last 84 days`, `أُنجزت في ${count} من آخر ٨٤ يوماً`)} style={{ ['--habit-color' as string]: color ?? undefined }}>
