@@ -233,26 +233,40 @@ class ReorganizeDayTest extends TestCase
         $this->assertGreaterThanOrEqual($iftar['ends_at'], CarbonImmutable::parse(collect($actions)->firstWhere('title', 'Evening review')['starts_at']), 'the 60-minute session starts after the iftar window');
     }
 
-    public function test_low_energy_puts_shorter_tasks_first_and_high_energy_the_most_urgent_longest_first(): void
+    public function test_energy_only_shapes_the_size_of_new_sessions_never_the_order(): void
     {
         $long = $this->task('Long urgent', 120, 'urgent', $this->at('17:00'));
         $short = $this->task('Short chore', 30, 'low', $this->at('17:00'));
         $mid = $this->task('Mid task', 60, 'high', $this->at('17:00'));
-        $order = fn (TestResponse $r) => collect($r->json('proposal.actions'))->sortBy('starts_at')->pluck('task_id')->all();
+        $missed = $this->task('Missed lesson', 60, 'medium', $this->at('17:00', '2026-11-25'));
+        $this->block($missed, '09:00', '10:00');
+        $rank = [$long->id, $mid->id, $short->id, $missed->id];
+        $run = fn () => $this->reorganize()->assertOk();
+        $ordered = fn (TestResponse $r) => collect($r->json('proposal.actions'))->sortBy('starts_at')->values();
+        $lines = fn (TestResponse $r) => strtolower(implode(' ', $r->json('proposal.explanation')));
 
-        $neutral = $this->reorganize()->assertOk();
-        $this->assertSame([$long->id, $mid->id, $short->id], $order($neutral), 'no check-in: rank order');
-        $this->assertStringNotContainsString('energy', strtolower(implode(' ', $neutral->json('proposal.explanation'))));
+        $neutral = $run();
+        $this->assertSame($rank, $ordered($neutral)->pluck('task_id')->all(), 'no check-in: rank order');
+        $this->assertSame([120, 60, 30, 60], $ordered($neutral)->pluck('minutes')->all());
+        $this->assertStringNotContainsString('energy', $lines($neutral));
+        $firstSlot = $ordered($neutral)->first()['starts_at'];
 
         DailyCheckin::create(['user_id' => $this->user->id, 'date' => '2026-11-18', 'energy' => 2]);
-        $low = $this->reorganize()->assertOk();
-        $this->assertSame([$short->id, $mid->id, $long->id], $order($low), 'energy 2: shortest first');
-        $this->assertStringContainsString('shorter tasks come first', implode(' ', $low->json('proposal.explanation')));
+        $low = $run();
+        $this->assertSame($rank, $ordered($low)->pluck('task_id')->all(), 'energy 2: same rank order');
+        $this->assertSame($long->id, $ordered($low)->first()['task_id'], 'the urgent long task still gets the first slot');
+        $this->assertSame($firstSlot, $ordered($low)->first()['starts_at']);
+        $this->assertSame([45, 45, 30, 60], $ordered($low)->pluck('minutes')->all(), 'new sessions capped at 45; the missed one keeps its length');
+        $this->assertStringContainsString('only the first 45 minutes were placed for: long urgent, mid task', $lines($low));
+        $this->assertStringContainsString('energy today is low (2/5)', $lines($low));
 
-        DailyCheckin::where('user_id', $this->user->id)->update(['energy' => 5]);
-        $high = $this->reorganize()->assertOk();
-        $this->assertSame([$long->id, $mid->id, $short->id], $order($high), 'energy 5: highest priority and longest first');
-        $this->assertStringContainsString('highest-priority and longest', implode(' ', $high->json('proposal.explanation')));
+        foreach ([3, 5] as $energy) {
+            DailyCheckin::where('user_id', $this->user->id)->update(['energy' => $energy]);
+            $other = $run();
+            $this->assertSame($rank, $ordered($other)->pluck('task_id')->all(), "energy {$energy}: same rank order");
+            $this->assertSame([120, 60, 30, 60], $ordered($other)->pluck('minutes')->all(), "energy {$energy}: no cap");
+            $this->assertStringNotContainsString('energy', $lines($other));
+        }
     }
 
     public function test_nothing_to_do_returns_null_and_writes_no_row(): void

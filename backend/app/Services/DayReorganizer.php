@@ -32,6 +32,9 @@ class DayReorganizer
     /** A new session for work that was never scheduled is at most this long (the rest is planned later). */
     public const MAX_SESSION_MINUTES = 120;
 
+    /** On a low-energy day (check-in 1-2) a new session is at most this long. */
+    public const LOW_ENERGY_SESSION_MINUTES = 45;
+
     /** Past this share of today's remaining capacity the day counts as overloaded, as in PlanningService::summary. */
     public const OVERLOAD_PERCENT = 90;
 
@@ -115,6 +118,10 @@ class DayReorganizer
         $tasks = $due->concat(Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->whereIn('id', $missed->keys()->all())->get())->unique('id')->values();
         $active = $this->scheduler->activeSessions($user->id, $tasks->pluck('id'));
 
+        // Energy only shapes the size of a new session (never which tasks are placed or in what order): a low-energy day gets shorter bites.
+        $energy = CheckinService::enabled($user) ? $this->checkins->forDate($user, $today->toDateString())?->energy : null;
+        $lowEnergy = $energy !== null && $energy <= 2;
+        $cap = $lowEnergy ? self::LOW_ENERGY_SESSION_MINUTES : self::MAX_SESSION_MINUTES;
         $candidates = [];
         $slippedMissed = 0;
         $slippedDue = 0;
@@ -130,25 +137,16 @@ class DayReorganizer
             }
             $wasMissed = $missed->has($task->id);
             $isDue = $task->due_at !== null && $task->due_at < $end;
-            $minutes = $wasMissed ? (int) $missed[$task->id]['minutes'] : (int) max(15, min(self::MAX_SESSION_MINUTES, (int) ceil($remaining / 5) * 5));
+            $minutes = $wasMissed ? (int) $missed[$task->id]['minutes'] : (int) max(15, min($cap, (int) ceil($remaining / 5) * 5));
             $minutes = max(15, min(AssistantActions::MAX_BLOCK_MINUTES, $minutes));
-            $candidates[] = ['task' => $task, 'minutes' => $minutes, 'missed' => $wasMissed ? $missed[$task->id] : null, 'due' => $isDue, 'cut' => ! $wasMissed && $remaining > self::MAX_SESSION_MINUTES];
+            $candidates[] = ['task' => $task, 'minutes' => $minutes, 'missed' => $wasMissed ? $missed[$task->id] : null, 'due' => $isDue, 'cut' => ! $wasMissed && $remaining > $cap];
             $wasMissed ? $slippedMissed++ : $slippedDue++;
         }
 
-        // 2. Order: urgency first (BriefingService::rank), then today's energy decides the order within that.
+        // 2. Order: always urgency first (BriefingService::rank), whatever the energy.
         $ranked = BriefingService::rank(collect($candidates)->pluck('task'), $now, $this->goals->pressure($user));
-        $rankOf = $ranked->mapWithKeys(fn (array $row) => [$row['task']->id => $row['score']])->all();
-        $rankOf = $ranked->mapWithKeys(fn (array $row) => [$row['task']->id => $row['score']])->all();
         $position = array_flip($ranked->map(fn (array $row) => $row['task']->id)->all());
-        $energy = CheckinService::enabled($user) ? $this->checkins->forDate($user, $today->toDateString())?->energy : null;
-        // Neutral (or no check-in): rank order. Energy <= 2: shortest first. Energy >= 4: highest score first, longest first among equals.
-        $key = fn (array $x) => match (true) {
-            $energy !== null && $energy <= 2 => [$x['minutes'], $position[$x['task']->id]],
-            $energy !== null && $energy >= 4 => [-$rankOf[$x['task']->id], -$x['minutes'], $position[$x['task']->id]],
-            default => [$position[$x['task']->id]],
-        };
-        usort($candidates, fn (array $a, array $b) => $key($a) <=> $key($b));
+        usort($candidates, fn (array $a, array $b) => $position[$a['task']->id] <=> $position[$b['task']->id]);
 
         // 3. Free time per day: work hours, around all busy time (LifeOS and connected), prayer/iftar windows and breaks.
         $horizon = $today->addDays(14);
@@ -302,10 +300,8 @@ class DayReorganizer
                 'الجلسات الجديدة في أول وقت فارغ بعد الآن، حول كل ما في تقويمك (بما فيه التقاويم المرتبطة) واستراحاتك'.(($c['prayer'] instanceof PrayerTimes && $c['prayer']->enabled()) ? ' وأوقات الصلاة والإفطار' : '').'. تبقى الفترات الفائتة في السجل.');
             $explanation[] = $t('Most urgent first (overdue, high priority, due soon).', 'الأكثر إلحاحاً أولاً (المتأخرة، ثم الأولوية العالية، ثم الأقرب موعداً).');
         }
-        if ($energy !== null && $energy <= 2 && $candidates !== []) {
-            $explanation[] = $t("Your energy today is low ({$energy}/5), so shorter tasks come first.", "طاقتك اليوم منخفضة ({$energy}/5)، فوضعت المهام الأقصر أولاً.");
-        } elseif ($energy !== null && $energy >= 4 && $candidates !== []) {
-            $explanation[] = $t("Your energy today is high ({$energy}/5), so the highest-priority and longest tasks come first.", "طاقتك اليوم عالية ({$energy}/5)، فوضعت المهام الأعلى أولوية والأطول أولاً.");
+        if ($lowEnergy && $candidates !== []) {
+            $explanation[] = $t("Your energy today is low ({$energy}/5), so new sessions are shorter (at most ".self::LOW_ENERGY_SESSION_MINUTES.' minutes).', "طاقتك اليوم منخفضة ({$energy}/5)، فالجلسات الجديدة أقصر (".self::LOW_ENERGY_SESSION_MINUTES.' دقيقة كحد أقصى).');
         }
         if ($overflowLine) {
             $explanation[] = $t("Today is {$overflowLine[0]}% booked against the {$overflowLine[1]} minutes left in your working hours, so the lowest-priority flexible sessions move to the next days with room ({$movedMinutes} minutes).",
@@ -316,7 +312,7 @@ class DayReorganizer
             $explanation[] = $t('Shortened to fit today: '.implode(', ', $shortened).' minutes.', 'قُصّرت لتناسب اليوم: '.implode('، ', $shortened).' دقيقة.');
         }
         if ($cut) {
-            $explanation[] = $t('Only the first '.self::MAX_SESSION_MINUTES.' minutes were placed for: '.implode(', ', $cut).'. Ask again later for the rest, or split the task.', 'وُضعت أول '.self::MAX_SESSION_MINUTES.' دقيقة فقط لـ: '.implode('، ', $cut).'. اطلب مجدداً لاحقاً لبقية الوقت، أو قسّم المهمة.');
+            $explanation[] = $t('Only the first '.$cap.' minutes were placed for: '.implode(', ', $cut).'. Ask again later for the rest, or split the task.', 'وُضعت أول '.$cap.' دقيقة فقط لـ: '.implode('، ', $cut).'. اطلب مجدداً لاحقاً لبقية الوقت، أو قسّم المهمة.');
         }
         if ($late) {
             $explanation[] = $t('These now land after their deadline: '.implode(', ', $late).'. Consider moving the deadline or dropping something.', 'ستقع هذه بعد موعدها النهائي: '.implode('، ', $late).'. فكّر في تأجيل الموعد أو إلغاء شيء.');
