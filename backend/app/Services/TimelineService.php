@@ -138,15 +138,16 @@ class TimelineService
         $habits = Habit::where('user_id', $user->id)->limit(50)->get();
         $entries = HabitEntry::whereIn('habit_id', $habits->pluck('id'))->whereBetween('date', [$from->subDays(7)->toDateString(), $to->toDateString()])->get()
             ->groupBy('habit_id')->map(fn ($g) => $g->map(fn ($e) => substr((string) $e->getRawOriginal('date'), 0, 10))->flip());
+        $weekStart = $user->weekStartDay();
         foreach ($habits as $habit) {
             $time = collect(self::ROUTINE_TIMES)->first(fn ($t, $word) => $habit->routine && str_contains(mb_strtolower($habit->routine), $word));
             for ($day = $from; $day < $to; $day = $day->addDay()) {
                 $weekly = $habit->recurrence === 'weekly';
-                if ($weekly && $day->dayOfWeek !== CarbonImmutable::MONDAY && $day->ne($from)) {
+                if ($weekly && $day->dayOfWeek !== $weekStart && $day->ne($from)) {
                     continue;
                 }
                 $done = $weekly
-                    ? collect($entries[$habit->id] ?? [])->keys()->contains(fn ($d) => CarbonImmutable::parse($d, $day->timezone)->startOfWeek()->eq($day->startOfWeek()))
+                    ? collect($entries[$habit->id] ?? [])->keys()->contains(fn ($d) => CarbonImmutable::parse($d, $day->timezone)->startOfWeek($weekStart)->eq($day->startOfWeek($weekStart)))
                     : isset(($entries[$habit->id] ?? collect())[$day->toDateString()]);
                 $at = $time ? $day->setTimeFromTimeString($time) : $day;
                 $items->push(['id' => 'habit:'.$habit->id.':'.$day->toDateString(), 'kind' => 'habit', 'source' => 'lifeos', 'source_label' => 'LifeOS', 'account_id' => null, 'account' => null,

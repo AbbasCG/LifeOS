@@ -9,25 +9,25 @@ class HabitStreaks
 {
     /**
      * Calculate streaks from completion dates. Daily habits count consecutive days; weekly habits count consecutive
-     * ISO weeks with at least one completion. The current streak stays alive until the current period has passed.
+     * weeks (starting on $weekStart, 0 = Sunday ... 6 = Saturday; Monday by default) with at least one completion. The current streak stays alive until the current period has passed.
      *
      * @param  Collection<int, string>|array<int, string>  $dates  Y-m-d completion dates
      * @return array{current_streak: int, longest_streak: int, done_today: bool, done_this_period: bool}
      */
-    public function calculate(Collection|array $dates, string $recurrence, CarbonImmutable $today): array
+    public function calculate(Collection|array $dates, string $recurrence, CarbonImmutable $today, int $weekStart = 1): array
     {
         $weekly = $recurrence === 'weekly';
         $todayKey = $today->toDateString();
         $periods = collect($dates)
-            ->map(fn (string $date) => $this->periodKey(CarbonImmutable::parse($date), $weekly))
+            ->map(fn (string $date) => $this->periodKey(CarbonImmutable::parse($date), $weekly, $weekStart))
             ->unique()
             ->sort()
             ->values();
         $set = $periods->flip();
-        $currentKey = $this->periodKey($today, $weekly);
+        $currentKey = $this->periodKey($today, $weekly, $weekStart);
         $cursor = $set->has($currentKey) ? $today : $this->previousPeriod($today, $weekly);
         $current = 0;
-        while ($set->has($this->periodKey($cursor, $weekly))) {
+        while ($set->has($this->periodKey($cursor, $weekly, $weekStart))) {
             $current++;
             $cursor = $this->previousPeriod($cursor, $weekly);
         }
@@ -36,7 +36,7 @@ class HabitStreaks
         $previous = null;
         foreach ($periods as $key) {
             $date = CarbonImmutable::parse($key);
-            $run = $previous && $this->periodKey($this->previousPeriod($date, $weekly), $weekly) === $previous ? $run + 1 : 1;
+            $run = $previous && $this->periodKey($this->previousPeriod($date, $weekly), $weekly, $weekStart) === $previous ? $run + 1 : 1;
             $longest = max($longest, $run);
             $previous = $key;
         }
@@ -49,9 +49,9 @@ class HabitStreaks
         ];
     }
 
-    private function periodKey(CarbonImmutable $date, bool $weekly): string
+    private function periodKey(CarbonImmutable $date, bool $weekly, int $weekStart): string
     {
-        return $weekly ? $date->startOfWeek(CarbonImmutable::MONDAY)->toDateString() : $date->toDateString();
+        return $weekly ? $date->startOfWeek($weekStart)->toDateString() : $date->toDateString();
     }
 
     private function previousPeriod(CarbonImmutable $date, bool $weekly): CarbonImmutable

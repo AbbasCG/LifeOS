@@ -184,22 +184,23 @@ class GoalIntelligence
     public function habits(User $user): Collection
     {
         $today = CarbonImmutable::now($user->timezone())->startOfDay();
+        $weekStart = $user->weekStartDay();
         $habits = Habit::where('user_id', $user->id)->limit(100)->get();
         // 12 weeks of history: 60 days for the consistency comparison, 84 for the heatmap.
         $entries = HabitEntry::whereIn('habit_id', $habits->pluck('id'))->where('date', '>=', $today->subDays(83)->toDateString())->get()->groupBy('habit_id');
 
-        return $habits->map(function (Habit $habit) use ($entries, $today) {
+        return $habits->map(function (Habit $habit) use ($entries, $today, $weekStart) {
             $dates = collect($entries->get($habit->id, []))->map(fn (HabitEntry $e) => substr((string) $e->getRawOriginal('date'), 0, 10));
             $weekly = $habit->recurrence === 'weekly';
-            $rate = function (CarbonImmutable $from, CarbonImmutable $to) use ($dates, $weekly) {
+            $rate = function (CarbonImmutable $from, CarbonImmutable $to) use ($dates, $weekly, $weekStart) {
                 $hits = $dates->filter(fn ($d) => $d >= $from->toDateString() && $d < $to->toDateString());
                 $periods = $weekly ? max(1, (int) round($from->diffInDays($to) / 7)) : max(1, (int) $from->diffInDays($to));
 
-                return (int) min(100, round(($weekly ? $hits->map(fn ($d) => CarbonImmutable::parse($d)->startOfWeek()->toDateString())->unique()->count() : $hits->count()) / $periods * 100));
+                return (int) min(100, round(($weekly ? $hits->map(fn ($d) => CarbonImmutable::parse($d)->startOfWeek($weekStart)->toDateString())->unique()->count() : $hits->count()) / $periods * 100));
             };
             $current = $rate($today->subDays(29), $today->addDay());
             $previous = $rate($today->subDays(59), $today->subDays(29));
-            $stats = $this->streaks->calculate($dates->values()->all(), $habit->recurrence, $today);
+            $stats = $this->streaks->calculate($dates->values()->all(), $habit->recurrence, $today, $weekStart);
             $byWeekday = $dates->filter(fn ($d) => $d >= $today->subDays(59)->toDateString())->countBy(fn ($d) => CarbonImmutable::parse($d)->dayOfWeek)->sortDesc();
             $suggestion = match (true) {
                 $current < 40 => ['en' => 'This habit rarely sticks. Make it smaller or tie it to an existing routine.', 'ar' => 'هذه العادة نادراً ما تستمر. صغّرها أو اربطها بروتين قائم.'],

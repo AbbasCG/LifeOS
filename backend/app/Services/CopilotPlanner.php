@@ -228,7 +228,7 @@ class CopilotPlanner
     {
         $c = $this->planning->config($user);
         $now = CarbonImmutable::now($c['tz']);
-        $start = $nextWeek ? $now->startOfDay()->next(CarbonImmutable::MONDAY) : $now->startOfDay();
+        $start = $nextWeek ? $now->startOfDay()->next($user->weekStartDay()) : $now->startOfDay();
         $priorityIds = $this->taskIdsFor($user, $priorities, $start, 7);
         $only = $alternative === 'essentials' ? $this->essentialIds($user, $start, 7, $priorityIds) : [];
         // Moves first: they take flexible blocks off overloaded days, and new blocks are planned around where they land.
@@ -512,13 +512,14 @@ class CopilotPlanner
 
         $c = $this->planning->config($user);
         $now = CarbonImmutable::now($c['tz']);
-        $monday = $now->startOfWeek(CarbonImmutable::MONDAY)->startOfDay()->addWeeks($nextWeek ? 1 : 0);
+        $weekStart = $user->weekStartDay();
+        $monday = $now->startOfWeek($weekStart)->startOfDay()->addWeeks($nextWeek ? 1 : 0); // first day of the user's week; template weekdays below are ISO (1 = Monday)
         $occurrences = $this->calendar->occurrences($user, $monday->utc(), $monday->addDays(7)->utc());
         $open = Task::where('user_id', $user->id)->whereNotIn('status', ['completed', 'cancelled'])->pluck('id')->flip();
         $blocks = [];
         $skipped = [];
         foreach ($template->blocks as $b) {
-            $start = $monday->addDays($b['weekday'] - 1)->setTimeFromTimeString($b['start']);
+            $start = $monday->addDays((($b['weekday'] % 7) - $weekStart + 7) % 7)->setTimeFromTimeString($b['start']);
             $end = $start->addMinutes((int) $b['minutes']);
             $clash = $occurrences->first(fn (array $o) => $o['starts_at'] < $end->utc() && $o['ends_at'] > $start->utc())
                 ?? collect($blocks)->first(fn ($x) => $x['starts_at'] < $end && $x['ends_at'] > $start);

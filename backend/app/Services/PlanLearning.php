@@ -93,7 +93,7 @@ class PlanLearning
         $c = $planning->config($user);
         $today = CarbonImmutable::now($c['tz'])->startOfDay();
         [$first, $days] = match ($intent) {
-            'plan_week', 'prioritize' => [($slots['next_week'] ?? false) ? $today->next(CarbonImmutable::MONDAY) : $today, 7],
+            'plan_week', 'prioritize' => [($slots['next_week'] ?? false) ? $today->next($user->weekStartDay()) : $today, 7],
             'focus_blocks' => match ($slots['within'] ?? 'week') {
                 'today' => [$today, 1], 'tomorrow' => [$today->addDay(), 1], default => [$today, 7],
             },
