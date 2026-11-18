@@ -7,6 +7,7 @@ use App\Models\AssistantProposal;
 use App\Services\AssistantActions;
 use App\Services\AssistantService;
 use App\Services\ConversationService;
+use App\Services\DayCloser;
 use App\Services\DayReorganizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -88,6 +89,18 @@ class AssistantController extends Controller
         $result = $reorganizer->propose($user, ($user->preferences()['language'] ?? 'en') === 'ar');
 
         return response()->json(['proposal' => $result['proposal']?->present(), 'summary' => $result['summary'], 'explanation' => $result['explanation']]);
+    }
+
+    /**
+     * "Close the day": a recap of the local day and a deterministic preview (no AI provider involved) that rolls open work to the next work day.
+     * Writes only the proposal row.
+     */
+    public function closeDay(Request $request, DayCloser $closer): JsonResponse
+    {
+        $user = $request->user();
+        $result = $closer->propose($user, ($user->preferences()['language'] ?? 'en') === 'ar');
+
+        return response()->json(['proposal' => $result['proposal']?->present(), 'summary' => $result['summary'], 'explanation' => $result['explanation'], 'recap' => $result['recap']]);
     }
 
     private function find(Request $request, string $id): AssistantProposal
