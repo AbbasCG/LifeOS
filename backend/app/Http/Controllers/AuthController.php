@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\UserSetting;
 use App\Services\AuditLogger;
 use App\Services\TwoFactorService;
 use Illuminate\Http\JsonResponse;
@@ -19,8 +20,14 @@ class AuthController extends Controller
 {
     public function register(Request $request): JsonResponse
     {
-        $data = $request->validate(['name' => 'required|string|max:100', 'email' => 'required|email|max:255|unique:users', 'password' => ['required', 'confirmed', PasswordRule::min(10)]]);
-        $user = User::create($data);
+        $data = $request->validate(['name' => 'required|string|max:100', 'email' => 'required|email|max:255|unique:users', 'password' => ['required', 'confirmed', PasswordRule::min(10)],
+            // Optional, sent by the browser: a new account starts in the person's own zone and language instead of UTC/English.
+            'timezone' => 'sometimes|nullable|timezone', 'language' => 'sometimes|nullable|in:en,ar,nl']);
+        $user = User::create(array_intersect_key($data, array_flip(['name', 'email', 'password'])));
+        $start = array_filter(['timezone' => $data['timezone'] ?? null, 'language' => $data['language'] ?? null]);
+        if ($start !== []) {
+            UserSetting::create(['user_id' => $user->id, 'preferences' => $start]);
+        }
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
