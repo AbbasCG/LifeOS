@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react'
 /**
  * What swiping a task row does, like the swipe actions in an email app: one action for a swipe to the right and one for a
  * swipe to the left, chosen in Settings. Kept on this device (a gesture belongs to the phone in your hand), nothing is sent
- * anywhere. Deleting only ever asks first; a snooze moves the due date and offers Undo.
+ * anywhere. Deleting only ever asks first; a snooze postpones the task (its next session, else its deadline) and offers Undo.
  */
 export type SwipeAction = 'complete' | 'tomorrow' | 'nextweek' | 'schedule' | 'focus' | 'delete' | 'none'
 export const SWIPE_ACTIONS: SwipeAction[] = ['complete', 'tomorrow', 'nextweek', 'schedule', 'focus', 'delete', 'none']

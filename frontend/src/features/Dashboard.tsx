@@ -16,6 +16,7 @@ import { useApi } from '../lib/useApi'
 import { localDate } from '../lib/hooks'
 import { Empty, ErrorMessage, Skeleton } from '../components/ui/Shared'
 import { ReorganizeCard, ReorganizeHost } from './today/ReorganizeDay'
+import { CloseDayCard, CloseDayHost } from './today/CloseDay'
 import { NowCard, TodayStrip, TopThree, ProgressRow, CopilotPick } from './today/NowView'
 import { Expandable, RingStat } from '../components/visual'
 import { TASKS_CHANGED } from '../lib/quickAdd'
@@ -151,7 +152,7 @@ export default function Dashboard() {
   // V22: the top of Today in the order chosen for this device; hidden sections move into "More for today".
   const top = normalizeToday(settings.data?.today_layout?.[device])
   const sections: Record<TodaySection, ReactNode> = {
-    now: <><NowCard briefing={data} today={today.data} onDone={refresh} /><ReorganizeCard hint={today.data?.reorganize} /></>,
+    now: <><NowCard briefing={data} today={today.data} onDone={refresh} /><ReorganizeCard hint={today.data?.reorganize} /><CloseDayCard hint={today.data?.close_day} /></>,
     // Not asked of someone with nothing to plan yet: shown once there is an open task (or today already has a check-in).
     checkin: today.data?.energy.enabled && today.data.energy.checkin?.energy == null && (today.data.energy.checkin || (data?.stats.open_tasks ?? 0) > 0) && <QuickCheckin today={today.data} onSaved={refresh} />,
     strip: <TodayStrip today={today.data} />,
@@ -180,6 +181,7 @@ export default function Dashboard() {
     <div className="today-top">{place(top.order.filter(id => !top.hidden.includes(id)))}</div>
     <InstallBanner />
     <ReorganizeHost />
+    <CloseDayHost />
     <Expandable className="today-more" icon={<LayoutGrid size={18} aria-hidden="true" />} summary={t('More for today', 'المزيد لليوم')}>
       <div className="row"><span className="muted small">{t('Briefing, deadlines, goals, check-in and more.', 'الإحاطة والمواعيد والأهداف والتسجيل وغيرها.')}</span>
         <button className="icon-button" aria-label={t('Customize dashboard', 'تخصيص لوحة المعلومات')} title={t('Customize dashboard', 'تخصيص لوحة المعلومات')} onClick={() => setCustomizing(true)}><SlidersHorizontal size={19} /></button></div>
