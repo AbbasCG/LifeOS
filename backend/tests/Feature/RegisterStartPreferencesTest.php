@@ -69,4 +69,22 @@ class RegisterStartPreferencesTest extends TestCase
         $this->putJson('/api/settings', ['onboarding' => 'later'])->assertUnprocessable()->assertJsonValidationErrors('onboarding');
         $this->putJson('/api/settings', ['ui_mode' => 'tiny'])->assertUnprocessable()->assertJsonValidationErrors('ui_mode');
     }
+
+    public function test_a_new_account_reads_a_complete_work_week_and_theme(): void
+    {
+        // The row made at signup holds only the zone and language; the screens still need every value.
+        $this->register(['timezone' => 'Asia/Riyadh', 'language' => 'ar'])->assertCreated();
+        $this->getJson('/api/settings')->assertOk()
+            ->assertJsonPath('timezone', 'Asia/Riyadh')->assertJsonPath('language', 'ar')
+            ->assertJsonPath('work_start', '09:00')->assertJsonPath('work_end', '17:00')->assertJsonPath('work_days', [1, 2, 3, 4, 5])
+            ->assertJsonPath('break_minutes', 10)->assertJsonPath('theme', 'system')->assertJsonPath('week_start', 1);
+        $this->putJson('/api/settings', ['theme' => 'dark'])->assertOk()->assertJsonPath('work_days', [1, 2, 3, 4, 5])->assertJsonPath('theme', 'dark');
+    }
+
+    public function test_without_a_zone_the_settings_show_the_zone_the_account_really_uses(): void
+    {
+        $this->actingAs(User::factory()->create());
+        UserSetting::create(['user_id' => auth()->id(), 'preferences' => ['language' => 'en']]);
+        $this->getJson('/api/settings')->assertOk()->assertJsonPath('timezone', 'UTC')->assertJsonPath('work_days', [1, 2, 3, 4, 5]);
+    }
 }

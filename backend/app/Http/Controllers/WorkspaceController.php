@@ -322,9 +322,26 @@ class WorkspaceController extends Controller
         return response()->json(['message' => 'Saved.']);
     }
 
+    /** What a settings row starts with when GET /api/settings creates it. */
+    private const FIRST_SETTINGS = ['language' => 'en', 'theme' => 'system', 'timezone' => 'Europe/Amsterdam', 'work_start' => '09:00', 'work_end' => '17:00', 'break_minutes' => 10, 'work_days' => [1, 2, 3, 4, 5]];
+
     public function settings(Request $request): JsonResponse
     {
-        return response()->json(UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => ['language' => 'en', 'theme' => 'system', 'timezone' => 'Europe/Amsterdam', 'work_start' => '09:00', 'work_end' => '17:00', 'break_minutes' => 10, 'work_days' => [1, 2, 3, 4, 5]]])->preferences + User::PREFERENCE_DEFAULTS);
+        $prefs = UserSetting::firstOrCreate(['user_id' => $request->user()->id], ['preferences' => self::FIRST_SETTINGS])->preferences;
+
+        return response()->json($this->withDefaults($request->user(), $prefs));
+    }
+
+    /**
+     * The stored preferences plus a value for every key the screens read. A row created at signup holds only the zone, language and
+     * first-run flags, so the work week and theme are filled here; the zone, when missing, is the one the account really uses.
+     *
+     * @param  array<string, mixed>  $prefs
+     * @return array<string, mixed>
+     */
+    private function withDefaults(User $user, array $prefs): array
+    {
+        return $prefs + ['timezone' => $user->timezone()] + array_diff_key(self::FIRST_SETTINGS, ['timezone' => true]) + User::PREFERENCE_DEFAULTS;
     }
 
     /**
@@ -387,7 +404,7 @@ class WorkspaceController extends Controller
             return $prefs;
         });
 
-        return response()->json($prefs + User::PREFERENCE_DEFAULTS);
+        return response()->json($this->withDefaults($request->user(), $prefs));
     }
 
     public function overview(Request $request): JsonResponse
