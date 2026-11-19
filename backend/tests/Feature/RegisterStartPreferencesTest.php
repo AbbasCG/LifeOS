@@ -26,6 +26,14 @@ class RegisterStartPreferencesTest extends TestCase
         $this->getJson('/api/settings')->assertOk()->assertJsonPath('timezone', 'Asia/Riyadh')->assertJsonPath('language', 'ar');
     }
 
+    public function test_a_retired_zone_name_from_an_older_browser_is_stored_under_its_current_name(): void
+    {
+        $this->register(['timezone' => 'Asia/Calcutta'])->assertCreated();
+        $this->assertSame('Asia/Kolkata', User::where('email', 'sara@example.test')->firstOrFail()->timezone());
+        // The stored name is one the settings screen accepts when it is saved again.
+        $this->putJson('/api/settings', ['timezone' => 'Asia/Kolkata'])->assertOk();
+    }
+
     public function test_without_them_nothing_changes(): void
     {
         $this->register()->assertCreated();

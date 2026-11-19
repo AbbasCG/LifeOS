@@ -20,6 +20,10 @@ class AuthController extends Controller
 {
     public function register(Request $request): JsonResponse
     {
+        // Some browsers still report retired zone names (Asia/Calcutta, Europe/Kiev): store the current name for the same zone.
+        if (is_string($zone = $request->input('timezone')) && $zone !== '') {
+            $request->merge(['timezone' => self::currentZoneName($zone)]);
+        }
         $data = $request->validate(['name' => 'required|string|max:100', 'email' => 'required|email|max:255|unique:users', 'password' => ['required', 'confirmed', PasswordRule::min(10)],
             // Optional, sent by the browser: a new account starts in the person's own zone and language instead of UTC/English.
             'timezone' => 'sometimes|nullable|timezone', 'language' => 'sometimes|nullable|in:en,ar,nl']);
@@ -32,6 +36,23 @@ class AuthController extends Controller
         $request->session()->regenerate();
 
         return response()->json($user, 201);
+    }
+
+    /** The current IANA name for a zone the browser may report under a retired alias; anything unknown is returned as is (and then refused). */
+    private static function currentZoneName(string $zone): string
+    {
+        $current = \DateTimeZone::listIdentifiers();
+        if (in_array($zone, $current, true) || ! class_exists(\IntlTimeZone::class)) {
+            return $zone;
+        }
+        for ($i = 0, $n = \IntlTimeZone::countEquivalentIDs($zone); $i < $n; $i++) {
+            $equivalent = \IntlTimeZone::getEquivalentID($zone, $i);
+            if (in_array($equivalent, $current, true)) {
+                return $equivalent;
+            }
+        }
+
+        return $zone;
     }
 
     public const CHALLENGE_TTL = 300;
