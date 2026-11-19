@@ -37,7 +37,7 @@ async function freshAccount(page: Page, testInfo: TestInfo, language: 'en' | 'ar
   const email = `e2e-postpone-${testInfo.project.name}-${Date.now()}@lifeos.local`
   const made = await call(page, 'POST', '/api/register', { name: 'E2E Postpone', email, password: PASSWORD, password_confirmation: PASSWORD, timezone: ZONE, language })
   expect(made.status).toBe(201)
-  const settings = await call(page, 'PUT', '/api/settings', { timezone: ZONE, language, work_start: '08:00', work_end: '10:00', work_days: [0, 1, 2, 3, 4, 5, 6] })
+  const settings = await call(page, 'PUT', '/api/settings', { timezone: ZONE, language, work_start: '08:00', work_end: '10:00', work_days: [0, 1, 2, 3, 4, 5, 6], onboarding: 'done', ui_mode: 'full' })
   expect(settings.status).toBe(200)
 }
 async function cleanup(page: Page, taskIds: number[]) {
