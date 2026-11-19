@@ -35,7 +35,7 @@ class WebhookTest extends TestCase
     /** Send a signed webhook with the exact raw bytes given. */
     private function send(string $raw, array $overrides = [], ?string $publicId = null)
     {
-        $timestamp = $overrides['timestamp'] ?? time();
+        $timestamp = $overrides['timestamp'] ?? now()->getTimestamp();
         $headers = [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_X_LIFEOS_TIMESTAMP' => (string) $timestamp,
@@ -68,7 +68,7 @@ class WebhookTest extends TestCase
         Queue::fake();
         $raw = '{ "order" :   42 }';   // odd spacing must verify exactly as sent
         $this->send($raw)->assertStatus(202);
-        $this->send($raw, ['signature' => WebhookVerifier::sign($this->secret, time(), '{"order":42}'), 'delivery' => 'evt-2'])->assertStatus(401);
+        $this->send($raw, ['signature' => WebhookVerifier::sign($this->secret, now()->getTimestamp(), '{"order":42}'), 'delivery' => 'evt-2'])->assertStatus(401);
     }
 
     public function test_bad_signatures_are_refused_with_one_message_and_nothing_is_recorded(): void
@@ -77,7 +77,7 @@ class WebhookTest extends TestCase
         $raw = '{"a":1}';
         $cases = [
             'wrong secret' => ['secret' => 'whsec_wrong'],
-            'tampered' => ['signature' => WebhookVerifier::sign($this->secret, time(), '{"a":2}')],
+            'tampered' => ['signature' => WebhookVerifier::sign($this->secret, now()->getTimestamp(), '{"a":2}')],
             'missing signature' => ['signature' => null],
             'garbage signature' => ['signature' => 'sha256=nothex'],
             'wrong scheme' => ['signature' => 'sha1='.str_repeat('a', 40)],
@@ -97,11 +97,13 @@ class WebhookTest extends TestCase
 
     public function test_old_and_future_timestamps_are_refused_even_with_a_valid_signature(): void
     {
+        // Frozen: with the real clock a second could pass between building the timestamp and checking it, so "301 s ahead" became 300 and passed.
+        $this->freezeTime();
         $raw = '{"a":1}';
-        foreach ([time() - 301, time() + 301, time() - 86400] as $stale) {
+        foreach ([now()->getTimestamp() - 301, now()->getTimestamp() + 301, now()->getTimestamp() - 86400] as $stale) {
             $this->send($raw, ['timestamp' => $stale])->assertStatus(401);
         }
-        $this->send($raw, ['timestamp' => time() - 290, 'delivery' => 'evt-ok'])->assertStatus(202);
+        $this->send($raw, ['timestamp' => now()->getTimestamp() - 300, 'delivery' => 'evt-ok'])->assertStatus(202);
     }
 
     public function test_a_redelivery_is_acknowledged_but_processed_only_once(): void
@@ -158,8 +160,8 @@ class WebhookTest extends TestCase
         $this->send('{"a":1}', ['secret' => $new, 'delivery' => 'a'])->assertStatus(202);
         $this->send('{"a":1}', ['secret' => $this->secret, 'delivery' => 'b'])->assertStatus(202);   // old secret, inside the window
         $this->travel(25)->hours();
-        $this->send('{"a":1}', ['secret' => $this->secret, 'delivery' => 'c', 'timestamp' => time()])->assertStatus(401);
-        $this->send('{"a":1}', ['secret' => $new, 'delivery' => 'd', 'timestamp' => time()])->assertStatus(202);
+        $this->send('{"a":1}', ['secret' => $this->secret, 'delivery' => 'c', 'timestamp' => now()->getTimestamp()])->assertStatus(401);
+        $this->send('{"a":1}', ['secret' => $new, 'delivery' => 'd', 'timestamp' => now()->getTimestamp()])->assertStatus(202);
     }
 
     public function test_the_receiver_is_rate_limited_per_endpoint_and_address(): void
@@ -243,7 +245,7 @@ class WebhookTest extends TestCase
         Queue::fake();
         $this->send('{"a":1}', ['delivery' => 'old'])->assertStatus(202);
         $this->travel(8)->days();
-        $this->send('{"a":1}', ['delivery' => 'new', 'timestamp' => time()])->assertStatus(202);
+        $this->send('{"a":1}', ['delivery' => 'new', 'timestamp' => now()->getTimestamp()])->assertStatus(202);
         $this->artisan('lifeos:integrations:prune')->assertSuccessful();
         $this->assertSame(['new'], WebhookDelivery::pluck('delivery_id')->all());
     }
