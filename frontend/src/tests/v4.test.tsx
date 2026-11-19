@@ -115,7 +115,7 @@ describe('security', () => {
     render(wrap(<AuthPage />))
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'a@x.io' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'very-strong-pass' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Welcome back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     fireEvent.change(await screen.findByLabelText('Authentication code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
     expect(await screen.findByText('That code is not valid.')).toBeInTheDocument()
