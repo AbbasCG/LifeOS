@@ -37,9 +37,13 @@ const PRIORITY: Record<string, { icon: LucideIcon; en: string; ar: string; nl: s
   urgent: { icon: Flame, en: 'Urgent', ar: 'عاجل', nl: 'Dringend' }, high: { icon: ArrowUp, en: 'High', ar: 'عالية', nl: 'Hoog' }, medium: { icon: Minus, en: 'Medium', ar: 'متوسطة', nl: 'Gemiddeld' }, low: { icon: ArrowDown, en: 'Low', ar: 'منخفضة', nl: 'Laag' },
 }
 
-/** Priority as icon + color, with the word for screen readers (or shown when `labelled`). */
+/**
+ * Priority as icon + color, with the word for screen readers (or shown when `labelled`). On a row (not `labelled`) the default priority
+ * (normal / medium, or none) shows nothing: only urgent, high and low stand out, so a list of ordinary tasks is not a column of dashes.
+ */
 export function PriorityMark({ priority, labelled = false }: { priority?: string | null; labelled?: boolean }) {
   const t = useText(), p = PRIORITY[priority ?? ''] ?? PRIORITY.medium
+  if (!labelled && p === PRIORITY.medium) return null
   const Icon = p.icon
   return <span className={`prio prio-${priority ?? 'medium'}`} title={t(p.en, p.ar, p.nl)}><Icon size={13} aria-hidden="true" />{labelled ? <span>{t(p.en, p.ar, p.nl)}</span> : <span className="sr-only">{t(p.en, p.ar, p.nl)}</span>}</span>
 }

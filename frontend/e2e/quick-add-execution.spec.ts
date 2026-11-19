@@ -97,13 +97,14 @@ test('the default is Not scheduled: the task has no calendar time and no deadlin
 
 test('"tomorrow at 11am for one hour" is read as a start and a length, and wins over the chosen day', async ({ page, setLanguage }, testInfo) => {
   await setLanguage('en')
-  const day = await emptyDay(page, dayOf(testInfo) + 2), zone = await accountZone(page), title = stamp('phrase') + ' tomorrow at 11am for one hour'
+  // The understood words are left out of the saved title.
+  const day = await emptyDay(page, dayOf(testInfo) + 2), zone = await accountZone(page), title = stamp('phrase')
   try {
     await eveOf(page, day)
     const quick = await openQuickAdd(page)
     await quick.getByRole('radio', { name: 'Today' }).click()
-    await quick.getByRole('textbox', { name: 'Task' }).fill(title)
-    await expect(quick.getByText(/Understood:/)).toHaveText('Understood: Tomorrow 11:00–12:00')
+    await quick.getByRole('textbox', { name: 'Task' }).fill(`${title} tomorrow at 11am for one hour`)
+    await expect(quick.getByText(/Understood:/)).toHaveText(`Understood: Tomorrow 11:00–12:00 · “${title}”`)
     await quick.getByRole('button', { name: 'Add task' }).click()
     await expect(sheet(page)).toBeHidden()
     const [saved] = await find(page, title)
@@ -174,11 +175,11 @@ test('"Choose another time" opens the full dialog with the same draft, the chose
 
 test('More details opens prefilled (day, start, length), the deadline stays off, and Save books it', async ({ page, setLanguage }, testInfo) => {
   await setLanguage('en')
-  const day = await emptyDay(page, dayOf(testInfo) + 8), zone = await accountZone(page), title = stamp('details') + ' for 45 minutes'
+  const day = await emptyDay(page, dayOf(testInfo) + 8), zone = await accountZone(page), title = stamp('details')
   try {
     await eveOf(page, day)
     const quick = await openQuickAdd(page)
-    await quick.getByRole('textbox', { name: 'Task' }).fill(title)
+    await quick.getByRole('textbox', { name: 'Task' }).fill(`${title} for 45 minutes`)   // the details form gets the title without the length
     await quick.getByRole('radio', { name: 'Tomorrow' }).click()
     await quick.getByRole('button', { name: /More details/ }).click()
     const dialog = page.getByRole('dialog', { name: /Create item/ })
@@ -196,12 +197,12 @@ test('More details opens prefilled (day, start, length), the deadline stays off,
 
 test('a time that has already passed adds the task without a time and says so', async ({ page, setLanguage }, testInfo) => {
   await setLanguage('en')
-  const day = await emptyDay(page, dayOf(testInfo) + 11), title = stamp('past') + ' today at 6am for 45 minutes'
+  const day = await emptyDay(page, dayOf(testInfo) + 11), title = stamp('past')
   try {
     await eveOf(page, day)   // the app's clock reads 13:00 Amsterdam time on the day before `day`: 6am has gone by
     const quick = await openQuickAdd(page)
-    await quick.getByRole('textbox', { name: 'Task' }).fill(title)
-    await expect(quick.getByText(/Understood:/)).toHaveText('Understood: 06:00 has passed: it will be added without a time')
+    await quick.getByRole('textbox', { name: 'Task' }).fill(`${title} today at 6am for 45 minutes`)
+    await expect(quick.getByText(/Understood:/)).toHaveText(`Understood: 06:00 has passed: it will be added without a time · “${title}”`)
     await quick.getByRole('button', { name: 'Add task' }).click()
     await expect(page.getByText('Added. 06:00 has passed, so it was not scheduled.')).toBeVisible()
     await expect(sheet(page)).toBeHidden()
@@ -236,17 +237,18 @@ test('Arabic at 320px: the tiles, the understood line, the conflict-free save an
     await expect(group.getByRole('radio', { name: 'بدون جدولة' })).toHaveAttribute('aria-checked', 'true')
     await quick.getByRole('textbox', { name: 'المهمة' }).fill(`${title} بكرة الساعة 11 صباحا لمدة ساعة`)
     const line = quick.getByText(/فُهم:/)
-    await expect(line).toHaveText('فُهم: غدًا 11:00–12:00')
+    await expect(line).toHaveText(`فُهم: غدًا 11:00–12:00 · «${title}»`)
+    await expect(group.getByRole('radio', { name: 'غدًا' })).toHaveAttribute('aria-checked', 'true')
     await expect(line.locator('bdi[dir="ltr"]')).toHaveText('11:00–12:00')
     await noHorizontalOverflow(page)
     for (const radio of await group.getByRole('radio').all()) { const b = (await radio.boundingBox())!; expect(b.height).toBeGreaterThanOrEqual(43.5); expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(320) }
     expect(await a11yViolations(page, 'dialog[open]')).toEqual([])
     await quick.getByRole('button', { name: 'إضافة المهمة' }).click()
     await expect(sheet(page)).toBeHidden()
-    const [saved] = await find(page, `${title} بكرة الساعة 11 صباحا لمدة ساعة`)
+    const [saved] = await find(page, title)
     expect(saved.due_at).toBeNull()
     expect(saved.schedule?.starts_at).toBe(iso(zonedInstant(`${day}T11:00`, zone)))
-  } finally { await cleanup(page, [`${title} بكرة الساعة 11 صباحا لمدة ساعة`]) }
+  } finally { await cleanup(page, [title]) }
 })
 
 test('keyboard: the day tiles are one radio group, Escape closes the sheet, the shortcut still opens it', async ({ page, setLanguage }) => {
