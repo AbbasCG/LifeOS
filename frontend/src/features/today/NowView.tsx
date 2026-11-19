@@ -20,6 +20,8 @@ import type { Recommendation } from '../../lib/intelligence'
 import { formatClock } from '../../lib/clock'
 import { accountDay, accountInstant } from '../../lib/accountDay'
 import { ReorganizeButton } from './ReorganizeDay'
+import { CloseDayButton } from './CloseDay'
+import { PostponeButton } from '../tasks/Postpone'
 
 type Task = Briefing['focus'][number]
 type Event = TodayData['timeline'][number]
@@ -63,6 +65,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
           <Link className="quiet" to="/calendar">{t('Calendar', 'التقويم')}</Link>
           <Link className="quiet" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
           <ReorganizeButton />
+          <CloseDayButton />
         </div>
       </> : task ? <>
         <p className="now-eyebrow">{t('Do now', 'ابدأ الآن')}</p>
@@ -71,8 +74,10 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
         <div className="now-actions">
           <button className="cta" disabled={focus.busy} onClick={() => void focus.go(task.id)}><Play size={20} />{t('Start focus', 'ابدأ التركيز')}</button>
           <button className="quiet" disabled={completing} onClick={() => void complete(task)} aria-label={t(`Mark “${task.title}” done`, `إنجاز «${task.title}»`)}><Check size={18} />{t('Done', 'تم')}</button>
+          <PostponeButton task={task} title={task.title} />
           <Link className="quiet" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
           <ReorganizeButton />
+          <CloseDayButton />
         </div>
       </> : <>
         <p className="now-eyebrow">{t('All clear', 'لا شيء عاجل')}</p>
@@ -82,6 +87,7 @@ export function NowCard({ briefing, today, onDone }: { briefing: Briefing | null
           <button className="quiet" disabled={focus.busy} onClick={() => void focus.go(null)}><Play size={16} />{t('Free focus', 'تركيز حر')}</button>
           <Link className="quiet" to="/today/plan"><Sparkles size={16} />{t('Plan my day', 'خطط يومي')}</Link>
           <ReorganizeButton />
+          <CloseDayButton />
         </div>
       </>}
     </div>

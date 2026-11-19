@@ -79,7 +79,7 @@ export type Analytics = {
 export type InboxNotification = { id: number; title: string; body?: string | null; kind: string; category?: string; link: string | null; push_status?: string | null; push_error?: string | null; read_at: string | null; created_at: string; actions?: { action: string; title: string; link: string }[] }
 export type CopilotItem = { type: 'project' | 'goal' | 'overlap' | 'overload' | 'deadline' | 'link' | string; id?: number; title: string; detail: string; status?: string; status_label?: string; link?: string }
 export type AssistantReply = { provider: 'local' | 'openai' | string; intent: string; message: string; notice?: string; items?: CopilotItem[]; subtasks: { title: string; estimated_minutes: number }[]; tasks: { id: number; title: string; priority: string; estimated_minutes: number; due_at: string | null; due_all_day?: boolean; reasons?: string[] }[]; suggestions: string[]; proposal?: AssistantProposal | null }
-export type AssistantAction = { id: string; type: 'create_event' | 'move_event' | 'create_task' | 'reschedule_task'; title: string; starts_at?: string; ends_at?: string; minutes: number; task_id?: number | null; event_id?: number; from_starts_at?: string; from_ends_at?: string; goal_id?: number; priority?: string; estimated_minutes?: number; due_at?: string; due_all_day?: boolean; from_due_at?: string; from_due_all_day?: boolean; reason?: string; source?: 'missed' | 'due' | 'overflow'; conflicts?: { title: string; source_label: string; starts_at: string; ends_at: string; minutes: number }[] }
+export type AssistantAction = { id: string; type: 'create_event' | 'move_event' | 'create_task' | 'reschedule_task'; title: string; starts_at?: string; ends_at?: string; minutes: number; task_id?: number | null; event_id?: number; from_starts_at?: string; from_ends_at?: string; goal_id?: number; priority?: string; estimated_minutes?: number; due_at?: string; due_all_day?: boolean; from_due_at?: string; from_due_all_day?: boolean; reason?: string; source?: 'missed' | 'due' | 'overflow' | 'session' | 'deadline'; conflicts?: { title: string; source_label: string; starts_at: string; ends_at: string; minutes: number }[] }
 export type AssistantProposal = { id: string; kind: 'schedule' | 'rebalance' | string; provider: string; status: 'pending' | 'applied' | 'dismissed' | 'expired' | 'undone'; summary: string; explanation: string[]; actions: AssistantAction[]; results: { action_id: string; type: string; event_id?: number; task_id?: number; undo?: { done: boolean; reason?: string } }[] | null; expires_at: string; applied_at: string | null; undo_until?: string | null }
 export type AssistantStatus = { active: { provider: string; label: string; model: string | null }; selected: string; external_allowed: boolean; voice_allowed?: boolean; providers: { provider: string; label: string; configured: boolean; selected: boolean; model: string }[] }
 export type Bilingual = { en: string; ar: string }
@@ -137,9 +137,15 @@ export type TodayData = {
   progress: { tasks: { done: number; target: number }; focus: { done: number; target: number }; habits: { done: number; target: number }; overall: number }
   /** What slipped today, cheaply: missed sessions, work due without a session, a day past 90% full. Older servers send none. */
   reorganize?: ReorganizeHint
+  /** Tasks still open today, and whether to suggest "Close the day" (a work day, after work hours, something open). Older servers send none. */
+  close_day?: CloseDayHint
 }
 export type ReorganizeHint = { missed: number; due_unscheduled: number; overloaded: boolean }
 /** A preview of a re-arranged day. `proposal` is an ordinary assistant proposal, or null when nothing needs doing (then `summary` says so). */
 export type ReorganizeResult = { proposal: AssistantProposal | null; summary: string; explanation: string[] }
 /** Asks for the preview. Nothing is changed by it; applying goes through the assistant proposal endpoints. */
 export const reorganizeDay = () => api<ReorganizeResult>('/api/today/reorganize', 'POST')
+export type CloseDayHint = { open_today: number; suggested: boolean }
+/** "Close the day": a recap of today so far, and (when something is still open) a 'close_day' proposal that rolls it to the next work day. */
+export type CloseDayResult = ReorganizeResult & { recap: { completed: number; focus_minutes: number; planned_minutes: number; done_titles: string[] } }
+export const closeDay = () => api<CloseDayResult>('/api/today/close', 'POST')

@@ -559,7 +559,10 @@ class AssistantActions
                     $at = Task::endOfDay($result['before']['due_date'], $tz);
                 }
                 $allDay = $wasAllDay && $at->equalTo(Task::endOfDay($at->setTimezone($tz)->toDateString(), $tz));
-                $task->update(['due_at' => $at, 'due_all_day' => $allDay]);
+                // The postponement the reschedule counted is taken back with it (results stored before this was recorded carry no count).
+                $counts = array_key_exists('postponed_count', $result['before'])
+                    ? ['postponed_count' => (int) $result['before']['postponed_count'], 'last_postponed_at' => $result['before']['last_postponed_at'] ? CarbonImmutable::parse($result['before']['last_postponed_at']) : null] : [];
+                $task->update(['due_at' => $at, 'due_all_day' => $allDay] + $counts);
 
                 return ['done' => true];
         }
@@ -711,10 +714,14 @@ class AssistantActions
         if (! $due || ! $from || ! $task->due_at?->equalTo($from)) {
             $fail('This task changed since the suggestion was made.');
         }
-        $before = ['due_at' => $task->due_at->toIso8601String(), 'due_all_day' => (bool) $task->due_all_day, 'due_date' => $task->dueDate($user->timezone())];
-        $task->update(['due_at' => $due, 'due_all_day' => false]);
+        $tz = $user->timezone();
+        $before = ['due_at' => $task->due_at->toIso8601String(), 'due_all_day' => (bool) $task->due_all_day, 'due_date' => $task->dueDate($tz),
+            'postponed_count' => (int) $task->postponed_count, 'last_postponed_at' => $task->last_postponed_at?->toIso8601String()];
+        // An action may keep a deadline date-only (due_all_day true, e.g. "Close the day"), but only when the new instant really is the end of a local day.
+        $allDay = ! empty($action['due_all_day']) && $due->equalTo(Task::endOfDay($due->setTimezone($tz)->toDateString(), $tz));
+        $task->update(['due_at' => $due, 'due_all_day' => $allDay]);
 
-        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String(), 'due_all_day' => false, 'due_date' => null]];
+        return ['action_id' => $action['id'], 'type' => 'reschedule_task', 'task_id' => $task->id, 'before' => $before, 'after' => ['due_at' => $due->toIso8601String(), 'due_all_day' => $allDay, 'due_date' => $allDay ? $due->setTimezone($tz)->toDateString() : null]];
     }
 
     /**

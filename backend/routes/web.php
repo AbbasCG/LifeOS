@@ -25,6 +25,7 @@ use App\Http\Controllers\PushController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\SyncSettingsController;
+use App\Http\Controllers\TaskPostponeController;
 use App\Http\Controllers\TimelineController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
@@ -62,6 +63,7 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('assistant/proposals/{id}/undo', [AssistantController::class, 'undo']);
         Route::post('assistant/proposals/{id}/dismiss', [AssistantController::class, 'dismiss']);
         Route::post('today/reorganize', [AssistantController::class, 'reorganize'])->middleware('throttle:assistant');
+        Route::post('today/close', [AssistantController::class, 'closeDay'])->middleware('throttle:assistant');
         Route::get('copilot/conversations', [CopilotController::class, 'index']);
         Route::delete('copilot/conversations', [CopilotController::class, 'destroyAll']);
         Route::get('copilot/conversations/{id}', [CopilotController::class, 'show'])->whereUuid('id');
@@ -167,6 +169,8 @@ Route::prefix('api')->middleware('throttle:api')->group(function (): void {
         Route::post('events', [CalendarController::class, 'store']);
         Route::post('tasks/{id}/schedule', [CalendarController::class, 'scheduleTask'])->whereNumber('id');
         Route::put('tasks/{id}/schedule', [CalendarController::class, 'moveTaskSession'])->whereNumber('id');
+        Route::post('tasks/{id}/postpone', [TaskPostponeController::class, 'postpone'])->whereNumber('id');
+        Route::post('tasks/{id}/postpone/undo', [TaskPostponeController::class, 'undo'])->whereNumber('id');
         Route::patch('events/{id}', [CalendarController::class, 'update'])->whereNumber('id');
         Route::delete('events/{id}', [CalendarController::class, 'destroy'])->whereNumber('id');
         Route::get('reviews/{week}', [ReviewController::class, 'show'])->where('week', '\d{4}-\d{2}-\d{2}');
