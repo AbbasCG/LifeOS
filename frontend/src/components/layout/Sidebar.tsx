@@ -12,7 +12,7 @@ import { InstallLink } from '../InstallApp'
 import { api } from '../../lib/api'
 import { ErrorMessage } from '../ui/Shared'
 import { useText } from '../../lib/i18n'
-import { setMoreOpen, setUiPrefs, useUiPrefs } from '../../lib/uiPrefs'
+import { setMoreOpen, setUiPrefs, uiPrefs, useUiPrefs } from '../../lib/uiPrefs'
 
 /** Navigation, grouped so the daily destinations come first. Language, theme and sign-out live here on phones. */
 type NavItem = { to: string; en: string; ar: string; icon: typeof Gift; admin?: boolean }
@@ -38,9 +38,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   </nav>
   // «Show all sections»: the full list from now on, on every device. The button goes away, so focus moves to the first item it revealed.
   const showAll = () => {
-    setModeError(''); setUiPrefs({ onboarding: 'done', ui_mode: 'full' })
+    const mode = (ui_mode: string) => setUiPrefs({ onboarding: uiPrefs().onboarding, ui_mode })
+    setModeError(''); mode('full')
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.sidebar [data-tour="nav-assistant"]')?.focus())
-    api('/api/settings', 'PUT', { ui_mode: 'full' }).catch((e: Error) => { setUiPrefs({ ui_mode: 'simple' }); setModeError(e.message) })
+    api('/api/settings', 'PUT', { ui_mode: 'full' }).catch((e: Error) => { mode('simple'); setModeError(e.message) })
   }
   return <>
     {open && <button className="sidebar-backdrop" onClick={onClose} aria-label={ar ? 'إغلاق القائمة' : 'Close menu'} />}

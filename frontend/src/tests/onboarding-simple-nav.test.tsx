@@ -235,6 +235,16 @@ describe('simple navigation', () => {
     expect(uiPrefs().uiMode).toBe('full')
   })
 
+  it('a refused «Show all sections» goes back to the simple list and says why', async () => {
+    putReply = () => json({ message: 'Could not save.' }, 500)
+    setUiPrefs({ ui_mode: 'simple' })
+    render(wrap(<Sidebar open={false} onClose={() => {}} />))
+    fireEvent.click(screen.getByRole('button', { name: 'Show all sections' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save.')
+    expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
+    expect(uiPrefs()).toMatchObject({ uiMode: 'simple', onboarding: 'done' })
+  })
+
   it('the full navigation (every existing account) is unchanged', () => {
     setUiPrefs({ ui_mode: 'full' })
     render(wrap(<Sidebar open={false} onClose={() => {}} />))
