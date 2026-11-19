@@ -40,13 +40,16 @@ const isolate = (language: string, text: string) => language === 'ar' ? `\u2066$
  * same as the task dialog's: they book a calendar session (never a deadline), and nothing is scheduled unless you choose. Natural phrases
  * ("tomorrow at 7pm for one hour") fill the session's day, start and length. One request saves the task and its time; if that time is taken
  * nothing is saved and the user chooses another. "More details" opens the full form with the plan already in it.
+ * While the phrase says the day ("tomorrow at 10"), it wins and the tiles show it: that tile is selected, marked «from your text», and
+ * another tile only says how to choose differently. The words that were understood are left out of the saved title ("Call the bank"),
+ * unless «Keep my exact text» is ticked (until the sheet closes).
  */
 export default function QuickAddSheet({ open, voice, setOpen, setVoice }: { open: boolean; voice: boolean; setOpen: (open: boolean) => void; setVoice: (voice: boolean) => void }) {
   const t = useText(), toast = useToast(), { language } = useLanguage(), noteId = useId(), errorId = useId()
   const [text, setText] = useState(''), [when, setWhen] = useState<QuickDay>('none'), [day, setDay] = useState(''), [priority, setPriority] = useState<Priority>('medium')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [draft, setDraft] = useState<Partial<RecordItem> | null>(null)
   const [conflict, setConflict] = useState<ScheduleConflict | null>(null), saving = useRef(false)
-  const [rolled, setRolled] = useState(false), [focusTime, setFocusTime] = useState(false)
+  const [rolled, setRolled] = useState(false), [focusTime, setFocusTime] = useState(false), [exact, setExact] = useState(false), [textHint, setTextHint] = useState(false)
   // One client_id (= Idempotency-Key) per body: a retry after a dropped answer reuses it, so a task that was saved but not answered cannot be added twice.
   const keys = useRef(new Map<string, string>())
   const online = useOnline(), [params, setParams] = useSearchParams()
@@ -62,27 +65,34 @@ export default function QuickAddSheet({ open, voice, setOpen, setVoice }: { open
   }, [shown])
   // What the typed or dictated phrase said, and the booking the tiles and the phrase make together, shown before saving so nothing is a surprise.
   const read = readCapture(text), { plan, passed } = quickPlan(read, when, day)
+  // The day the phrase fixes (a day word WITH a time: then it wins over the tiles), and the tile that matches it.
+  const textDay = read.time && read.day ? read.day : '', textChoice = textDay ? choiceOf(textDay) : null
+  const cleaned = read.title !== read.task.title, title = exact ? read.task.title : read.title
   const words = plan && planWords(plan, language, t)
-  const understood = words
-    ? <><bdi>{words.day}</bdi>{' '}<bdi dir="ltr">{words.from}–{words.endDay && <>{words.endDay} </>}{words.to}</bdi>{rolled && <> {t('(today is almost over)', '(فات وقت اليوم)', '(vandaag is bijna voorbij)')}</>}</>
+  const booking = words
+    ? <><bdi>{words.day}</bdi>{' '}<bdi dir="ltr">{words.from}–{words.endDay && <>{words.endDay} </>}{words.to}</bdi>{rolled && !textDay && <> {t('(today is almost over)', '(فات وقت اليوم)', '(vandaag is bijna voorbij)')}</>}</>
     : passed ? <>{t('', 'مضى ', '')}<bdi dir="ltr">{passed}</bdi>{t(' has passed: it will be added without a time', ': ستُضاف دون وقت', ' is voorbij: de taak wordt zonder tijd toegevoegd')}</>
     : read.found.duration ? t(`${read.task.estimated_minutes} min`, `${read.task.estimated_minutes} دقيقة`, `${read.task.estimated_minutes} min`) : null
+  // The title that will be saved follows the booking, so the line reads «Understood: Tomorrow 10:00–10:30 · “Call the bank”».
+  const understood = booking && <>{booking}{cleaned && !exact && <> · <bdi>{t(`“${title}”`, `«${title}»`, `“${title}”`)}</bdi></>}</>
   /** The task as it is saved: never a deadline; `starts_at` only when a day is chosen (or the phrase said when). */
   function task(booked: QuickPlan | null): NewTask {
-    return { title: read.task.title, estimated_minutes: read.task.estimated_minutes, status: 'todo', priority, ...(booked ? { schedule: { starts_at: booked.starts_at } } : {}) }
+    return { title, estimated_minutes: read.task.estimated_minutes, status: 'todo', priority, ...(booked ? { schedule: { starts_at: booked.starts_at } } : {}) }
   }
   function close() {
     setOpen(false)
     if (params.get('add')) setParams(p => { p.delete('add'); return p }, { replace: true })
     keys.current.clear()
-    setText(''); setWhen('none'); setDay(''); setPriority('medium'); setVoice(false); setConflict(null); setRolled(false); setError('') }
+    setText(''); setWhen('none'); setDay(''); setPriority('medium'); setVoice(false); setConflict(null); setRolled(false); setError(''); setExact(false); setTextHint(false) }
   /** The full form, with the title, the priority and the planned day, start and length already filled in (the deadline stays off). */
   function openDetails(startsAt?: string, onTime = false) {
     const { plan: booked } = quickPlan(read, when, day, new Date(), startsAt)
     setFocusTime(onTime)
-    setDraft({ title: read.task.title, estimated_minutes: read.task.estimated_minutes, status: 'todo', priority, ...(booked ? { planned: { starts_at: booked.starts_at } } : {}) }); close()
+    setDraft({ title, estimated_minutes: read.task.estimated_minutes, status: 'todo', priority, ...(booked ? { planned: { starts_at: booked.starts_at } } : {}) }); close()
   }
   const choose = (next: QuickDay) => { setWhen(next); setRolled(false); setError('') }
+  /** While the phrase says the day, a tile does not change it (the phrase wins): the matching tile does nothing, another one says why. */
+  const tap = (value: QuickDay, on: () => void) => () => { if (!textDay) on(); else if (value !== textChoice) setTextHint(true) }
   /** Today: the dialog's default start; with no half hour left today it is tomorrow, and the tile says so. */
   const chooseToday = () => { if (defaultWhen(accountDay()).day === accountDay()) choose('today'); else { choose('tomorrow'); setRolled(true) } }
   /** `startsAt`: the start the user accepted from a conflict's suggestion. Sent once: a second tap while this runs sends nothing. */
@@ -116,26 +126,31 @@ export default function QuickAddSheet({ open, voice, setOpen, setVoice }: { open
   }
   const icon = (Icon: typeof Sun) => <Icon size={20} aria-hidden="true" />
   const heading = t('When do you want to do it?', 'متى تريد تنفيذها؟', 'Wanneer wil je het doen?')
-  const choice = when === 'custom' ? choiceOf(day) === 'custom' ? 'custom' : choiceOf(day) : when
-  const tile = (value: QuickDay, label: string, Icon: typeof Sun, on: () => void) => <button key={value} type="button" role="radio" aria-checked={choice === value} className="choice" onClick={on}><span className="choice-icon">{icon(Icon)}</span><span className="choice-label">{label}</span></button>
+  const choice = textChoice ?? (when === 'custom' ? choiceOf(day) === 'custom' ? 'custom' : choiceOf(day) : when), pickedDay = textChoice ? textDay : day
+  const fromId = `${noteId}-from`, fromText = <span id={fromId} className="qa-from" aria-hidden="true">{t('from your text', 'من نصّك', 'uit je tekst')}</span>
+  const textDayWord = textChoice === 'today' ? t('today', 'اليوم', 'vandaag') : textChoice === 'tomorrow' ? t('tomorrow', 'غدًا', 'morgen') : textDay ? dayLabel(textDay, language) : ''
+  const tile = (value: QuickDay, label: string, Icon: typeof Sun, on: () => void) => <button key={value} type="button" role="radio" aria-checked={choice === value} aria-describedby={textChoice === value ? fromId : undefined} className="choice" onClick={tap(value, on)}><span className="choice-icon">{icon(Icon)}</span><span className="choice-label">{label}</span>{textChoice === value && fromText}</button>
   const priorities: { value: Priority; label: string; icon: ReactNode; tone: string }[] = [{ value: 'urgent', label: t('Urgent', 'عاجل'), icon: icon(Flame), tone: 'urgent' }, { value: 'high', label: t('High', 'عالية'), icon: icon(ArrowUp), tone: 'high' }, { value: 'medium', label: t('Normal', 'عادية'), icon: icon(Equal), tone: 'medium' }, { value: 'low', label: t('Low', 'منخفضة'), icon: icon(ArrowDown), tone: 'low' }]
   return <>
     {shown && <BottomSheet title={t('Quick add', 'إضافة سريعة')} onClose={close} dirty={() => text.trim() !== ''} footer={
       <button type="submit" form="quick-add-form" className="primary qa-add" aria-disabled={busy || undefined} disabled={!text.trim()}><Plus size={20} aria-hidden="true" />{t('Add task', 'إضافة المهمة')}</button>}>
       <form id="quick-add-form" className="quick-add" onSubmit={e => void save(e)}>
         <div className="quick-add-input">
-          <input data-autofocus className="qa-title" value={text} maxLength={200} onChange={e => { setText(e.target.value); setError('') }} aria-label={t('Task', 'المهمة')} aria-invalid={error ? true : undefined} aria-describedby={[understood ? noteId : '', error ? errorId : ''].filter(Boolean).join(' ') || undefined} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} enterKeyHint="done" autoComplete="off" autoCapitalize="sentences" />
+          <input data-autofocus className="qa-title" value={text} maxLength={200} onChange={e => { setText(e.target.value); setError(''); setTextHint(false) }} aria-label={t('Task', 'المهمة')} aria-invalid={error ? true : undefined} aria-describedby={[understood ? noteId : '', error ? errorId : ''].filter(Boolean).join(' ') || undefined} placeholder={t('What needs doing?', 'ما الذي يجب إنجازه؟')} enterKeyHint="done" autoComplete="off" autoCapitalize="sentences" />
           {voiceAllowed && <Suspense fallback={null}><VoiceButton autoStart={voice} onText={said => { setText(v => `${v.trimEnd()}${v.trim() ? ' ' : ''}${said}`.slice(0, 200)); const hints = spokenHints(said); if (hints.when === 'nextweek') { setDay(nextWeekDay()); choose('custom') } else if (hints.when === 'tomorrow') choose('tomorrow'); if (hints.priority) setPriority(hints.priority) }} /></Suspense>}
         </div>
         {understood && <p id={noteId} className="muted small qa-understood">{t('Understood: ', 'فُهم: ', 'Begrepen: ')}{understood}</p>}
+        {cleaned && <label className="inline muted qa-exact"><input type="checkbox" checked={exact} onChange={e => setExact(e.target.checked)} />{t('Keep my exact text', 'احتفظ بنصي كما هو', 'Mijn tekst precies bewaren')}</label>}
         <div className="field-block">
           <span className="field-title" id={`${noteId}-when`}>{heading}</span>
           <div className="qa-whens rf-whens" role="radiogroup" aria-labelledby={`${noteId}-when`}>
             {tile('today', t('Today', 'اليوم', 'Vandaag'), Sun, chooseToday)}
             {tile('tomorrow', t('Tomorrow', 'غدًا', 'Morgen'), Sunrise, () => choose('tomorrow'))}
-            <span className={`qa-pick${choice === 'custom' ? ' is-set' : ''}`}><DateTimeField kind="date" value={choice === 'custom' ? day : ''} min={accountDay()} onChange={v => { setDay(v); choose(v ? 'custom' : 'none') }} label={t('Pick a date', 'تاريخ آخر', 'Andere datum')} placeholder={t('Pick a date', 'تاريخ آخر', 'Andere datum')} shown={choice === 'custom' ? dayLabel(day, language) : undefined} radioChecked={choice === 'custom'} /></span>
+            {/* While the phrase says the day, the date chooser does not open (the phrase would win anyway): a tap says how to change it. */}
+            <span className={`qa-pick${choice === 'custom' ? ' is-set' : ''}`} onClickCapture={textDay ? e => { e.preventDefault(); e.stopPropagation(); setTextHint(true) } : undefined}><DateTimeField kind="date" value={choice === 'custom' ? pickedDay : ''} min={accountDay()} onChange={v => { setDay(v); choose(v ? 'custom' : 'none') }} label={t('Pick a date', 'تاريخ آخر', 'Andere datum')} placeholder={t('Pick a date', 'تاريخ آخر', 'Andere datum')} shown={choice === 'custom' ? dayLabel(pickedDay, language) : undefined} radioChecked={choice === 'custom'} describedBy={textChoice === 'custom' ? fromId : undefined} />{textChoice === 'custom' && fromText}</span>
             {tile('none', t('Not scheduled', 'بدون جدولة', 'Niet ingepland'), CalendarX, () => choose('none'))}
           </div>
+          <span role="status" className="muted qa-day-note">{textDay && textHint ? t(`Your text says ${textDayWord}; remove it from the text to choose another day`, `نصّك يقول ${textDayWord}؛ احذفه من النص لتختار يومًا آخر`, `Je tekst zegt ${textDayWord}; haal het uit de tekst om een andere dag te kiezen`) : ''}</span>
         </div>
         <PrayerOverlapNote start={plan?.starts_at} end={plan?.ends_at} />
         <ChoiceGroup label={t('Priority', 'الأولوية')} variant="tiles" columns={4} value={priority} onChange={setPriority} options={priorities} />

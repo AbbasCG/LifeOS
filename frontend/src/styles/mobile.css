@@ -87,6 +87,10 @@ img, svg, video, canvas { max-width: 100%; }
 .qa-pick.is-set .dtp-trigger { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .qa-pick .dtp-trigger span { font-size: 12px; font-weight: 600; }
 .qa-pick .dtp-trigger svg { width: 20px; height: 20px; }
+.qa-from { font-size: 10px; font-weight: 500; }
+.qa-pick .qa-from { display: block; text-align: center; margin-top: 2px; }
+.qa-exact { margin: 0; }
+.qa-day-note:empty { margin-top: -8px; }
 .qa-more { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .qa-more .quiet { min-height: 48px; justify-content: center; }
 .qa-add { width: 100%; min-height: 56px; font-size: 17px; border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }

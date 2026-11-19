@@ -1,4 +1,4 @@
-import { Suspense, useState } from 'react'
+import { Suspense, useId, useState } from 'react'
 import { HeartPulse, SlidersHorizontal } from 'lucide-react'
 import { api, type Checkin, type TodayData } from '../../lib/api'
 import { useText } from '../../lib/i18n'
@@ -11,10 +11,11 @@ const CheckinCard = lazyPart(() => import('../wellbeing/CheckinCard').then(m => 
 /**
  * One-tap daily check-in on Today: tap how energetic you feel (1–5) and it is saved for today, the same energy value the
  * full check-in holds (only the energy is sent, so nothing already saved is touched). "More" opens the full check-in.
- * It is shown only while today has no energy answer yet and the account has check-ins on.
+ * It is shown only while today has no energy answer yet and the account has check-ins on, and (Today decides) not to someone with no open
+ * task and no check-in today. A line under the question says what the answer changes.
  */
 export function QuickCheckin({ today, onSaved }: { today: TodayData; onSaved: () => void }) {
-  const t = useText(), toast = useToast()
+  const t = useText(), toast = useToast(), whyId = useId()
   const [busy, setBusy] = useState<number | null>(null), [more, setMore] = useState(false)
   const words = [t('Drained', 'مستنزف'), t('Low', 'منخفضة'), t('Okay', 'معتدلة'), t('Good', 'جيدة'), t('Great', 'نشيط')]
   async function pick(level: number) {
@@ -30,7 +31,8 @@ export function QuickCheckin({ today, onSaved }: { today: TodayData; onSaved: ()
       <h2><HeartPulse size={17} aria-hidden="true" />{t('How’s your energy today?', 'كيف طاقتك اليوم؟')}</h2>
       <button type="button" className="quiet" onClick={() => setMore(true)}><SlidersHorizontal size={15} aria-hidden="true" />{t('More', 'المزيد')}</button>
     </div>
-    <div className="quick-checkin-scale" role="group" aria-label={t('Energy today, 1 to 5', 'الطاقة اليوم من 1 إلى 5')}>
+    <p className="muted small" id={whyId}>{t('When your energy is low, new sessions are planned shorter.', 'حين تكون طاقتك منخفضة تُخطَّط الجلسات الجديدة أقصر.', 'Als je energie laag is, worden nieuwe sessies korter gepland.')}</p>
+    <div className="quick-checkin-scale" role="group" aria-label={t('Energy today, 1 to 5', 'الطاقة اليوم من 1 إلى 5')} aria-describedby={whyId}>
       {words.map((word, i) => <button key={word} type="button" disabled={busy !== null} onClick={() => void pick(i + 1)}><strong>{i + 1}</strong>{' '}<small>{word}</small></button>)}
     </div>
     {more && <Dialog title={t('Daily check-in', 'تسجيل اليوم')} onClose={() => setMore(false)}>

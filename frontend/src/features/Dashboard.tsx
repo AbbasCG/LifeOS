@@ -152,7 +152,8 @@ export default function Dashboard() {
   const top = normalizeToday(settings.data?.today_layout?.[device])
   const sections: Record<TodaySection, ReactNode> = {
     now: <><NowCard briefing={data} today={today.data} onDone={refresh} /><ReorganizeCard hint={today.data?.reorganize} /></>,
-    checkin: today.data?.energy.enabled && today.data.energy.checkin?.energy == null && <QuickCheckin today={today.data} onSaved={refresh} />,
+    // Not asked of someone with nothing to plan yet: shown once there is an open task (or today already has a check-in).
+    checkin: today.data?.energy.enabled && today.data.energy.checkin?.energy == null && (today.data.energy.checkin || (data?.stats.open_tasks ?? 0) > 0) && <QuickCheckin today={today.data} onSaved={refresh} />,
     strip: <TodayStrip today={today.data} />,
     top3: <TopThree briefing={data} onChange={refresh} />,
     progress: <ProgressRow today={today.data} />,
