@@ -69,6 +69,9 @@ class User extends Authenticatable
         'prayer_enabled' => false, 'prayer_lat' => null, 'prayer_lng' => null, 'prayer_method' => 'umm_al_qura', 'prayer_asr' => 'standard',
         'prayer_before' => 10, 'prayer_after' => 20, 'jumuah_after' => 75,
         'ramadan_mode' => 'off', 'ramadan_work_start' => '10:00', 'ramadan_work_end' => '15:00', 'iftar_minutes' => 45,
+        // First-run setup and the navigation size. Accounts that existed before these settings see no change: setup counts as done and the
+        // full navigation stays. New accounts are created with 'pending' and 'simple' (AuthController::register).
+        'onboarding' => 'done', 'ui_mode' => 'full',
     ];
 
     /**

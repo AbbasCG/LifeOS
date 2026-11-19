@@ -22,7 +22,7 @@ class RegisterStartPreferencesTest extends TestCase
         $this->register(['timezone' => 'Asia/Riyadh', 'language' => 'ar'])->assertCreated();
         $user = User::where('email', 'sara@example.test')->firstOrFail();
         $this->assertSame('Asia/Riyadh', $user->timezone());
-        $this->assertSame(['timezone' => 'Asia/Riyadh', 'language' => 'ar'], UserSetting::where('user_id', $user->id)->firstOrFail()->preferences);
+        $this->assertSame(['timezone' => 'Asia/Riyadh', 'language' => 'ar', 'onboarding' => 'pending', 'ui_mode' => 'simple'], UserSetting::where('user_id', $user->id)->firstOrFail()->preferences);
         $this->getJson('/api/settings')->assertOk()->assertJsonPath('timezone', 'Asia/Riyadh')->assertJsonPath('language', 'ar');
     }
 
@@ -34,12 +34,12 @@ class RegisterStartPreferencesTest extends TestCase
         $this->putJson('/api/settings', ['timezone' => 'Asia/Kolkata'])->assertOk();
     }
 
-    public function test_without_them_nothing_changes(): void
+    public function test_without_them_the_zone_stays_utc_and_only_the_first_run_flags_are_stored(): void
     {
         $this->register()->assertCreated();
         $user = User::where('email', 'sara@example.test')->firstOrFail();
         $this->assertSame('UTC', $user->timezone());
-        $this->assertSame(0, UserSetting::where('user_id', $user->id)->count());
+        $this->assertSame(['onboarding' => 'pending', 'ui_mode' => 'simple'], UserSetting::where('user_id', $user->id)->firstOrFail()->preferences);
     }
 
     public function test_invalid_values_are_refused_and_no_account_is_created(): void
@@ -53,5 +53,20 @@ class RegisterStartPreferencesTest extends TestCase
     {
         $this->register(['timezone' => 'Europe/Amsterdam', 'is_admin' => true])->assertCreated();
         $this->assertFalse((bool) User::where('email', 'sara@example.test')->firstOrFail()->is_admin);
+    }
+
+    public function test_existing_accounts_keep_the_full_app_and_no_setup(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->getJson('/api/settings')->assertOk()->assertJsonPath('onboarding', 'done')->assertJsonPath('ui_mode', 'full');
+    }
+
+    public function test_the_setup_and_the_navigation_size_can_be_changed_and_are_validated(): void
+    {
+        $this->register()->assertCreated();
+        $this->getJson('/api/settings')->assertJsonPath('onboarding', 'pending')->assertJsonPath('ui_mode', 'simple');
+        $this->putJson('/api/settings', ['onboarding' => 'done', 'ui_mode' => 'full'])->assertOk()->assertJsonPath('onboarding', 'done')->assertJsonPath('ui_mode', 'full');
+        $this->putJson('/api/settings', ['onboarding' => 'later'])->assertUnprocessable()->assertJsonValidationErrors('onboarding');
+        $this->putJson('/api/settings', ['ui_mode' => 'tiny'])->assertUnprocessable()->assertJsonValidationErrors('ui_mode');
     }
 }

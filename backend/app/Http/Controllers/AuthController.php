@@ -28,10 +28,9 @@ class AuthController extends Controller
             // Optional, sent by the browser: a new account starts in the person's own zone and language instead of UTC/English.
             'timezone' => 'sometimes|nullable|timezone', 'language' => 'sometimes|nullable|in:en,ar,nl']);
         $user = User::create(array_intersect_key($data, array_flip(['name', 'email', 'password'])));
-        $start = array_filter(['timezone' => $data['timezone'] ?? null, 'language' => $data['language'] ?? null]);
-        if ($start !== []) {
-            UserSetting::create(['user_id' => $user->id, 'preferences' => $start]);
-        }
+        // A new account gets the short first-run setup and the simple navigation; both are a tap away from the full app.
+        $start = array_filter(['timezone' => $data['timezone'] ?? null, 'language' => $data['language'] ?? null]) + ['onboarding' => 'pending', 'ui_mode' => 'simple'];
+        UserSetting::create(['user_id' => $user->id, 'preferences' => $start]);
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
