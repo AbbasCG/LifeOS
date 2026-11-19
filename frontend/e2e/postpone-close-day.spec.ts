@@ -46,7 +46,7 @@ async function cleanup(page: Page, taskIds: number[]) {
     if (task?.schedule) await call(page, 'DELETE', `/api/events/${task.schedule.session_id}`)
     await call(page, 'DELETE', `/api/tasks/${id}`)
   }
-  // The e2e database is thrown away after the run; DELETE /api/account currently fails on the server (see the report), so the account is signed out.
+  // The e2e database is thrown away after the run; DELETE /api/account answers 500 on the server (AuthController::destroy calls logout() with one argument of two), so the account is signed out.
   expect((await call(page, 'POST', '/api/logout')).status).toBeLessThan(300)
 }
 async function makeTask(page: Page, body: Record<string, unknown>): Promise<Task> {
