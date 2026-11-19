@@ -1,11 +1,15 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react'
 import { useText } from '../../lib/i18n'
 import { useAnimatedClose } from '../../lib/useAnimatedClose'
 
-export function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
- const ref = useRef<HTMLDialogElement>(null); const t = useText(); const titleId = useId(); const close = useAnimatedClose(ref, onClose)
+/**
+ * `onDismiss`, when given, is what Escape and × do instead of closing (a dialog that asks first); the parent closes it by unmounting.
+ * `headingRef` gets the title, focusable from script, for a dialog whose title changes (each step of the first-run setup).
+ */
+export function Dialog({ title, children, onClose, onDismiss, headingRef }: { title: string; children: ReactNode; onClose: () => void; onDismiss?: () => void; headingRef?: Ref<HTMLHeadingElement> }) {
+ const ref = useRef<HTMLDialogElement>(null); const t = useText(); const titleId = useId(); const animated = useAnimatedClose(ref, onClose); const close = onDismiss ?? animated
  useEffect(() => { const dialog = ref.current; const previous = document.activeElement as HTMLElement; dialog?.showModal(); dialog?.querySelector<HTMLElement>('[data-autofocus]')?.focus(); return () => { dialog?.close(); previous?.focus() } }, [])
- return <dialog ref={ref} onCancel={e => { e.preventDefault(); e.stopPropagation(); close() }} className="os-dialog" aria-labelledby={titleId}><header className="row"><h2 id={titleId}>{title}</h2><button type="button" className="quiet" onClick={close} aria-label={t('Close', 'إغلاق', 'Sluiten')}>×</button></header>{children}</dialog>
+ return <dialog ref={ref} onCancel={e => { e.preventDefault(); e.stopPropagation(); close() }} className="os-dialog" aria-labelledby={titleId}><header className="row"><h2 id={titleId} ref={headingRef} tabIndex={headingRef ? -1 : undefined}>{title}</h2><button type="button" className="quiet" onClick={close} aria-label={t('Close', 'إغلاق', 'Sluiten')}>×</button></header>{children}</dialog>
 }
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div> }
 export function ErrorMessage({ error }: { error: string }) { return error ? <p role="alert" className="error">{error}</p> : null }

@@ -22,7 +22,7 @@ class WebhookVerifier
         if ($timestamp === null || ! preg_match('/^\d{9,11}$/', $timestamp)) {
             return false;
         }
-        if (abs(time() - (int) $timestamp) > (int) config('integrations.webhooks.tolerance_seconds', 300)) {
+        if (abs(now()->getTimestamp() - (int) $timestamp) > (int) config('integrations.webhooks.tolerance_seconds', 300)) {
             return false;
         }
         if ($signature === null || ! preg_match('/^sha256=([0-9a-fA-F]{64})$/', $signature, $m)) {

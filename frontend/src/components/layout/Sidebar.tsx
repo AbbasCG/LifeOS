@@ -1,6 +1,6 @@
-import { Compass, Gift, ShieldCheck, BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
+import { ChevronDown, LayoutList, Compass, Gift, ShieldCheck, BarChart3, CalendarDays, CheckSquare, Focus, LayoutDashboard, Settings, Target, X, Sparkles, Heart, Flag, Tags, CalendarCheck, ClipboardCheck, Download, CalendarRange, Languages, Moon, Sun, LogOut } from 'lucide-react'
 import { signOutKeepingQueue } from '../../lib/offline'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { NavLink } from 'react-router'
 import { NewBadge } from '../../features/discovery/NewBadge'
 import { m } from 'motion/react'
@@ -11,6 +11,8 @@ import { useInstallPrompt } from '../../lib/pwa'
 import { InstallLink } from '../InstallApp'
 import { api } from '../../lib/api'
 import { ErrorMessage } from '../ui/Shared'
+import { useText } from '../../lib/i18n'
+import { setMoreOpen, setUiPrefs, uiPrefs, useUiPrefs } from '../../lib/uiPrefs'
 
 /** Navigation, grouped so the daily destinations come first. Language, theme and sign-out live here on phones. */
 type NavItem = { to: string; en: string; ar: string; icon: typeof Gift; admin?: boolean }
@@ -20,19 +22,40 @@ const groups: { en: string; ar: string; items: NavItem[] }[] = [
   { en: 'Progress', ar: 'التقدم', items: [{ to: '/goals', en: 'Goals', ar: 'الأهداف', icon: Flag }, { to: '/habits', en: 'Habits & routines', ar: 'العادات والروتين', icon: Heart }, { to: '/projects', en: 'Projects', ar: 'المشاريع', icon: Target }, { to: '/analytics', en: 'Insights', ar: 'التحليلات', icon: BarChart3 }] },
   { en: 'More', ar: 'المزيد', items: [{ to: '/categories', en: 'Categories', ar: 'الفئات', icon: Tags }, { to: '/discover', en: 'Discover', ar: 'اكتشف', icon: Compass }, { to: '/updates', en: 'What’s new', ar: 'ما الجديد', icon: Gift }, { to: '/admin/releases', en: 'Approve updates', ar: 'اعتماد التحديثات', icon: ShieldCheck, admin: true }, { to: '/settings', en: 'Settings', ar: 'الإعدادات', icon: Settings }] },
 ]
+/** The simple navigation (new accounts) shows only these first; everything else sits behind «More», in the same order as the full list. */
+const SIMPLE = ['/', '/tasks', '/calendar', '/focus']
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { language, setLanguage } = useLanguage(), theme = useTheme(), auth = useAuth(), installer = useInstallPrompt(), ar = language === 'ar'
   const [signOutError, setSignOutError] = useState('')
   const save = (data: object) => { void api('/api/settings', 'PUT', data).catch(() => {}) }
+  const t = useText(), { uiMode, moreOpen } = useUiPrefs(), moreId = useId(), [modeError, setModeError] = useState(''), simple = uiMode === 'simple'
+  const visible = (items: NavItem[]) => items.filter(item => !item.admin || auth.user?.is_admin)
+  const link = ({ to, en, ar: label, icon: Icon }: NavItem) => <NavLink key={to} to={to} end={to === '/'} data-tour={to === '/' ? 'nav-today' : `nav${to.replace(/\//g, '-')}`} onClick={onClose} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>{({ isActive }) => <>{isActive && <m.span layoutId="nav-active" className="nav-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={19} /><span>{ar ? label : en}</span><NewBadge to={to} /></>}</NavLink>
+  const section = (group: typeof groups[number], items: NavItem[]) => items.length > 0 && <nav key={group.en || 'main'} aria-label={group.en ? (ar ? group.ar : group.en) : (ar ? 'الرئيسية' : 'Main')}>
+    {group.en && <p className="nav-group">{ar ? group.ar : group.en}</p>}
+    {visible(items).map(link)}
+  </nav>
+  // «Show all sections»: the full list from now on, on every device. The button goes away, so focus moves to the first item it revealed.
+  const showAll = () => {
+    const mode = (ui_mode: string) => setUiPrefs({ onboarding: uiPrefs().onboarding, ui_mode })
+    setModeError(''); mode('full')
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.sidebar [data-tour="nav-assistant"]')?.focus())
+    api('/api/settings', 'PUT', { ui_mode: 'full' }).catch((e: Error) => { mode('simple'); setModeError(e.message) })
+  }
   return <>
     {open && <button className="sidebar-backdrop" onClick={onClose} aria-label={ar ? 'إغلاق القائمة' : 'Close menu'} />}
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="brand">LifeOS<span>◈</span><button className="mobile-close icon-button" onClick={onClose} aria-label={ar ? 'إغلاق' : 'Close'}><X size={20} /></button></div>
-      {groups.map(group => <nav key={group.en || 'main'} aria-label={group.en ? (ar ? group.ar : group.en) : (ar ? 'الرئيسية' : 'Main')}>
-        {group.en && <p className="nav-group">{ar ? group.ar : group.en}</p>}
-        {group.items.filter(item => !item.admin || auth.user?.is_admin).map(({ to, en, ar: label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} data-tour={to === '/' ? 'nav-today' : `nav${to.replace(/\//g, '-')}`} onClick={onClose} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>{({ isActive }) => <>{isActive && <m.span layoutId="nav-active" className="nav-active" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}<Icon size={19} /><span>{ar ? label : en}</span><NewBadge to={to} /></>}</NavLink>)}
-      </nav>)}
+      {simple ? <>
+        <nav aria-label={ar ? 'الرئيسية' : 'Main'}>
+          {visible(groups[0].items.filter(item => SIMPLE.includes(item.to))).map(link)}
+          <button type="button" className="nav-item text-button" aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen(!moreOpen)}><ChevronDown size={19} aria-hidden="true" style={moreOpen ? { transform: 'rotate(180deg)' } : undefined} /><span>{t('More', 'المزيد', 'Meer')}</span></button>
+        </nav>
+        <div id={moreId} hidden={!moreOpen}>{groups.map((group, i) => section(group, i === 0 ? group.items.filter(item => !SIMPLE.includes(item.to)) : group.items))}</div>
+        <button type="button" className="nav-item text-button" onClick={showAll}><LayoutList size={19} aria-hidden="true" /><span>{t('Show all sections', 'إظهار كل الأقسام', 'Alle onderdelen tonen')}</span></button>
+        <ErrorMessage error={modeError} />
+      </> : groups.map(group => section(group, group.items))}
       {installer.canInstall ? <button className="install-button" onClick={() => void installer.install()}><Download size={17} />{ar ? 'تثبيت التطبيق' : 'Install app'}</button> : !installer.installed && <InstallLink className="install-button" />}
       <ErrorMessage error={signOutError} />
       <div className="sidebar-prefs">

@@ -42,6 +42,10 @@ test('a new account gets the browser zone; Quick Add saves "Call the bank" tomor
   const settings = (await call(page, 'GET', '/api/settings')).body
   expect(settings.timezone).toBe(ZONE)
   expect(settings.language).toBe('en')
+  // A new account opens on the first-run setup (e2e/onboarding.spec.ts walks it); this person skips it to try Quick Add straight away.
+  expect(settings.onboarding).toBe('pending')
+  await page.getByRole('dialog', { name: 'Your basics' }).getByRole('button', { name: 'Skip setup' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 
   const day = tokyoTomorrow()
   const open = async () => {
