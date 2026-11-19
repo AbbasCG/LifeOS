@@ -199,6 +199,13 @@ describe('first-run setup', () => {
   it('fills sensible defaults for what a new account never saved', () => {
     expect(setupDraft({ timezone: 'Asia/Riyadh', week_start: 6 }, 'ar')).toMatchObject({ language: 'ar', timezone: 'Asia/Riyadh', work_days: [0, 1, 2, 3, 4], work_start: '09:00', work_end: '17:00', calendar_system: 'gregorian', prayer_enabled: false })
     expect(setupDraft({ work_days: [1, 3] }, 'en')).toMatchObject({ week_start: 1, work_days: [1, 3] })
+    // A new account in a Sunday-to-Thursday country is offered its local week; the UAE and Europe keep Monday to Friday.
+    expect(setupDraft({ timezone: 'Asia/Riyadh', week_start: 1, work_days: [1, 2, 3, 4, 5] }, 'ar')).toMatchObject({ week_start: 0, work_days: [0, 1, 2, 3, 4] })
+    expect(setupDraft({ timezone: 'Africa/Cairo' }, 'ar')).toMatchObject({ week_start: 0, work_days: [0, 1, 2, 3, 4] })
+    expect(setupDraft({ timezone: 'Asia/Dubai', week_start: 1, work_days: [1, 2, 3, 4, 5] }, 'ar')).toMatchObject({ week_start: 1, work_days: [1, 2, 3, 4, 5] })
+    expect(setupDraft({ timezone: 'Europe/Amsterdam', week_start: 1, work_days: [1, 2, 3, 4, 5] }, 'nl')).toMatchObject({ week_start: 1, work_days: [1, 2, 3, 4, 5] })
+    // A week someone already chose is never replaced.
+    expect(setupDraft({ timezone: 'Asia/Riyadh', week_start: 1, work_days: [1, 2, 3] }, 'ar')).toMatchObject({ week_start: 1, work_days: [1, 2, 3] })
     expect(defaultWorkDays(1)).toEqual([1, 2, 3, 4, 5])
   })
 })
