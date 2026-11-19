@@ -367,6 +367,8 @@ input:not([type=checkbox]):not([type=color]):not([type=radio]):focus, select:foc
 .rec-popover { position: absolute; inset-inline-end: 0; top: 100%; z-index: 5; display: grid; min-width: 11rem; padding: 6px; border-radius: 12px; background: var(--color-surface); border: 1px solid var(--hairline-strong); box-shadow: var(--shadow-lg, 0 10px 30px rgb(0 0 0 / .15)); }
 .rec-popover button { display: flex; gap: 8px; align-items: center; justify-content: flex-start; background: transparent; border: 0; padding: 8px; border-radius: 8px; color: var(--color-text); min-height: 36px; }
 .rec-popover button:hover { background: var(--color-surface-muted); }
+.rec-popover button.primary { background: var(--brand-gradient); color: #fff; justify-content: center; }
+.rec-popover [aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 .rec-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .rec-meta .text-link svg.flip { transform: rotate(180deg); }
 .rec-why { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 6px; margin: 0; }

@@ -21,6 +21,9 @@ import { ConnectedTasksPanel } from './connected/ConnectedTasksPanel'
 import { useStartFocus } from '../lib/useStartFocus'
 import { completeTaskOrQueue } from '../lib/offline'
 import { swipeTone, swipeWords, useSwipeActions, type SwipeAction, type SwipeSides } from '../lib/swipeActions'
+import { postponeBody, postponeError, postponeTask } from '../lib/postpone'
+import { useLanguage } from '../contexts/LanguageContext'
+import { PostponeButton } from './tasks/Postpone'
 
 type Filter = 'open' | 'overdue' | 'today' | 'week' | 'done'
 const STATUSES = ['inbox', 'todo', 'in_progress', 'completed', 'cancelled']
@@ -32,7 +35,7 @@ const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, l
  * focus, a swipe does either on a phone. Details open in place; filters are chips; everything else is under "More".
  */
 export default function TasksPage() {
-  const t = useText(), label = useStatusLabel(), toast = useToast(), focus = useStartFocus()
+  const t = useText(), label = useStatusLabel(), toast = useToast(), focus = useStartFocus(), { language } = useLanguage()
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<Filter>(() => (['overdue', 'today', 'week'].includes(params.get('due') ?? '') ? params.get('due') as Filter : 'open'))
   const [search, setSearch] = useState(''), [searching, setSearching] = useState(false), [view, setView] = useState<'list' | 'board'>('list'), [moreOpen, setMoreOpen] = useState(false)
@@ -119,11 +122,18 @@ export default function TasksPage() {
       await scheduling.schedule(task, slot)
     } catch (e) { toast((e as Error).message, 'error') }
   }
+  /** The swipe's snooze is the smart postpone (its session, else its deadline, with Undo); a task with neither gets a deadline that day. */
+  async function postponeSwipe(task: RecordItem, to: 'tomorrow' | 'next_week') {
+    try { await postponeTask(task, postponeBody(task, to), { t, toast, language }) } catch (e) { toast(postponeError(e, t), 'error') }
+  }
   /** What a swipe does: the same actions as the buttons, so a snooze offers Undo and a delete still asks first. */
   function runSwipe(task: RecordItem, action: SwipeAction) {
     if (action === 'complete') void complete(task)
     else if (action === 'focus') void focus.go(task.id)
-    else if (action === 'tomorrow' || action === 'nextweek') void reschedule(task, action)
+    else if (action === 'tomorrow' || action === 'nextweek') {
+      if (scheduleOf(task) || task.due_at) void postponeSwipe(task, action === 'tomorrow' ? 'tomorrow' : 'next_week')
+      else void reschedule(task, action)
+    }
     else if (action === 'schedule') void scheduleNext(task)
     else if (action === 'delete') setDeleting(task)
   }
@@ -226,7 +236,7 @@ function TaskRow({ task, done, expanded, onToggle, onComplete, onFocus, swipe, o
           {['urgent', 'high', 'medium', 'low'].map(p => <button key={p} type="button" role="radio" aria-checked={(task.priority ?? 'medium') === p} className="filter-chip" onClick={() => onPriority(p)}>{statusLabel(p)}</button>)}
         </div>
       </>}
-      <div className="toolbar"><span className="muted small">{statusLabel(String(task.status))}</span><button className="quiet" onClick={onEdit}><Pencil size={15} />{t('Edit', 'تعديل')}</button><button className="quiet danger-text" onClick={onDelete}><Trash2 size={15} />{t('Delete', 'حذف')}</button></div>
+      <div className="toolbar"><span className="muted small">{statusLabel(String(task.status))}</span>{!done && <PostponeButton task={task} title={task.title} />}<button className="quiet" onClick={onEdit}><Pencil size={15} />{t('Edit', 'تعديل')}</button><button className="quiet danger-text" onClick={onDelete}><Trash2 size={15} />{t('Delete', 'حذف')}</button></div>
     </div>}
   </m.li>
 }

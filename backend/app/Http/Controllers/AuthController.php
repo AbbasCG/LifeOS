@@ -166,11 +166,11 @@ class AuthController extends Controller
         return response()->json(['message' => 'Other sessions revoked.']);
     }
 
-    public function destroy(Request $request): JsonResponse
+    public function destroy(Request $request, AuditLogger $audit): JsonResponse
     {
         $request->validate(['password' => 'required|current_password']);
         $user = $request->user();
-        $this->logout($request);
+        $this->logout($request, $audit);
         DB::transaction(function () use ($user): void {
             DB::table('sessions')->where('user_id', $user->id)->delete();
             $user->delete();

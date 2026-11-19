@@ -14,6 +14,7 @@ import { ZoneNote } from '../components/ui/ZoneNote'
 import { typedTimesShifted } from '../lib/zoneShift'
 import { ChoiceGroup, PickerField, type ChoiceOption } from '../components/ui/Choice'
 import { BottomSheet, SheetCancel } from '../components/visual'
+import { PostponeButton } from './tasks/Postpone'
 import { ErrorMessage } from '../components/ui/Shared'
 import { useText } from '../lib/i18n'
 import { useToast } from '../lib/toast'
@@ -198,6 +199,8 @@ export function RecordForm({ resource, item, onSave, onClose, focusTime }: { res
 
   return <BottomSheet tall title={item.id ? t('Edit item', 'تعديل العنصر') : t('Create item', 'إنشاء عنصر')} onClose={onClose} dirty={dirty} footer={<>
     <ErrorMessage error={error} />
+    {resource === 'tasks' && typeof item.id === 'number' && <PostponeButton task={{ id: item.id, status: item.status, updated_at: item.updated_at }} title={String(item.title ?? '')}
+      blocked={() => (dirty() ? t('Save or discard your changes first.', 'احفظ تغييراتك أو تجاهلها أولاً.', 'Sla je wijzigingen eerst op of negeer ze.') : '')} onDone={() => { onSave(); onClose() }} />}
     <SheetCancel>{t('Cancel', 'إلغاء')}</SheetCancel>
     <button type="submit" form={formId} className="primary" aria-disabled={busy || undefined} onClick={e => { if (busy) e.preventDefault() }}>{busy ? t('Saving…', 'جارٍ الحفظ…') : t('Save', 'حفظ')}</button></>}>
     <form id={formId} onSubmit={submit} className="form-grid record-form">
