@@ -472,7 +472,8 @@ describe('Quick add: a taken time saves nothing', () => {
     type(input, 'Plan the week for 45 minutes'); fireEvent.click(tile('Tomorrow')); fireEvent.click(screen.getByRole('radio', { name: 'Urgent' })); add()
     fireEvent.click(await within(await screen.findByRole('alertdialog')).findByRole('button', { name: 'Choose another time' }))
     expect(await screen.findByLabelText('Title')).toHaveValue('Plan the week')
-    const group = screen.getByRole('radiogroup', { name: 'When do you want to do it?' })
+    // The sheet's <dialog> opens (showModal) in an effect just after it renders; until then it is not in the accessibility tree, so wait for it.
+    const group = await screen.findByRole('radiogroup', { name: 'When do you want to do it?' })
     expect(within(group).getByRole('radio', { name: 'Tomorrow' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByLabelText('Start time')).toHaveTextContent('09:00')
     expect(screen.getByRole('radio', { name: '45' })).toHaveAttribute('aria-checked', 'true')
@@ -498,7 +499,8 @@ describe('Quick add: More details', () => {
     fireEvent.click(screen.getByRole('button', { name: /More details/ }))
     expect(await screen.findByLabelText('Title')).toHaveValue('Prepare slides')
     expect(posts()).toHaveLength(0)
-    const group = screen.getByRole('radiogroup', { name: 'When do you want to do it?' })
+    // The sheet's <dialog> opens (showModal) in an effect just after it renders; until then it is not in the accessibility tree, so wait for it.
+    const group = await screen.findByRole('radiogroup', { name: 'When do you want to do it?' })
     expect(within(group).getByRole('radio', { name: 'Tomorrow' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByLabelText('Start time')).toHaveTextContent('09:00')
     expect(screen.getByRole('checkbox', { name: /deadline for finishing it/ })).not.toBeChecked()
@@ -514,7 +516,8 @@ describe('Quick add: More details', () => {
     const input = await open()
     type(input, 'Someday'); fireEvent.click(screen.getByRole('button', { name: /More details/ }))
     await screen.findByLabelText('Title')
-    const group = screen.getByRole('radiogroup', { name: 'When do you want to do it?' })
+    // The sheet's <dialog> opens (showModal) in an effect just after it renders; until then it is not in the accessibility tree, so wait for it.
+    const group = await screen.findByRole('radiogroup', { name: 'When do you want to do it?' })
     expect(within(group).getByRole('radio', { name: 'Not scheduled' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByRole('checkbox', { name: /deadline for finishing it/ })).not.toBeChecked()
   })
