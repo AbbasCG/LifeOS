@@ -17,7 +17,7 @@ class WebhookEndpoint extends Model
     protected function casts(): array
     {
         return [
-            'secret' => 'encrypted', 'previous_secret' => 'encrypted', 'enabled' => 'boolean',
+            'secret' => 'encrypted', 'previous_secret' => 'encrypted', 'enabled' => 'boolean', 'require_event_id' => 'boolean',
             'previous_secret_expires_at' => 'immutable_datetime', 'last_delivery_at' => 'immutable_datetime',
         ];
     }

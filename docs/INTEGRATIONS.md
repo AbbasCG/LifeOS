@@ -94,10 +94,24 @@ curl -sS -X POST "https://<host>/api/webhooks/<publicId>" -H "Content-Type: appl
   -H "X-LifeOS-Timestamp: $ts" -H "X-LifeOS-Delivery: evt-$ts" -H "X-LifeOS-Signature: $sig" --data-raw "$body"
 ```
 
+**Signed event id.** The signature does not cover the `X-LifeOS-Delivery` header, so a sender puts the same id in its JSON body as a
+top-level `"event_id"` (e.g. `{"event_id":"evt-42",…}` with `X-LifeOS-Delivery: evt-42`). When the body carries one, it must equal the
+header, otherwise `400`: a captured request can then not be replayed under a new delivery id. An endpoint created with
+`WebhookEndpointService::create(..., requireEventId: true)` (column `webhook_endpoints.require_event_id`) refuses every body without it;
+new connectors should use that. Other endpoints still accept bodies without an `event_id` exactly as before.
+
 Behaviour: unknown or disabled endpoint → `404` (identical); body over 1 MB → `413`; any signature or timestamp problem → `401` with one
-message (the cause is not revealed); a valid request without a well-formed delivery id → `400`; a repeated delivery id → `202`
-`{"status":"duplicate"}` and no second processing (unique `(endpoint, delivery_id)`, safe under races); otherwise `202`, recorded, and
-handed to `ProcessWebhookDelivery` on the queue. The timestamp must be within 5 minutes (limits replay). Rate limited per endpoint+IP and
+message (the cause is not revealed); a valid request without a well-formed delivery id, or with a missing (where required), malformed or
+different `event_id` → `400`; a repeated delivery id → `202` `{"status":"duplicate"}` and no second processing (unique
+`(endpoint, delivery_id)`, safe under races), except that a delivery that finally **failed** and is sent again with the same bytes is queued
+once more → `202` `{"status":"requeued"}`; otherwise `202`, recorded, and handed to `ProcessWebhookDelivery` on the queue.
+
+**Retries.** Handlers run in one transaction that holds the delivery row and writes its final status, so a failed run leaves no partial
+writes and a delivery is processed at most once. A handler that throws is retried after `integrations.webhooks.backoff_seconds`
+(30 s, 2 min, 10 min, 30 min) up to `max_attempts` (5) runs; the delivery shows `retrying`, `attempts`, `next_attempt_at` and a redacted
+`last_error`. `PermanentWebhookException` (or the synchronous queue) fails at once. A `failed` delivery keeps its encrypted payload until it is
+pruned: `php artisan lifeos:webhooks:failed` lists failed and retrying deliveries (never payloads), `php artisan lifeos:webhooks:retry <id>…`
+(or `--all`) queues them again, once each. The timestamp must be within 5 minutes (limits replay). Rate limited per endpoint+IP and
 per IP. After `WebhookEndpointService::rotate()` the previous secret keeps working for 24 hours. Connectors react by tagging a
 `WebhookHandler` with `integrations.webhook_handlers`; deliveries nobody handles are recorded as `ignored`. Payloads are encrypted, removed
 once handled and deleted after 7 days. Provider-specific schemes (e.g. GitHub's `X-Hub-Signature-256`) would be added by a connector; none exists yet. There is also no route or handler that creates endpoints, so the endpoint is dormant until one is added.

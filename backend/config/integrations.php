@@ -25,6 +25,10 @@ return [
         // After a secret rotation the previous secret keeps working for this long.
         'secret_overlap_hours' => 24,
         'retention_days' => 7,
+        // A delivery whose handler throws is tried again after these delays (seconds), up to max_attempts runs in total; then it is marked
+        // failed and keeps its payload so lifeos:webhooks:retry can process it again. The delays end well inside retention_days.
+        'max_attempts' => 5,
+        'backoff_seconds' => [30, 120, 600, 1800],
     ],
 
     // Manifest provider id => the config/services.php key that holds its OAuth client (environment fallback).

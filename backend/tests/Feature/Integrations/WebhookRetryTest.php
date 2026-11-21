@@ -1,0 +1,327 @@
+<?php
+
+namespace Tests\Feature\Integrations;
+
+use App\Integrations\Webhooks\PermanentWebhookException;
+use App\Integrations\Webhooks\WebhookDeliveryQueue;
+use App\Integrations\Webhooks\WebhookEndpointService;
+use App\Integrations\Webhooks\WebhookHandler;
+use App\Integrations\Webhooks\WebhookVerifier;
+use App\Jobs\ProcessWebhookDelivery;
+use App\Models\Task;
+use App\Models\User;
+use App\Models\WebhookDelivery;
+use App\Models\WebhookEndpoint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
+use RuntimeException;
+use Tests\TestCase;
+
+/**
+ * Temporary handler failures are retried with backoff, a failure is recorded (redacted) and kept for diagnosis, and a failed delivery can be
+ * processed again, once, by an operator or by a redelivery of the same bytes. Handler writes commit together with the final status, so a
+ * failed run leaves nothing behind and a successful one is never repeated.
+ */
+class WebhookRetryTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private WebhookEndpoint $endpoint;
+
+    private string $secret;
+
+    private User $owner;
+
+    /** Scripted outcomes of the handler, in order: 'ok', 'fail' (temporary), 'permanent'. When it runs out, 'ok'. */
+    private \ArrayObject $script;
+
+    /** One entry per handler run: the outcome it produced. */
+    private \ArrayObject $runs;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->owner = User::factory()->create();
+        ['endpoint' => $this->endpoint, 'secret' => $this->secret] = app(WebhookEndpointService::class)->create('custom', $this->owner, 'EMC', requireEventId: true);
+        $this->script = new \ArrayObject;
+        $this->runs = new \ArrayObject;
+        $script = $this->script;
+        $runs = $this->runs;
+        $owner = $this->owner;
+        $this->app->bind('scripted.handler', fn () => new class($script, $runs, $owner) implements WebhookHandler
+        {
+            public function __construct(private \ArrayObject $script, private \ArrayObject $runs, private User $owner) {}
+
+            public function supports(string $providerKey): bool
+            {
+                return $providerKey === 'custom';
+            }
+
+            public function handle(WebhookEndpoint $endpoint, WebhookDelivery $delivery): void
+            {
+                $next = $this->script->count() > count($this->runs) ? $this->script[count($this->runs)] : 'ok';
+                $this->runs->append($next);
+                // A database write that must commit only together with the "processed" status.
+                Task::create(['user_id' => $this->owner->id, 'title' => 'From '.$delivery->delivery_id, 'status' => 'inbox']);
+                if ($next === 'fail') {
+                    throw new RuntimeException('EMC timed out. Authorization: Bearer sk_live_abcdefghijklmnop client_secret=hunter2hunter2');
+                }
+                if ($next === 'permanent') {
+                    throw new PermanentWebhookException('Unknown event type.');
+                }
+            }
+        });
+        $this->app->tag('scripted.handler', 'integrations.webhook_handlers');
+        config(['integrations.webhooks.backoff_seconds' => [30, 120], 'integrations.webhooks.max_attempts' => 3]);
+    }
+
+    private function send(string $eventId, ?string $raw = null)
+    {
+        $raw ??= '{"event_id":"'.$eventId.'","type":"ticket.updated"}';
+        $timestamp = now()->getTimestamp();
+
+        return $this->call('POST', '/api/webhooks/'.$this->endpoint->public_id, [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_LIFEOS_TIMESTAMP' => (string) $timestamp,
+            'HTTP_X_LIFEOS_SIGNATURE' => WebhookVerifier::sign($this->secret, $timestamp, $raw),
+            'HTTP_X_LIFEOS_DELIVERY' => $eventId,
+        ], $raw);
+    }
+
+    private function useDatabaseQueue(): void
+    {
+        config(['queue.default' => 'database']);
+    }
+
+    /** One queue worker pass, as the server's worker runs it (started with --tries=1, which the job overrides). */
+    private function work(): void
+    {
+        $this->artisan('queue:work', ['--once' => true, '--tries' => 1, '--sleep' => 0])->assertSuccessful();
+    }
+
+    private function delivery(string $eventId): WebhookDelivery
+    {
+        return WebhookDelivery::where('delivery_id', $eventId)->firstOrFail();
+    }
+
+    public function test_a_temporary_failure_is_retried_after_the_backoff_and_then_processed_once(): void
+    {
+        $this->useDatabaseQueue();
+        $this->freezeTime();
+        $this->script->append('fail');
+        $this->send('evt-1')->assertStatus(202)->assertJson(['status' => 'accepted']);
+
+        $this->work();
+        $delivery = $this->delivery('evt-1');
+        $this->assertSame(['retrying', 1], [$delivery->status, $delivery->attempts]);
+        $this->assertSame(now()->addSeconds(30)->toIso8601String(), $delivery->next_attempt_at->toIso8601String());
+        $this->assertNotNull($delivery->payload, 'the payload is kept while it is retried');
+        $this->assertSame(0, Task::count(), 'the failed run left nothing behind');
+        $this->assertTrue(DB::table('jobs')->value('available_at') >= now()->addSeconds(30)->getTimestamp(), 'released with the backoff delay');
+
+        $this->work();   // not due yet
+        $this->assertSame(1, count($this->runs));
+
+        $this->travel(31)->seconds();
+        $this->work();
+        $delivery->refresh();
+        $this->assertSame(['processed', 2, null, null, null], [$delivery->status, $delivery->attempts, $delivery->last_error, $delivery->next_attempt_at, $delivery->payload]);
+        $this->assertSame(['fail', 'ok'], $this->runs->getArrayCopy());
+        $this->assertSame(1, Task::count(), 'the successful run wrote exactly once');
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
+    public function test_the_second_delay_is_used_for_the_second_retry_and_attempts_end_in_failed_with_the_payload_kept(): void
+    {
+        $this->useDatabaseQueue();
+        $this->freezeTime();
+        $this->script->exchangeArray(['fail', 'fail', 'fail']);
+        $this->send('evt-2')->assertStatus(202);
+
+        $this->work();
+        $this->travel(30)->seconds();
+        $this->work();
+        $delivery = $this->delivery('evt-2');
+        $this->assertSame(['retrying', 2], [$delivery->status, $delivery->attempts]);
+        $this->assertSame(now()->addSeconds(120)->toIso8601String(), $delivery->next_attempt_at->toIso8601String());
+
+        $this->travel(120)->seconds();
+        $this->work();
+        $delivery->refresh();
+        $this->assertSame(['failed', 3, null], [$delivery->status, $delivery->attempts, $delivery->next_attempt_at]);
+        $this->assertNotNull($delivery->processed_at);
+        $this->assertSame('{"event_id":"evt-2","type":"ticket.updated"}', $delivery->payload, 'kept for a later retry');
+        $this->assertSame(0, DB::table('jobs')->count(), 'no further automatic attempt');
+        $this->assertSame(0, DB::table('failed_jobs')->count(), 'the outcome is on the delivery, not a stuck queue entry');
+        $this->assertSame(0, Task::count());
+    }
+
+    public function test_the_stored_error_is_short_and_redacted(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-3')->assertStatus(202);   // synchronous queue: no delay possible, so one failed run is final
+
+        $delivery = $this->delivery('evt-3');
+        $this->assertSame(['failed', 1], [$delivery->status, $delivery->attempts]);
+        $this->assertStringStartsWith('RuntimeException: EMC timed out.', $delivery->last_error);
+        $this->assertStringNotContainsString('sk_live_abcdefghijklmnop', $delivery->last_error);
+        $this->assertStringNotContainsString('hunter2', $delivery->last_error);
+        $this->assertLessThanOrEqual(500, mb_strlen($delivery->last_error));
+    }
+
+    public function test_a_permanent_failure_is_not_retried(): void
+    {
+        $this->useDatabaseQueue();
+        $this->script->append('permanent');
+        $this->send('evt-4')->assertStatus(202);
+
+        $this->work();
+
+        $delivery = $this->delivery('evt-4');
+        $this->assertSame(['failed', 1, 'PermanentWebhookException: Unknown event type.'], [$delivery->status, $delivery->attempts, $delivery->last_error]);
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
+    public function test_the_worker_giving_up_marks_the_delivery_failed(): void
+    {
+        Queue::fake();
+        $this->send('evt-5')->assertStatus(202);
+        $delivery = $this->delivery('evt-5');
+
+        (new ProcessWebhookDelivery($delivery->id))->failed(new RuntimeException('Job timed out.'));
+
+        $this->assertSame(['failed', 'RuntimeException: Job timed out.'], [$delivery->fresh()->status, $delivery->fresh()->last_error]);
+    }
+
+    public function test_a_copy_of_the_job_for_a_delivery_that_is_already_processed_does_nothing(): void
+    {
+        $this->send('evt-6')->assertStatus(202);
+        $id = $this->delivery('evt-6')->id;
+
+        (new ProcessWebhookDelivery($id))->handle();
+        dispatch(new ProcessWebhookDelivery($id));
+
+        $this->assertSame(['ok'], $this->runs->getArrayCopy());
+        $this->assertSame(1, Task::count());
+    }
+
+    public function test_on_postgresql_the_run_holds_the_delivery_row_lock_while_the_handlers_work(): void
+    {
+        if (DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('Row locks are a PostgreSQL feature (SQLite serialises writers itself).');
+        }
+        Queue::fake();
+        $this->send('evt-lock')->assertStatus(202);
+        $id = $this->delivery('evt-lock')->id;
+        DB::enableQueryLog();
+
+        (new ProcessWebhookDelivery($id))->handle();
+
+        $sql = collect(DB::getQueryLog())->pluck('query')->map(fn (string $q) => strtolower($q));
+        $lock = $sql->search(fn (string $q) => str_contains($q, 'from "webhook_deliveries"') && str_ends_with(trim($q), 'for update'));
+        $write = $sql->search(fn (string $q) => str_starts_with($q, 'insert into "tasks"'));
+        $this->assertNotFalse($lock, 'the delivery row is selected FOR UPDATE');
+        $this->assertNotFalse($write);
+        $this->assertLessThan($write, $lock, 'the lock is taken before the handler writes');
+        $this->assertSame('processed', $this->delivery('evt-lock')->status);
+    }
+
+    public function test_the_retry_command_processes_a_failed_delivery_once_and_skips_everything_else(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-7')->assertStatus(202);
+        $this->send('evt-8')->assertStatus(202);   // processed
+        $failed = $this->delivery('evt-7');
+        $this->assertSame('failed', $failed->status);
+
+        $this->artisan('lifeos:webhooks:retry', ['ids' => [$failed->id, $this->delivery('evt-8')->id, 999999]])
+            ->expectsOutputToContain("#{$failed->id}: queued again.")
+            ->expectsOutputToContain('only failed deliveries can be processed again')
+            ->expectsOutputToContain('#999999: not found')
+            ->assertSuccessful();
+
+        $this->assertSame('processed', $failed->fresh()->status);
+        $this->assertSame(2, $failed->fresh()->attempts);
+        $this->assertSame(['fail', 'ok', 'ok'], $this->runs->getArrayCopy());
+        $this->assertSame(2, Task::count(), 'one task per successfully processed delivery');
+
+        $this->artisan('lifeos:webhooks:retry', ['ids' => [$failed->id]])->expectsOutputToContain('Queued 0')->assertSuccessful();
+        $this->assertSame(3, count($this->runs));
+    }
+
+    public function test_the_retry_command_needs_ids_or_all_and_skips_disabled_endpoints(): void
+    {
+        $this->artisan('lifeos:webhooks:retry')->assertFailed();
+
+        $this->script->exchangeArray(['fail', 'fail']);
+        $this->send('evt-9')->assertStatus(202);
+        $this->send('evt-10')->assertStatus(202);
+        $this->endpoint->forceFill(['enabled' => false])->save();
+        $this->artisan('lifeos:webhooks:retry', ['--all' => true])->expectsOutputToContain('the endpoint is disabled')->expectsOutputToContain('Queued 0')->assertSuccessful();
+
+        $this->endpoint->forceFill(['enabled' => true])->save();
+        $this->artisan('lifeos:webhooks:retry', ['--all' => true])->expectsOutputToContain('Queued 2')->assertSuccessful();
+        $this->assertSame(0, WebhookDelivery::where('status', 'failed')->count());
+    }
+
+    public function test_requeueing_is_atomic_so_two_operators_queue_a_delivery_once(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-11')->assertStatus(202);
+        $delivery = $this->delivery('evt-11');
+        Queue::fake();
+
+        $queue = app(WebhookDeliveryQueue::class);
+        $first = $queue->requeue($delivery);
+        $second = $queue->requeue($delivery);   // the same stale "failed" model, as a second operator would hold it
+
+        $this->assertSame([true, false], [$first, $second]);
+        Queue::assertPushed(ProcessWebhookDelivery::class, 1);
+    }
+
+    public function test_a_redelivery_of_a_failed_event_with_the_same_bytes_is_processed_again_but_a_different_body_never_is(): void
+    {
+        $this->script->append('fail');
+        $raw = '{"event_id":"evt-12","type":"ticket.updated"}';
+        $this->send('evt-12', $raw)->assertStatus(202)->assertJson(['status' => 'accepted']);
+        $this->assertSame('failed', $this->delivery('evt-12')->status);
+
+        $tampered = '{"event_id":"evt-12","type":"ticket.closed"}';
+        $this->send('evt-12', $tampered)->assertStatus(202)->assertJson(['status' => 'duplicate']);
+        $this->assertSame('failed', $this->delivery('evt-12')->status);
+        $this->assertSame($raw, $this->delivery('evt-12')->payload);
+
+        $this->send('evt-12', $raw)->assertStatus(202)->assertJson(['status' => 'requeued']);
+        $this->assertSame('processed', $this->delivery('evt-12')->status);
+        $this->send('evt-12', $raw)->assertStatus(202)->assertJson(['status' => 'duplicate']);
+        $this->assertSame(['fail', 'ok'], $this->runs->getArrayCopy());
+        $this->assertSame(1, WebhookDelivery::count());
+    }
+
+    public function test_the_failed_list_shows_diagnostics_but_never_the_payload(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-13', '{"event_id":"evt-13","note":"confidential-ticket-text"}')->assertStatus(202);
+        $this->send('evt-14')->assertStatus(202);
+
+        $this->artisan('lifeos:webhooks:failed')
+            ->expectsOutputToContain('evt-13')
+            ->doesntExpectOutputToContain('evt-14')
+            ->doesntExpectOutputToContain('confidential-ticket-text')
+            ->doesntExpectOutputToContain('sk_live_abcdefghijklmnop')
+            ->assertSuccessful();
+        $this->artisan('lifeos:webhooks:failed', ['--status' => ['bogus']])->assertFailed();
+    }
+
+    public function test_pruning_still_removes_old_failed_deliveries_and_their_payloads(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-15')->assertStatus(202);
+        $this->travel(8)->days();
+
+        $this->artisan('lifeos:integrations:prune')->assertSuccessful();
+
+        $this->assertSame(0, WebhookDelivery::count());
+    }
+}
