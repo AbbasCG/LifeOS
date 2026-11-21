@@ -152,6 +152,10 @@ test('Arabic at 320 px: week start, Hijri dates and their settings fit and pass 
       await page.getByRole('radio', { name: view }).click()
       await expect(page.locator('.cal-bar h1 .hijri')).toBeVisible()
       await noHorizontalOverflow(page)
+      // On a phone the layout viewport widens to fit overflowing content, so the check above cannot see it: the page must stay 320 px wide.
+      // (The month grid's screen-reader Hijri labels once escaped its scroll box and widened the page by up to 270 px, depending on the date.)
+      if (view === 'شهر') await expect(page.locator('.calendar-grid.month .calendar-day .hijri').first()).toBeVisible()
+      expect(await page.evaluate(() => window.innerWidth), view).toBe(320)
       expect(await a11yViolations(page, '.calendar-page')).toEqual([])
     }
 

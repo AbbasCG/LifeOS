@@ -9,7 +9,7 @@ A contract is something one track provides and the other may rely on. Changing i
 | Catalogue | `GET /api/integrations/catalog` → `data.providers[]` (`id`, `category`, `auth`, `status`, bilingual `name`/`description`, `scopes`, `state`, `setup_ready`, `accounts[]`) and `data.can_manage`. `state` ∈ `planned, requires_setup, disconnected, connected, syncing, error`. Never contains tokens. | 2026-11-08 |
 | Administrator | `users.is_admin` (boolean, in the user JSON), Gate `manage-integrations`. Set only by `php artisan lifeos:make-admin`. | 2026-11-08 |
 | External calendar and task data | Read through `CalendarService` sources (`ExternalEvent`, `ExternalTask`); stable external ids; `calendar_accounts` keeps one row per account. Smart Scheduling reads only. | 2026-11-08 |
-| Signed webhooks | `POST /api/webhooks/{publicId}` with `X-LifeOS-Timestamp`, `X-LifeOS-Delivery`, `X-LifeOS-Signature: sha256=HMAC("<ts>.<raw body>")`. Handlers are tagged `integrations.webhook_handlers`. | 2026-11-08 |
+| Signed webhooks | `POST /api/webhooks/{publicId}` with `X-LifeOS-Timestamp`, `X-LifeOS-Delivery`, `X-LifeOS-Signature: sha256=HMAC("<ts>.<raw body>")`. A top-level body `"event_id"`, when present (required on endpoints with `require_event_id`), must equal `X-LifeOS-Delivery`. Handlers are tagged `integrations.webhook_handlers`, run inside the transaction that records the result, are retried with backoff when they throw (`PermanentWebhookException` fails at once) and must keep non-database side effects safe to repeat. | 2026-11-21 |
 | Outbound HTTP | `OutboundHttpGuard::check($url)` before any request to a user- or admin-supplied address. | 2026-11-08 |
 
 ## Provided by Smart Experience (Integrations Hub may rely on these)

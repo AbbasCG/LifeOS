@@ -10,14 +10,15 @@ use Illuminate\Support\Str;
 class WebhookEndpointService
 {
     /**
-     * The secret is returned once; only its encrypted form is stored.
+     * The secret is returned once; only its encrypted form is stored. With $requireEventId every delivery must carry a signed "event_id" in its
+     * JSON body equal to X-LifeOS-Delivery (see WebhookController); new connectors should turn it on.
      *
      * @return array{endpoint: WebhookEndpoint, secret: string}
      */
-    public function create(string $providerKey, ?User $owner, string $name): array
+    public function create(string $providerKey, ?User $owner, string $name, bool $requireEventId = false): array
     {
         $secret = self::newSecret();
-        $endpoint = WebhookEndpoint::create(['public_id' => (string) Str::uuid(), 'provider_key' => $providerKey, 'user_id' => $owner?->id, 'name' => mb_substr($name, 0, 120), 'secret' => $secret]);
+        $endpoint = WebhookEndpoint::create(['public_id' => (string) Str::uuid(), 'provider_key' => $providerKey, 'user_id' => $owner?->id, 'name' => mb_substr($name, 0, 120), 'secret' => $secret, 'require_event_id' => $requireEventId]);
 
         return ['endpoint' => $endpoint, 'secret' => $secret];
     }
