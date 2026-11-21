@@ -95,6 +95,13 @@ class Task extends Model
     }
 
     /**
+     * Columns that identify one particular task and are unique per user (tasks(user_id, client_id) and tasks(user_id, source_ref)). A next
+     * occurrence is a new task, so it never inherits them: copying them would break the unique key (the completion would fail) and would make an
+     * offline replay or a connected-app copy resolve to the wrong occurrence.
+     */
+    public const IDENTITY_COLUMNS = ['client_id', 'source_ref'];
+
+    /**
      * For a recurring task that was just completed, create the next open occurrence.
      */
     public function createNextOccurrence(): ?self
@@ -102,7 +109,7 @@ class Task extends Model
         if (! $this->recurrence) {
             return null;
         }
-        $next = $this->replicate(['completed_at', 'scheduled_start', 'scheduled_end']);
+        $next = $this->replicate(['completed_at', 'scheduled_start', 'scheduled_end', ...self::IDENTITY_COLUMNS]);
         $next->status = 'todo';
         $next->actual_minutes = 0;
         // A new occurrence is a new piece of work: it starts as an ordinary task with at most one session.
