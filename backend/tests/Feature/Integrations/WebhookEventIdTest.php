@@ -112,6 +112,53 @@ class WebhookEventIdTest extends TestCase
         $this->send($this->strict, '{"data":{},"event_id":"evt-4"}', 'evt-4')->assertStatus(202);
     }
 
+    public function test_a_body_that_mentions_event_id_but_cannot_be_decoded_is_refused_instead_of_skipping_the_check(): void
+    {
+        $deep = str_repeat('{"a":', 70).'1'.str_repeat('}', 70);
+        foreach ([
+            "\xEF\xBB\xBF".'{"event_id":"evt-6"}' => 'evt-6-replay',            // BOM: decoded, and the id does not match
+            '{"event_id":"evt-7","note":"'."\xC3\x28".'"}' => 'evt-7-replay',      // invalid UTF-8
+            '{"event_id":"evt-8","x":'.$deep.'}' => 'evt-8-replay',                // nested deeper than the decoder allows
+            '{"event_id":"evt-9",' => 'evt-9-replay',                              // truncated JSON
+        ] as $raw => $delivery) {
+            $this->send($this->legacy, $raw, $delivery)->assertStatus(400);
+            $this->send($this->strict, $raw, $delivery)->assertStatus(400);
+        }
+        $this->assertSame(0, WebhookDelivery::count());
+        $this->send($this->legacy, "\xEF\xBB\xBF".'{"event_id":"evt-6"}', 'evt-6')->assertStatus(202);
+        $this->send($this->strict, "\xEF\xBB\xBF".'{"event_id":"evt-6"}', 'evt-6')->assertStatus(202);
+    }
+
+    public function test_an_existing_endpoint_can_be_switched_to_require_the_event_id_and_back(): void
+    {
+        $this->send($this->legacy, '{"order":1}', 'before')->assertStatus(202);
+
+        $this->artisan('lifeos:webhooks:require-event-id', ['publicId' => $this->legacy->public_id])->expectsOutputToContain('now refuses')->assertSuccessful();
+        $this->assertTrue($this->legacy->fresh()->require_event_id);
+        $this->send($this->legacy, '{"order":1}', 'after')->assertStatus(400);
+        $this->send($this->legacy, '{"order":1,"event_id":"after"}', 'after')->assertStatus(202);
+
+        $this->artisan('lifeos:webhooks:require-event-id', ['publicId' => $this->legacy->public_id, '--off' => true])->assertSuccessful();
+        $this->send($this->legacy, '{"order":2}', 'off-again')->assertStatus(202);
+        $this->artisan('lifeos:webhooks:require-event-id', ['publicId' => '00000000-0000-4000-8000-000000000000'])->assertFailed();
+    }
+
+    public function test_a_matching_event_id_does_not_rescue_a_stale_timestamp_or_an_expired_secret(): void
+    {
+        $this->freezeTime();
+        $raw = '{"event_id":"evt-t"}';
+        foreach ([now()->getTimestamp() - 301, now()->getTimestamp() + 301] as $stale) {
+            $this->send($this->strict, $raw, 'evt-t', ['timestamp' => $stale])->assertStatus(401);
+        }
+        $old = $this->strictSecret;
+        $new = app(WebhookEndpointService::class)->rotate($this->strict);
+        $this->send($this->strict, '{"event_id":"evt-old"}', 'evt-old', ['secret' => $old])->assertStatus(202);   // inside the overlap
+        $this->send($this->strict, '{"event_id":"evt-new"}', 'evt-new', ['secret' => $new])->assertStatus(202);
+        $this->travel(25)->hours();
+        $this->send($this->strict, '{"event_id":"evt-late"}', 'evt-late', ['secret' => $old, 'timestamp' => now()->getTimestamp()])->assertStatus(401);
+        $this->assertSame(['evt-old', 'evt-new'], WebhookDelivery::orderBy('id')->pluck('delivery_id')->all());
+    }
+
     public function test_existing_senders_without_an_event_id_behave_exactly_as_before(): void
     {
         foreach (['{"order":42}' => 'a', 'plain text' => 'b', '[1,2,3]' => 'c', '' => 'd', '{"data":{"event_id":"other"}}' => 'e', '{broken' => 'f'] as $raw => $delivery) {

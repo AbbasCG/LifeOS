@@ -29,6 +29,8 @@ return [
         // failed and keeps its payload so lifeos:webhooks:retry can process it again. The delays end well inside retention_days.
         'max_attempts' => 5,
         'backoff_seconds' => [30, 120, 600, 1800],
+        // An "accepted" or "retrying" delivery this long past its due time has lost its job; lifeos:webhooks:retry (or a redelivery) queues it again.
+        'stale_after_seconds' => 3600,
     ],
 
     // Manifest provider id => the config/services.php key that holds its OAuth client (environment fallback).

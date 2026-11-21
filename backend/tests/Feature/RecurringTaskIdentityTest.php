@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\AutomationRule;
 use App\Models\CalendarEvent;
 use App\Models\FocusSession;
 use App\Models\Task;
 use App\Models\User;
+use App\Models\UserSetting;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -124,6 +126,37 @@ class RecurringTaskIdentityTest extends TestCase
         $this->assertTrue($next->due_at->equalTo(CarbonImmutable::parse('2027-03-02 18:00', 'UTC')));
         $this->assertSame($task->id, $block->fresh()->task_id, 'the calendar block stays linked to the completed task');
         $this->assertSame(0, CalendarEvent::where('task_id', $next->id)->count(), 'the next occurrence is not scheduled');
+    }
+
+    public function test_the_automation_that_creates_the_next_occurrence_of_a_missed_task_works_for_an_offline_created_task(): void
+    {
+        UserSetting::create(['user_id' => $this->user->id, 'preferences' => ['timezone' => 'UTC', 'work_start' => '09:00', 'work_end' => '17:00', 'break_minutes' => 10, 'work_days' => [1, 2, 3, 4, 5]]]);
+        $this->postJson('/api/automations', ['name' => 'Rule', 'trigger' => 'recurring_task_due', 'action' => 'create_next_occurrence', 'conditions' => ['grace_hours' => 12]])->assertCreated();
+        $missed = $this->recurring(['client_id' => 'dddddddd-eeee-4fff-8000-111111111111', 'source_ref' => 'todoist:missed', 'due_at' => now()->subDays(3)]);
+
+        $this->artisan('lifeos:automations')->assertSuccessful();
+
+        $next = $this->nextOf($missed);
+        $this->assertNotNull($next, 'the automation created the next occurrence');
+        $this->assertSame([null, null], [$next->client_id, $next->source_ref]);
+        $this->assertTrue($next->due_at->isFuture());
+        $this->assertSame(['todo', 'dddddddd-eeee-4fff-8000-111111111111'], [$missed->fresh()->status, $missed->fresh()->client_id]);
+        $this->assertSame(1, AutomationRule::first()->runs()->where('status', 'succeeded')->count());
+    }
+
+    public function test_marking_a_recurring_task_done_in_the_weekly_review_works_for_an_offline_created_task(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2027-03-07 18:00', 'UTC'));
+        $done = $this->recurring(['client_id' => 'eeeeeeee-ffff-4000-8111-222222222222', 'recurrence' => 'weekly', 'due_at' => '2027-03-04T10:00:00Z']);
+        $payload = ['reflection' => ['wins' => '', 'challenges' => '', 'lessons' => '', 'rating' => 3], 'decisions' => [$done->id => 'done'], 'priorities' => []];
+
+        $this->postJson('/api/reviews/2027-03-01/complete', $payload)->assertOk()->assertJsonPath('applied.done', 1);
+
+        $this->assertSame('completed', $done->fresh()->status);
+        $next = $this->nextOf($done);
+        $this->assertNotNull($next);
+        $this->assertNull($next->client_id);
+        $this->assertTrue($next->due_at->equalTo(CarbonImmutable::parse('2027-03-11 10:00', 'UTC')));
     }
 
     public function test_a_task_without_recurrence_creates_no_next_occurrence(): void

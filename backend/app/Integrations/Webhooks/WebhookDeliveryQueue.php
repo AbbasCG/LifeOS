@@ -4,13 +4,18 @@ namespace App\Integrations\Webhooks;
 
 use App\Jobs\ProcessWebhookDelivery;
 use App\Models\WebhookDelivery;
+use Carbon\CarbonImmutable;
 
 /**
  * Puts a failed delivery back on the queue, exactly once. Used by `lifeos:webhooks:retry` and by the receiver when the sender redelivers a
  * failed event with the same bytes.
  *
- * The status flip "failed -> accepted" is a single conditional UPDATE, so two operators (or a retry and a redelivery) racing for the same
- * delivery queue it only once; ProcessWebhookDelivery then takes the row lock and processes it at most once more.
+ * Besides "failed", a delivery left "accepted" or "retrying" for longer than integrations.webhooks.stale_after_seconds past its due time is
+ * also requeueable: its job was lost (the dispatch failed after the row was recorded, the queue was cleared). Queuing a second copy is safe
+ * even if the first one is only late: ProcessWebhookDelivery takes the row lock and processes a delivery at most once.
+ *
+ * The status flip is a single conditional UPDATE on the status that was read, so two operators (or a retry and a redelivery) racing for the
+ * same delivery queue it only once.
  */
 class WebhookDeliveryQueue
 {
@@ -23,8 +28,10 @@ class WebhookDeliveryQueue
         if ($this->refusal($delivery, $rawBody) !== null) {
             return false;
         }
-        $flipped = WebhookDelivery::whereKey($delivery->id)->where('status', 'failed')
-            ->update(['status' => 'accepted', 'processed_at' => null, 'next_attempt_at' => null]);
+        // A requeued delivery is due now (next_attempt_at = now), which also makes the stale condition false for a second, racing caller.
+        $flipped = WebhookDelivery::whereKey($delivery->id)->where('status', $delivery->status)
+            ->when($delivery->status !== 'failed', fn ($q) => $q->whereRaw('COALESCE(next_attempt_at, received_at) < ?', [$this->staleCutoff()]))
+            ->update(['status' => 'accepted', 'processed_at' => null, 'next_attempt_at' => now()]);
         if ($flipped !== 1) {
             return false;
         }
@@ -43,8 +50,10 @@ class WebhookDeliveryQueue
      */
     public function refusal(WebhookDelivery $delivery, ?string $rawBody = null): ?string
     {
-        if ($delivery->status !== 'failed') {
-            return "status is {$delivery->status}, only failed deliveries can be processed again";
+        if ($delivery->status !== 'failed' && ! $this->isStale($delivery)) {
+            return in_array($delivery->status, ['accepted', 'retrying'], true)
+                ? "status is {$delivery->status} and its job is not overdue yet"
+                : "status is {$delivery->status}, only failed or stuck deliveries can be processed again";
         }
         if ($rawBody !== null && ! hash_equals($delivery->payload_sha256, hash('sha256', $rawBody))) {
             return 'the redelivered body differs from the recorded one';
@@ -54,5 +63,23 @@ class WebhookDeliveryQueue
         }
 
         return null;
+    }
+
+    /**
+     * Whether an "accepted" or "retrying" delivery is overdue by more than the stale window (its job is presumed lost).
+     */
+    public function isStale(WebhookDelivery $delivery): bool
+    {
+        if (! in_array($delivery->status, ['accepted', 'retrying'], true)) {
+            return false;
+        }
+        $due = $delivery->next_attempt_at ?? $delivery->received_at;
+
+        return $due !== null && $due->lessThan($this->staleCutoff());
+    }
+
+    private function staleCutoff(): CarbonImmutable
+    {
+        return now()->toImmutable()->subSeconds(max(60, (int) config('integrations.webhooks.stale_after_seconds', 3600)));
     }
 }

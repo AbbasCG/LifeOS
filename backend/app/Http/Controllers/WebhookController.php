@@ -75,14 +75,21 @@ class WebhookController extends Controller
     /**
      * The top-level "event_id" of a JSON object body: the id when it is a well-formed string, false when the key is there but malformed, null
      * when the body is not a JSON object or has no event_id (an existing sender that only uses the header).
+     *
+     * A body that mentions "event_id" but cannot be decoded (invalid UTF-8, nested too deep, broken JSON) is refused rather than treated as
+     * having none, so a sender that relies on its event id is never silently left unprotected. A leading UTF-8 BOM is ignored.
      */
     private static function signedEventId(string $raw): string|false|null
     {
-        if (! str_starts_with(ltrim($raw), '{')) {
+        $json = ltrim(str_starts_with($raw, "\xEF\xBB\xBF") ? substr($raw, 3) : $raw);
+        if (! str_starts_with($json, '{')) {
             return null;
         }
-        $body = json_decode($raw, true, 64);
-        if (! is_array($body) || ! array_key_exists('event_id', $body)) {
+        $body = json_decode($json, true, 64);
+        if (! is_array($body)) {
+            return str_contains($json, 'event_id') ? false : null;
+        }
+        if (! array_key_exists('event_id', $body)) {
             return null;
         }
 

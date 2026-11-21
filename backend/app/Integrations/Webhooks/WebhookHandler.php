@@ -11,7 +11,8 @@ use App\Models\WebhookEndpoint;
  *
  * handle() runs inside the database transaction that also records the delivery as processed, so its database writes commit together with that
  * status or not at all. Throwing makes the delivery retry later with backoff; throw PermanentWebhookException when retrying cannot help.
- * Side effects outside the database (HTTP calls, mail) are not rolled back, so they must be safe to repeat.
+ * Side effects outside the database (HTTP calls, mail) are not rolled back, so they must be safe to repeat. Row locks the handler takes are held
+ * until it returns, so keep slow work (outbound HTTP) short or outside its locked section.
  */
 interface WebhookHandler
 {

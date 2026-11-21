@@ -8,20 +8,21 @@ use Illuminate\Console\Command;
 
 class RetryFailedWebhooks extends Command
 {
-    protected $signature = 'lifeos:webhooks:retry {ids?* : ids from lifeos:webhooks:failed} {--all : every failed delivery}';
+    protected $signature = 'lifeos:webhooks:retry {ids?* : ids from lifeos:webhooks:failed} {--all : every failed or stuck delivery}';
 
-    protected $description = 'Queue failed webhook deliveries again. Each is processed at most once more; deliveries in any other state are skipped.';
+    protected $description = 'Queue failed (or stuck) webhook deliveries again. Each is processed at most once more; deliveries in any other state are skipped.';
 
     public function handle(WebhookDeliveryQueue $queue): int
     {
         $ids = collect($this->argument('ids'))->map(fn ($id) => (int) $id)->filter(fn (int $id) => $id > 0)->unique()->values();
         if ($ids->isEmpty() && ! $this->option('all')) {
-            $this->error('Give one or more delivery ids, or --all for every failed delivery.');
+            $this->error('Give one or more delivery ids, or --all for every failed or stuck delivery.');
 
             return self::INVALID;
         }
         $deliveries = $this->option('all')
-            ? WebhookDelivery::with('endpoint')->where('status', 'failed')->orderBy('id')->get()
+            ? WebhookDelivery::with('endpoint')->whereIn('status', ['failed', 'accepted', 'retrying'])->orderBy('id')->get()
+                ->filter(fn (WebhookDelivery $d) => $d->status === 'failed' || $queue->isStale($d))->values()
             : WebhookDelivery::with('endpoint')->whereIn('id', $ids)->orderBy('id')->get();
         foreach ($ids->diff($deliveries->pluck('id')) as $missing) {
             $this->warn("#{$missing}: not found (it may have been pruned).");
