@@ -141,6 +141,24 @@ class EmcWebhookTest extends TestCase
         $this->assertStringStartsWith('Line one line two x', $title);
     }
 
+    public function test_invisible_and_direction_changing_characters_are_removed_from_the_title(): void
+    {
+        $this->deliver($this->event('ticket.assigned', 1, ['title' => "Pay\u{202E}reviled\u{202C} invoice\u{200B} 42\u{0085}now  "]))->assertStatus(202);
+
+        $this->assertSame('Payreviled invoice 42 now', $this->task()->title);
+    }
+
+    public function test_a_title_cut_at_200_characters_never_ends_in_a_space_so_the_merge_keeps_working(): void
+    {
+        $title = str_repeat('a', 199).' tail';
+        $this->deliver($this->event('ticket.assigned', 1, ['title' => $title]))->assertStatus(202);
+        $this->assertSame(str_repeat('a', 199), $this->task()->title);
+        $this->actingAs($this->user)->patchJson('/api/tasks/'.$this->task()->id, ['title' => $this->task()->title.' '])->assertOk();   // a client echo, trimmed by Laravel
+
+        $this->deliver($this->event('ticket.updated', 2, ['title' => 'Renamed in EMC']))->assertStatus(202);
+        $this->assertSame('Renamed in EMC', $this->task()->title);
+    }
+
     public function test_an_unsafe_link_is_dropped_but_the_event_applies(): void
     {
         config(['integrations.emc.allowed_url_hosts' => ['emc.example.com']]);
@@ -237,6 +255,25 @@ class EmcWebhookTest extends TestCase
         $this->assertSame('EMC renamed it again', $this->task()->title);
     }
 
+    public function test_a_priority_the_person_changed_is_kept(): void
+    {
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
+        $this->actingAs($this->user)->patchJson('/api/tasks/'.$this->task()->id, ['priority' => 'low'])->assertOk();
+        $this->deliver($this->event('ticket.updated', 2, ['priority' => 'urgent', 'title' => 'New title']))->assertStatus(202);
+
+        $this->assertSame(['low', 'New title'], [$this->task()->priority, $this->task()->title]);
+    }
+
+    public function test_an_existing_task_with_the_reference_is_reused_when_the_link_is_missing(): void
+    {
+        $mine = Task::create(['user_id' => $this->user->id, 'title' => 'Restored earlier', 'status' => 'todo', 'source_ref' => 'emc:default:T-1042', 'notes' => 'Keep']);
+
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
+
+        $this->assertSame(1, Task::count());
+        $this->assertSame([$mine->id, 'Keep'], [$this->link()->task_id, $mine->fresh()->notes]);
+    }
+
     public function test_removing_the_deadline_in_emc_removes_it_when_the_person_kept_emcs_deadline(): void
     {
         $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
@@ -271,7 +308,7 @@ class EmcWebhookTest extends TestCase
         $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
         $this->deliver($this->event('ticket.closed', 2))->assertStatus(202);
         $this->deliver($this->event('ticket.assigned', 3))->assertStatus(202);
-        $this->assertSame(['todo', null], [$this->task()->status, $this->task()->completed_at]);
+        $this->assertSame(['inbox', null], [$this->task()->status, $this->task()->completed_at], 'reopened into the Inbox: not looked at yet');
         $this->assertFalse($this->link()->closed_by_sync);
 
         $this->actingAs($this->user)->patchJson('/api/tasks/'.$this->task()->id, ['status' => 'completed'])->assertOk();
@@ -279,6 +316,56 @@ class EmcWebhookTest extends TestCase
         $this->deliver($this->event('ticket.assigned', 5))->assertStatus(202);
         $this->assertSame('completed', $this->task()->status, 'the person completed it themselves');
         $this->assertSame(1, Task::count());
+    }
+
+    public function test_an_edit_to_a_closed_ticket_does_not_reopen_the_task_only_a_new_assignment_does(): void
+    {
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
+        $this->deliver($this->event('ticket.closed', 2))->assertStatus(202);
+        $this->deliver($this->event('ticket.updated', 3, ['title' => 'Edited after closing']))->assertStatus(202);
+
+        $this->assertSame(['completed', 'Edited after closing'], [$this->task()->status, $this->task()->title]);
+        $this->assertTrue($this->link()->closed_by_sync, 'still remembered, so a real reassignment can reopen it');
+
+        $this->deliver($this->event('ticket.assigned', 4))->assertStatus(202);
+        $this->assertSame('inbox', $this->task()->status);
+    }
+
+    public function test_a_completion_the_person_made_is_never_undone_even_after_the_sync_had_completed_it_once(): void
+    {
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
+        $this->deliver($this->event('ticket.closed', 2))->assertStatus(202);   // sync completes it
+        $id = $this->task()->id;
+        $this->actingAs($this->user)->patchJson("/api/tasks/{$id}", ['status' => 'todo'])->assertOk();        // person reopens it
+        $this->actingAs($this->user)->patchJson("/api/tasks/{$id}", ['status' => 'completed'])->assertOk();   // and completes it themselves
+        $this->deliver($this->event('ticket.closed', 3))->assertStatus(202);
+        $this->assertFalse($this->link()->closed_by_sync);
+
+        $this->deliver($this->event('ticket.assigned', 4))->assertStatus(202);
+        $this->assertSame('completed', $this->task()->status);
+    }
+
+    public function test_unassigning_a_finished_task_sends_no_notification(): void
+    {
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
+        $this->actingAs($this->user)->patchJson('/api/tasks/'.$this->task()->id, ['status' => 'cancelled'])->assertOk();
+        $this->deliver($this->event('ticket.unassigned', 2))->assertStatus(202);
+
+        $this->assertSame(0, InboxNotification::where('kind', 'integration')->count());
+        $this->assertSame('unassigned', $this->link()->remote_state);
+    }
+
+    public function test_unassigning_works_with_the_longest_account_key_and_ticket_id(): void
+    {
+        $account = str_repeat('a', 64);
+        $ticket = str_repeat('T', 200);
+        ['endpoint' => $endpoint, 'secret' => $secret] = app(WebhookEndpointService::class)->create('emc', $this->user, 'Long', requireEventId: true, accountKey: $account);
+        $this->deliver($this->event('ticket.assigned', 9007199254740990, ['external_id' => $ticket]), $endpoint, $secret)->assertStatus(202);
+        $this->deliver($this->event('ticket.unassigned', 9007199254740991, ['external_id' => $ticket], ['event_id' => 'long-unassign']), $endpoint, $secret)->assertStatus(202);
+
+        $this->assertSame('processed', $this->deliveryStatus('long-unassign'));
+        $this->assertSame(1, InboxNotification::where('kind', 'integration')->count());
+        $this->assertSame(9007199254740991, IntegrationLink::where('external_id', $ticket)->value('version'));
     }
 
     public function test_unassigning_keeps_the_task_and_tells_the_person_once(): void
@@ -398,6 +485,30 @@ class EmcWebhookTest extends TestCase
         $this->assertSame(0, IntegrationLink::count());
     }
 
+    public function test_a_timestamp_too_far_in_the_future_is_refused(): void
+    {
+        $body = $this->event('ticket.assigned', 1);
+        $raw = json_encode($body);
+        $future = now()->addMinutes(6)->getTimestamp();
+        $this->call('POST', '/api/webhooks/'.$this->endpoint->public_id, [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_X_LIFEOS_TIMESTAMP' => (string) $future,
+            'HTTP_X_LIFEOS_SIGNATURE' => WebhookVerifier::sign($this->secret, $future, $raw), 'HTTP_X_LIFEOS_DELIVERY' => $body['event_id']], $raw)->assertStatus(401);
+
+        $this->assertSame(0, WebhookDelivery::count());
+    }
+
+    public function test_disabling_the_endpoint_also_stops_deliveries_it_had_already_accepted(): void
+    {
+        config(['queue.default' => 'database']);
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);   // accepted, waiting in the queue
+        $this->endpoint->forceFill(['enabled' => false])->save();
+
+        $this->artisan('queue:work', ['--once' => true, '--tries' => 1, '--sleep' => 0])->assertSuccessful();
+
+        $this->assertSame(['failed', 'The endpoint is disabled.'], [$this->deliveryStatus('evt-1-v1'), WebhookDelivery::value('last_error')]);
+        $this->assertSame(0, Task::count());
+        $this->artisan('lifeos:webhooks:retry', ['--all' => true])->expectsOutputToContain('the endpoint is disabled')->assertSuccessful();
+    }
+
     public function test_misconfigured_endpoints_are_refused_without_applying_anything(): void
     {
         $service = app(WebhookEndpointService::class);
@@ -430,6 +541,9 @@ class EmcWebhookTest extends TestCase
         $this->assertSame('retrying', $this->deliveryStatus('evt-1-v1'));
         $this->assertSame([0, 0], [Task::count(), IntegrationLink::count()], 'the failed run left no task and no link behind');
 
+        $this->artisan('queue:work', ['--once' => true, '--tries' => 1, '--sleep' => 0])->assertSuccessful();   // not due yet: the backoff holds it
+        $this->assertSame(['retrying', 0], [$this->deliveryStatus('evt-1-v1'), Task::count()]);
+
         $this->travel(31)->seconds();
         $this->artisan('queue:work', ['--once' => true, '--tries' => 1, '--sleep' => 0])->assertSuccessful();
         $this->assertSame('processed', $this->deliveryStatus('evt-1-v1'));
@@ -437,7 +551,24 @@ class EmcWebhookTest extends TestCase
         $this->assertSame(0, DB::table('jobs')->count());
     }
 
-    public function test_events_queued_out_of_order_apply_by_version_whatever_order_the_worker_takes_them(): void
+    public function test_after_the_last_attempt_the_delivery_fails_and_nothing_is_applied(): void
+    {
+        config(['queue.default' => 'database', 'integrations.webhooks.backoff_seconds' => [1], 'integrations.webhooks.max_attempts' => 2]);
+        $this->freezeTime();
+        Task::creating(fn () => throw new \RuntimeException('database is down'));
+        $this->deliver($this->event('ticket.assigned', 1))->assertStatus(202);
+
+        $this->artisan('queue:work', ['--once' => true, '--tries' => 1, '--sleep' => 0])->assertSuccessful();
+        $this->travel(2)->seconds();
+        $this->artisan('queue:work', ['--once' => true, '--tries' => 1, '--sleep' => 0])->assertSuccessful();
+
+        $delivery = WebhookDelivery::sole();
+        $this->assertSame(['failed', 2], [$delivery->status, $delivery->attempts]);
+        $this->assertNotNull($delivery->payload, 'kept for lifeos:webhooks:retry');
+        $this->assertSame([0, 0, 0], [Task::count(), IntegrationLink::count(), DB::table('jobs')->count()]);
+    }
+
+    public function test_events_queued_as_v2_v1_v3_apply_by_version(): void
     {
         config(['queue.default' => 'database']);
         $this->deliver($this->event('ticket.updated', 2, ['title' => 'Newer']))->assertStatus(202);

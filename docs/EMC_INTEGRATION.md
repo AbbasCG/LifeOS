@@ -82,7 +82,7 @@ Every event carries a **full snapshot** of the ticket as EMC sees it now, so any
 | `occurred_at` | ISO 8601 instant with offset or `Z`. Informational. |
 | `ticket.external_id` | 1–200 chars `[A-Za-z0-9._:/#-]`, stable for the life of the ticket. |
 | `ticket.version` | Integer ≥ 1, **strictly increasing per ticket across all event types** (assignment changes included). |
-| `ticket.title` | Required, 1–500 chars (LifeOS keeps the first 200). |
+| `ticket.title` | Required, 1–500 chars. Control characters become spaces; zero-width and text-direction characters are removed; LifeOS keeps the first 200. |
 | `ticket.priority` | `low`, `normal`, `medium`, `high`, `urgent` or `critical` (case-insensitive). Mapped to LifeOS `low`, `medium`, `medium`, `high`, `urgent`, `urgent`; any other value becomes `medium`. |
 | `ticket.due_at` | Optional. ISO 8601 instant **with offset or `Z`** (a timed deadline), or `null`. |
 | `ticket.due_date` | Optional. `YYYY-MM-DD` (a deadline without a time: the end of that day in the user's LifeOS timezone), or `null`. Never together with `due_at`. Both null/absent = no deadline. |
@@ -102,10 +102,10 @@ is applied atomically with its own status.
 
 | Event | No task yet | Task exists |
 |---|---|---|
-| `ticket.assigned` | Creates the task (see below) | Applies the snapshot; reopens it if LifeOS itself completed it on an earlier `ticket.closed` |
-| `ticket.updated` | Creates the task only the first time LifeOS ever sees the ticket; if the person deleted the task, it is **not** recreated | Applies the snapshot |
+| `ticket.assigned` | Creates the task (see below) | Applies the snapshot; if LifeOS itself completed it on an earlier `ticket.closed`, puts it back in the **Inbox** (a completion the person made is never undone) |
+| `ticket.updated` | Creates the task only the first time LifeOS ever sees the ticket; if the person deleted the task, it is **not** recreated | Applies the snapshot; never reopens a completed task (the snapshot has no status, so an edit to a closed ticket must not bring it back) |
 | `ticket.closed` | Records the state only | Completes the task (`completed`, `completed_at` now) unless it is already completed or cancelled. Calendar blocks and focus sessions stay. No next occurrence is created. |
-| `ticket.unassigned` | Records the state only | Leaves the task as it is and puts one notification in the person's LifeOS inbox; they decide whether to keep or cancel it |
+| `ticket.unassigned` | Records the state only | Leaves the task as it is and, if it is still open, puts one notification in the person's LifeOS inbox; they decide whether to keep or cancel it |
 
 **A new task:** title (≤ 200), mapped priority, deadline, status `inbox`, tag `emc`, `source_ref = emc:<account>:<external_id>`, description
 "EMC ticket <external_id>: <url>" (written once, never updated). No `scheduled_start`/`scheduled_end`, no calendar session, no reminder.
@@ -132,7 +132,8 @@ never touched. A deadline moved by EMC does not count as a postponement in LifeO
 
 - Diagnose: `php artisan lifeos:webhooks:failed`; process again: `php artisan lifeos:webhooks:retry <id>` (see `INTEGRATIONS.md`).
 - Temporary errors (database, lock timeout) are retried with backoff; an invalid payload fails at once.
-- Disable an endpoint: set `webhook_endpoints.enabled = false` (EMC then gets `404`).
+- Disable an endpoint: set `webhook_endpoints.enabled = false`. EMC then gets `404`, and deliveries it had already accepted are not applied
+  (they end `failed` with "The endpoint is disabled." and can be retried once it is enabled again).
 
 ## 6. Open points to confirm with EMC
 

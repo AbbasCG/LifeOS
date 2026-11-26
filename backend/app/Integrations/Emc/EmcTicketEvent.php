@@ -71,7 +71,7 @@ final class EmcTicketEvent
         if (! hash_equals($deliveryId, $body['event_id'])) {
             throw new PermanentWebhookException('The body event_id does not match the delivery id.');
         }
-        $title = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $body['ticket']['title']) ?? '');
+        $title = self::plainText($body['ticket']['title']);
         if ($title === '') {
             throw new PermanentWebhookException('Invalid EMC event: ticket.title.');
         }
@@ -84,7 +84,7 @@ final class EmcTicketEvent
             type: $body['type'],
             externalId: $body['ticket']['external_id'],
             version: $body['ticket']['version'],
-            title: mb_substr($title, 0, 200),
+            title: rtrim(mb_substr($title, 0, 200)),
             priority: self::PRIORITIES[mb_strtolower(trim($body['ticket']['priority']))] ?? 'medium',
             dueAt: $dueAt,
             dueAllDay: $dueDate !== null,
@@ -101,6 +101,18 @@ final class EmcTicketEvent
             'ticket.unassigned' => 'unassigned',
             default => 'assigned',
         };
+    }
+
+    /**
+     * Visible text only: control characters (C0, C1) become spaces; zero-width, bidirectional override/isolate and similar format characters
+     * are removed, so a title cannot look different from what it is (in the task list or a push notification). Runs of spaces collapse.
+     */
+    private static function plainText(string $text): string
+    {
+        $text = preg_replace('/\p{Cc}+/u', ' ', $text) ?? '';
+        $text = preg_replace('/[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2028}\x{2029}\x{2060}-\x{2069}\x{FEFF}\x{00AD}]+/u', '', $text) ?? '';
+
+        return trim(preg_replace('/ {2,}/', ' ', $text) ?? '');
     }
 
     /**

@@ -51,8 +51,10 @@ class EmcTicketSync
             $outcome = $this->updateTask($task, $link, $previous, $event) ? 'updated' : 'recorded';
         }
 
-        if ($event->state() === 'unassigned' && $task !== null && ($link->remote_state ?? null) !== 'unassigned') {
-            $this->notifier->send($user, 'system', "emc:unassigned:{$user->id}:{$account}:{$event->externalId}:{$event->version}",
+        $finished = $task !== null && in_array($task->status, ['completed', 'cancelled'], true);
+        if ($event->state() === 'unassigned' && $task !== null && ! $finished && ($link->remote_state ?? null) !== 'unassigned') {
+            // Hashed: account (64) + external id (200) + version would not fit inbox_notifications.deduplication_key (255).
+            $this->notifier->send($user, 'system', 'emc:unassigned:'.hash('sha256', "{$user->id}:{$account}:{$event->externalId}:{$event->version}"),
                 ($user->preferences()['language'] ?? 'en') === 'ar' ? 'لم تعد مسندة إليك تذكرة EMC: '.$task->title : 'An EMC ticket is no longer assigned to you: '.$task->title,
                 ['kind' => 'integration', 'link' => '/tasks']);
         }
@@ -107,16 +109,20 @@ class EmcTicketSync
         }
 
         $open = ! in_array($task->status, ['completed', 'cancelled'], true);
-        if ($event->state() === 'closed' && $open) {
-            $changes['status'] = 'completed';
-            $changes['completed_at'] = now();
-            $link->closed_by_sync = true;
-        } elseif ($event->state() === 'assigned' && $link->closed_by_sync && $task->status === 'completed') {
-            // Only a completion LifeOS made for a closed ticket is undone; a task the person completed themselves stays completed.
-            $changes['status'] = 'todo';
-            $changes['completed_at'] = null;
-            $link->closed_by_sync = false;
-        } elseif ($event->state() === 'assigned') {
+        if ($event->state() === 'closed') {
+            if ($open) {
+                $changes['status'] = 'completed';
+                $changes['completed_at'] = now();
+            }
+            // Remember only a completion made here: one the person already made must never be undone by a later reassignment.
+            $link->closed_by_sync = $open;
+        } elseif ($event->type === 'ticket.assigned') {
+            // Only an explicit (re)assignment reopens, and only what the sync completed. A ticket.updated carries no status, so an edit to a
+            // closed ticket must not bring it back. Back to the Inbox: the person has not looked at the reopened ticket yet.
+            if ($link->closed_by_sync && $task->status === 'completed') {
+                $changes['status'] = 'inbox';
+                $changes['completed_at'] = null;
+            }
             $link->closed_by_sync = false;
         }
 
