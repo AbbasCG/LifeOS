@@ -221,7 +221,9 @@ test('swiping left snoozes a task to tomorrow with Undo, the way an email app do
   await page.goto('/')
   await page.evaluate(() => { localStorage.removeItem('lifeos-swipe-actions'); localStorage.setItem('lifeos-swipe-tip', '1') })
   const zone = (await call(page, 'GET', '/api/settings')).body.timezone as string
-  const { id, title } = await swipeTask(page, 3600_000)
+  // The deadline is an hour ago, so in the account's zone it is always on a day before "tomorrow". An hour ahead crossed the account's midnight
+  // between 23:00 and 24:00 there: the deadline was already tomorrow and the snooze was rightly refused (422 already_later, main CI run 279).
+  const { id, title } = await swipeTask(page, -3600_000)
   const dueOf = async () => (await call(page, 'GET', `/api/tasks/${id}`)).body.data.due_at as string
   const before = await dueOf()
   try {
