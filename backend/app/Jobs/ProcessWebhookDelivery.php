@@ -10,7 +10,10 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Jobs\SyncJob;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -23,7 +26,11 @@ use Throwable;
  * Retries: a handler that throws is treated as a temporary failure. The delivery becomes "retrying" and the job is released with the delays in
  * integrations.webhooks.backoff_seconds, up to integrations.webhooks.max_attempts runs. After the last run, or at once for a
  * PermanentWebhookException or on the synchronous queue (which cannot delay), it is "failed": its encrypted payload is kept so
- * `lifeos:webhooks:retry` (or a redelivery of the same bytes) can process it again. Only a redacted, shortened error is stored.
+ * `lifeos:webhooks:retry` (or a redelivery of the same bytes) can process it again. Only a description without payload content is stored
+ * and logged (see describe()); the exception itself is never reported.
+ *
+ * Generations: each requeue increments webhook_deliveries.processing_generation and queues a job carrying the new value. A job (with its
+ * releases and its failed() hook) only touches the row while the generations match, so a late job from an earlier attempt does nothing.
  */
 class ProcessWebhookDelivery implements ShouldQueue
 {
@@ -38,8 +45,15 @@ class ProcessWebhookDelivery implements ShouldQueue
     /** Runs allowed for this job (read by the worker, so a worker started with --tries=1 still retries). */
     public int $tries;
 
-    public function __construct(public int $deliveryId)
+    /**
+     * The delivery's processing_generation when this job was queued. Declared with a default so a job serialized before the column existed
+     * unserializes as generation 0, which every existing row has.
+     */
+    public int $generation = 0;
+
+    public function __construct(public int $deliveryId, int $generation = 0)
     {
+        $this->generation = $generation;
         $this->tries = self::maxAttempts();
     }
 
@@ -48,7 +62,8 @@ class ProcessWebhookDelivery implements ShouldQueue
         try {
             DB::transaction(function () {
                 $delivery = WebhookDelivery::with('endpoint')->whereKey($this->deliveryId)->lockForUpdate()->first();
-                if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true)) {
+                if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true) || (int) $delivery->processing_generation !== $this->generation) {
+                    // Finished, or queued again since this job was dispatched: the newer job owns the delivery now.
                     return;
                 }
                 if (! $delivery->endpoint?->enabled) {
@@ -72,7 +87,8 @@ class ProcessWebhookDelivery implements ShouldQueue
                 ])->save();
             });
         } catch (Throwable $e) {
-            report($e);
+            // Not report($e): an exception from a handler can carry ticket content, URLs or, in a QueryException, the SQL and its bound values.
+            Log::warning('Webhook delivery run failed.', ['delivery_id' => $this->deliveryId, 'generation' => $this->generation, 'error' => self::describe($e)]);
             $final = $e instanceof PermanentWebhookException || $this->job === null || $this->job instanceof SyncJob || $this->attempts() >= $this->tries;
             $delay = $this->recordFailure($e, $final);
             if ($delay !== null) {
@@ -108,8 +124,9 @@ class ProcessWebhookDelivery implements ShouldQueue
     }
 
     /**
-     * A short, redacted description of a failure that is safe to keep unencrypted. A database error carries the SQL and its bound values (which
-     * can be payload content), so only its class and SQLSTATE are kept.
+     * A short description of a failure that is safe to log and to keep unencrypted. Only messages LifeOS or the queue worker wrote themselves
+     * are kept (and still redacted); any other exception can carry payload content (a ticket title, a URL, a secret), so only its class is
+     * kept. A database error carries the SQL and its bound values, so only its class and SQLSTATE are kept.
      */
     private static function describe(?Throwable $e): string
     {
@@ -119,29 +136,34 @@ class ProcessWebhookDelivery implements ShouldQueue
         if ($e instanceof QueryException) {
             return class_basename($e).': SQLSTATE '.($e->errorInfo[0] ?? $e->getCode());
         }
+        if ($e instanceof PermanentWebhookException || $e instanceof MaxAttemptsExceededException || $e instanceof TimeoutExceededException) {
+            return mb_substr(class_basename($e).': '.SecretRedactor::scrub($e->getMessage()), 0, 500);
+        }
 
-        return mb_substr(class_basename($e).': '.SecretRedactor::scrub($e->getMessage()), 0, 500);
+        return class_basename($e);
     }
 
     /**
-     * Store the outcome of a failed run outside the rolled-back transaction. Returns the delay before the next run, or null when it was final.
+     * Store the outcome of a failed run outside the rolled-back transaction. Returns the delay before the next run, or null when it was final
+     * or when nothing was written.
+     *
+     * One conditional UPDATE, never read-then-save: the row changes only while it is still runnable. If another copy of the job is processing
+     * it right now, PostgreSQL makes this UPDATE wait for that row lock and then re-checks the condition on the committed row, so a delivery
+     * that became "processed" (or "ignored", or "failed") meanwhile is left as it is and this run is not released again. A job from an
+     * earlier generation (the delivery was queued again since) never writes either, failed() included.
      */
     private function recordFailure(?Throwable $e, bool $final): ?int
     {
-        $delivery = WebhookDelivery::find($this->deliveryId);
-        if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true)) {
-            return null;
-        }
-        $attempts = $delivery->attempts + 1;
         $delay = $final ? null : self::backoffAfter($this->attempts());
-        $delivery->forceFill([
-            'status' => $final ? 'failed' : 'retrying',
-            'attempts' => min(self::MAX_COUNTER, $attempts),
-            'last_error' => self::describe($e),
-            'next_attempt_at' => $delay === null ? null : now()->addSeconds($delay),
-            'processed_at' => $final ? now() : null,
-        ])->save();
+        $written = WebhookDelivery::query()->whereKey($this->deliveryId)->whereIn('status', self::RUNNABLE)
+            ->where('processing_generation', $this->generation)->update([
+                'status' => $final ? 'failed' : 'retrying',
+                'attempts' => DB::raw('CASE WHEN attempts >= '.self::MAX_COUNTER.' THEN '.self::MAX_COUNTER.' ELSE attempts + 1 END'),
+                'last_error' => self::describe($e),
+                'next_attempt_at' => $delay === null ? null : now()->addSeconds($delay),
+                'processed_at' => $final ? now() : null,
+            ]);
 
-        return $delay;
+        return $written === 1 ? $delay : null;
     }
 }

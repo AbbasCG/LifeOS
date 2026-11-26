@@ -21,7 +21,7 @@ class WebhookDelivery extends Model
 
     protected function casts(): array
     {
-        return ['payload' => 'encrypted', 'received_at' => 'immutable_datetime', 'processed_at' => 'immutable_datetime', 'next_attempt_at' => 'immutable_datetime', 'attempts' => 'integer'];
+        return ['payload' => 'encrypted', 'received_at' => 'immutable_datetime', 'processed_at' => 'immutable_datetime', 'next_attempt_at' => 'immutable_datetime', 'attempts' => 'integer', 'processing_generation' => 'integer'];
     }
 
     /** @return BelongsTo<WebhookEndpoint, $this> */

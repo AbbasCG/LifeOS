@@ -109,12 +109,21 @@ once more → `202` `{"status":"requeued"}`; otherwise `202`, recorded, and hand
 
 **Retries.** Handlers run in one transaction that holds the delivery row and writes its final status, so a failed run leaves no partial
 writes and a delivery is processed at most once. A handler that throws is retried after `integrations.webhooks.backoff_seconds`
-(30 s, 2 min, 10 min, 30 min) up to `max_attempts` (5) runs; the delivery shows `retrying`, `attempts`, `next_attempt_at` and a redacted
-`last_error` (a database error keeps only its class and SQLSTATE). `PermanentWebhookException` (or the synchronous queue) fails at once. A
+(30 s, 2 min, 10 min, 30 min) up to `max_attempts` (5) runs; the delivery shows `retrying`, `attempts`, `next_attempt_at` and a
+`last_error` without payload content (a database error keeps only its class and SQLSTATE; `PermanentWebhookException` and the queue's
+timeout/attempts exceptions keep their redacted message; any other exception only its class). The same text is logged as one warning; the
+exception itself is never reported, because its message or SQL bindings can carry ticket content. A failure is recorded with one
+conditional UPDATE on a still runnable row, so it never overwrites `processed`, `ignored` or `failed`. Every requeue increments
+`processing_generation` and queues a job carrying it; a job (its releases and its `failed()` hook included) only changes the delivery while
+the generation matches, so a late job from an earlier attempt does nothing. `processed` and `ignored` are final and never requeued. The
+requeue (status flip, payload restore, dispatch) is one transaction, so if the queue cannot be reached nothing changes and the delivery stays
+requeueable. Deploy order: the migration adding `processing_generation` runs before the queue worker restarts (the deploy script does this). `PermanentWebhookException` (or the synchronous queue) fails at once. A
 `failed` delivery keeps its encrypted payload until it is pruned. A delivery still `accepted` or `retrying` more than
 `stale_after_seconds` (1 hour) past its due time has lost its job and counts as stuck. `php artisan lifeos:webhooks:failed` lists failed,
 retrying and stuck deliveries (never payloads); `php artisan lifeos:webhooks:retry <id>…` (or `--all`) queues failed and stuck ones again,
-once each, and so does a redelivery of the same bytes. Because a failed delivery can be processed again (also by an exact replay of its
+once each, and so does a redelivery of the same bytes. **Disabling an endpoint** (`enabled = false`): the sender gets `404`; deliveries it
+had already accepted are not applied (their next run marks them `failed`, "The endpoint is disabled.", payload kept) and nothing is queued
+again until it is enabled; a run that already holds the delivery row when the endpoint is disabled finishes normally. Because a failed delivery can be processed again (also by an exact replay of its
 request within the 5-minute window), handlers must keep side effects outside the database safe to repeat; they should also keep work done
 while holding locks (and any outbound HTTP call) short, since the delivery row and the handler's own row locks are held until it returns. The timestamp must be within 5 minutes (limits replay). Rate limited per endpoint+IP and
 per IP. After `WebhookEndpointService::rotate()` the previous secret keeps working for 24 hours. Connectors react by tagging a
