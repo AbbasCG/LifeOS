@@ -51,6 +51,13 @@ class ProcessWebhookDelivery implements ShouldQueue
                 if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true)) {
                     return;
                 }
+                if (! $delivery->endpoint?->enabled) {
+                    // Disabling an endpoint (e.g. after a leaked secret) also stops what it had already accepted. The payload is kept, so
+                    // lifeos:webhooks:retry can process it once the endpoint is enabled again.
+                    $delivery->forceFill(['status' => 'failed', 'processed_at' => now(), 'next_attempt_at' => null, 'last_error' => 'The endpoint is disabled.'])->save();
+
+                    return;
+                }
                 $handled = false;
                 foreach (app()->tagged('integrations.webhook_handlers') as $handler) {
                     /** @var WebhookHandler $handler */

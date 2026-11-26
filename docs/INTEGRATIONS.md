@@ -121,6 +121,12 @@ per IP. After `WebhookEndpointService::rotate()` the previous secret keeps worki
 `WebhookHandler` with `integrations.webhook_handlers`; deliveries nobody handles are recorded as `ignored`. Payloads are encrypted, removed
 once handled and deleted after 7 days. Provider-specific schemes (e.g. GitHub's `X-Hub-Signature-256`) would be added by a connector; none exists yet. There is also no route or handler that creates endpoints, so the endpoint is dormant until one is added.
 
+### EMC tickets
+
+The first connector on this receiver: `provider_key = emc`, handled by `App\Integrations\Emc\EmcWebhookHandler`. Contract, behaviour and
+operations: [`EMC_INTEGRATION.md`](EMC_INTEGRATION.md). Endpoints are created only with `php artisan lifeos:emc:create-endpoint <email>`
+(always `require_event_id`).
+
 ## Outbound requests (`OutboundHttpGuard`)
 
 **Not wired in yet.** No code path calls this guard today (see the status note at the top); it is the policy for addresses a person types in
