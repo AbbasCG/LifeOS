@@ -253,6 +253,9 @@ test('Arabic at 320px: the tiles, the understood line, the conflict-free save an
 
 test('keyboard: the day tiles are one radio group, Escape closes the sheet, the shortcut still opens it', async ({ page, setLanguage }) => {
   await setLanguage('en')
+  // Noon today (UTC): from 23:30 in the account's zone there is no half hour left today, so the app rightly turns "Today" into "Tomorrow" and the
+  // tile is never checked (main CI run 281 at 23:44 Amsterdam). This test is about the keyboard, not the clock; only the page's clock moves.
+  await page.clock.setFixedTime(new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00Z`))
   await page.goto('/?add=task')
   const quick = sheet(page)
   await expect(quick).toBeVisible()
