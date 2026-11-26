@@ -38,6 +38,7 @@ class EmcWebhookTest extends TestCase
     {
         parent::setUp();
         $this->travelTo(CarbonImmutable::parse('2026-11-26 10:00', 'UTC'));
+        config(['integrations.emc.allowed_url_hosts' => ['emc.example.com']]);   // the link policy is fail-closed: no list, no links
         $this->user = User::factory()->create();
         UserSetting::create(['user_id' => $this->user->id, 'preferences' => ['timezone' => 'Europe/Amsterdam', 'language' => 'en']]);
         ['endpoint' => $this->endpoint, 'secret' => $this->secret] = app(WebhookEndpointService::class)->create('emc', $this->user, 'EMC', requireEventId: true, accountKey: 'default');
@@ -161,10 +162,35 @@ class EmcWebhookTest extends TestCase
 
     public function test_an_unsafe_link_is_dropped_but_the_event_applies(): void
     {
-        config(['integrations.emc.allowed_url_hosts' => ['emc.example.com']]);
-        foreach (['T-a' => 'http://emc.example.com/t', 'T-b' => 'javascript:alert(1)', 'T-c' => 'https://evil.example.org/t', 'T-d' => 'https://user:pass@emc.example.com/t'] as $id => $url) {
+        $unsafe = [
+            'T-a' => 'http://emc.example.com/t', 'T-b' => 'javascript:alert(1)', 'T-c' => 'https://evil.example.org/t', 'T-d' => 'https://user:pass@emc.example.com/t',
+            'T-e' => 'https://user@emc.example.com/t', 'T-f' => 'https://emc.example.com:8443/t', 'T-g' => 'https://emc.example.com:80/t',
+            'T-h' => 'https://sub.emc.example.com/t', 'T-i' => 'https://emc.example.com.evil.org/t', 'T-j' => 'https://evil.org/?u=https://emc.example.com/t',
+            'T-k' => 'https://emc.example.com@evil.org/t', 'T-l' => 'ftp://emc.example.com/t', 'T-m' => 'https://emc.example.com:0/t',
+        ];
+        foreach ($unsafe as $id => $url) {
             $this->deliver($this->event('ticket.assigned', 1, ['external_id' => $id, 'url' => $url]))->assertStatus(202);
             $this->assertSame("EMC ticket {$id}", Task::where('source_ref', "emc:default:{$id}")->value('description'), $url);
+            $this->assertNull(IntegrationLink::where('external_id', $id)->value('remote_url'));
+        }
+    }
+
+    public function test_a_link_on_an_allowed_host_and_the_default_port_is_kept_case_insensitively(): void
+    {
+        foreach (['T-1' => 'https://emc.example.com/tickets/T-1', 'T-2' => 'https://EMC.Example.com/tickets/T-2', 'T-3' => 'https://emc.example.com:443/tickets/T-3'] as $id => $url) {
+            $this->deliver($this->event('ticket.assigned', 1, ['external_id' => $id, 'url' => $url]))->assertStatus(202);
+            $this->assertSame($url, IntegrationLink::where('external_id', $id)->value('remote_url'), $url);
+            $this->assertSame("EMC ticket {$id}: {$url}", Task::where('source_ref', "emc:default:{$id}")->value('description'));
+        }
+    }
+
+    public function test_without_an_allow_list_every_link_is_dropped_but_the_event_applies(): void
+    {
+        foreach ([[], [''], [' ']] as $i => $list) {
+            config(['integrations.emc.allowed_url_hosts' => $list]);
+            $id = "T-none-{$i}";
+            $this->deliver($this->event('ticket.assigned', 1, ['external_id' => $id, 'url' => 'https://emc.example.com/tickets/'.$id]))->assertStatus(202);
+            $this->assertSame("EMC ticket {$id}", Task::where('source_ref', "emc:default:{$id}")->value('description'));
             $this->assertNull(IntegrationLink::where('external_id', $id)->value('remote_url'));
         }
     }

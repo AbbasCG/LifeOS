@@ -116,7 +116,9 @@ final class EmcTicketEvent
     }
 
     /**
-     * An https link without credentials, on an allowed host when a list is configured; anything else is dropped (the event still applies).
+     * The ticket link, or null when it is not safe to show (the event still applies). Fail-closed: only `https`, on a host that is listed in
+     * integrations.emc.allowed_url_hosts (EMC_ALLOWED_URL_HOSTS; exact, case-insensitive match, so no subdomains), on the default port, with no
+     * user name or password. With no host listed, every link is dropped.
      */
     private static function safeUrl(?string $url): ?string
     {
@@ -124,11 +126,14 @@ final class EmcTicketEvent
             return null;
         }
         $parts = parse_url($url);
-        if (($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])) {
+        if (! is_array($parts) || strtolower($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])) {
             return null;
         }
-        $allowed = array_filter(array_map(fn ($h) => mb_strtolower(trim((string) $h)), (array) config('integrations.emc.allowed_url_hosts', [])));
-        if ($allowed !== [] && ! in_array(mb_strtolower($parts['host']), $allowed, true)) {
+        if (isset($parts['port']) && (int) $parts['port'] !== 443) {
+            return null;
+        }
+        $allowed = array_filter(array_map(fn ($h) => strtolower(trim((string) $h)), (array) config('integrations.emc.allowed_url_hosts', [])));
+        if (! in_array(strtolower($parts['host']), $allowed, true)) {
             return null;
         }
 
