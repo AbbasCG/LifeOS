@@ -115,7 +115,9 @@ timeout/attempts exceptions keep their redacted message; any other exception onl
 exception itself is never reported, because its message or SQL bindings can carry ticket content. A failure is recorded with one
 conditional UPDATE on a still runnable row, so it never overwrites `processed`, `ignored` or `failed`. Every requeue increments
 `processing_generation` and queues a job carrying it; a job (its releases and its `failed()` hook included) only changes the delivery while
-the generation matches, so a late job from an earlier attempt does nothing. `processed` and `ignored` are final and never requeued. `PermanentWebhookException` (or the synchronous queue) fails at once. A
+the generation matches, so a late job from an earlier attempt does nothing. `processed` and `ignored` are final and never requeued. The
+requeue (status flip, payload restore, dispatch) is one transaction, so if the queue cannot be reached nothing changes and the delivery stays
+requeueable. Deploy order: the migration adding `processing_generation` runs before the queue worker restarts (the deploy script does this). `PermanentWebhookException` (or the synchronous queue) fails at once. A
 `failed` delivery keeps its encrypted payload until it is pruned. A delivery still `accepted` or `retrying` more than
 `stale_after_seconds` (1 hour) past its due time has lost its job and counts as stuck. `php artisan lifeos:webhooks:failed` lists failed,
 retrying and stuck deliveries (never payloads); `php artisan lifeos:webhooks:retry <id>…` (or `--all`) queues failed and stuck ones again,

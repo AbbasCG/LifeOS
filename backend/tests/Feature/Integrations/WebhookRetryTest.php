@@ -12,6 +12,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Models\WebhookDelivery;
 use App\Models\WebhookEndpoint;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Queue\TimeoutExceededException;
@@ -325,6 +326,49 @@ class WebhookRetryTest extends TestCase
         $new->failed(null);
         $this->assertSame('processed', $delivery->fresh()->status, 'no job of any generation turns a processed delivery back');
         $this->assertSame(1, Task::count());
+    }
+
+    public function test_when_the_queue_is_unreachable_a_requeue_changes_nothing_so_the_senders_next_retry_requeues_it(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-down')->assertStatus(202);
+        $this->assertSame('failed', $this->delivery('evt-down')->status);
+        $real = app(Dispatcher::class);
+        $this->instance(Dispatcher::class, \Mockery::mock(Dispatcher::class, function ($mock) {
+            $mock->shouldReceive('dispatch')->andThrow(new RuntimeException('The queue is unreachable.'));
+        }));
+
+        $this->withoutExceptionHandling();
+        try {
+            app(WebhookDeliveryQueue::class)->requeue($this->delivery('evt-down'));
+            $this->fail('the dispatch error reaches the caller');
+        } catch (RuntimeException $e) {
+            $this->assertSame('The queue is unreachable.', $e->getMessage());
+        }
+        $delivery = $this->delivery('evt-down');
+        $this->assertSame(['failed', 0], [$delivery->status, $delivery->processing_generation], 'rolled back: still failed, so still requeueable');
+
+        $this->instance(Dispatcher::class, $real);
+        $this->send('evt-down')->assertStatus(202)->assertJson(['status' => 'requeued']);
+        $this->assertSame(['processed', 1], [$this->delivery('evt-down')->status, $this->delivery('evt-down')->processing_generation]);
+    }
+
+    public function test_a_job_queued_before_generations_existed_runs_as_generation_zero(): void
+    {
+        // A queued job is restored without its constructor; a payload written before this property existed simply has no "generation".
+        $legacy = (new \ReflectionClass(ProcessWebhookDelivery::class))->newInstanceWithoutConstructor();
+        $legacy->deliveryId = 0;
+        $this->assertSame(0, $legacy->generation);
+        $restored = unserialize(serialize(new ProcessWebhookDelivery(5)));
+        $this->assertSame([5, 0], [$restored->deliveryId, $restored->generation]);
+
+        Queue::fake();
+        $this->send('evt-legacy')->assertStatus(202);
+        $delivery = $this->delivery('evt-legacy');
+        $legacy->deliveryId = $delivery->id;
+        $legacy->tries = ProcessWebhookDelivery::maxAttempts();
+        $legacy->handle();
+        $this->assertSame('processed', $delivery->fresh()->status);
     }
 
     public function test_a_processed_or_ignored_delivery_is_never_queued_again_even_from_a_stale_failed_copy(): void

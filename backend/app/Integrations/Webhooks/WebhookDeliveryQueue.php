@@ -34,24 +34,30 @@ class WebhookDeliveryQueue
             return false;
         }
         $generation = (int) ($delivery->processing_generation ?? 0);   // a model fresh from create() has only the database default (0)
-        // A requeued delivery is due now (next_attempt_at = now), which also makes the stale condition false for a second, racing caller. The
-        // condition also covers the generation that was read: if anything queued it again in between, this call does nothing.
-        $flipped = WebhookDelivery::whereKey($delivery->id)->where('status', $delivery->status)->whereIn('status', self::REQUEUEABLE)
-            ->where('processing_generation', $generation)
-            ->when($delivery->status !== 'failed', fn ($q) => $q->whereRaw('COALESCE(next_attempt_at, received_at) < ?', [$this->staleCutoff()]))
-            ->update(['status' => 'accepted', 'processed_at' => null, 'next_attempt_at' => now(), 'processing_generation' => DB::raw('processing_generation + 1')]);
-        if ($flipped !== 1) {
-            return false;
-        }
-        $fresh = WebhookDelivery::find($delivery->id);
-        if ($fresh && $fresh->payload === null && $rawBody !== null && $rawBody !== '') {
-            // Only for a verified redelivery whose hash matched the recorded one, so the stored bytes are the bytes that were first accepted.
-            $fresh->forceFill(['payload' => $rawBody])->save();
-        }
-        // Only a job of the new generation may change the delivery; a late copy of an earlier job (the lost one, or a slow one) does nothing.
-        ProcessWebhookDelivery::dispatch($delivery->id, $generation + 1);
 
-        return true;
+        // One transaction for the flip, the payload restore and the dispatch: if the queue is unreachable, nothing is changed, so the delivery
+        // stays requeueable (a redelivery is answered "requeued" again, not "duplicate"). A worker that picks the job up before the commit
+        // waits on the row lock this UPDATE holds and then sees the new generation.
+        return DB::transaction(function () use ($delivery, $rawBody, $generation): bool {
+            // A requeued delivery is due now (next_attempt_at = now), which also makes the stale condition false for a second, racing caller.
+            // The condition also covers the generation that was read: if anything queued it again in between, this call does nothing.
+            $flipped = WebhookDelivery::whereKey($delivery->id)->where('status', $delivery->status)->whereIn('status', self::REQUEUEABLE)
+                ->where('processing_generation', $generation)
+                ->when($delivery->status !== 'failed', fn ($q) => $q->whereRaw('COALESCE(next_attempt_at, received_at) < ?', [$this->staleCutoff()]))
+                ->update(['status' => 'accepted', 'processed_at' => null, 'next_attempt_at' => now(), 'processing_generation' => DB::raw('processing_generation + 1')]);
+            if ($flipped !== 1) {
+                return false;
+            }
+            $fresh = WebhookDelivery::find($delivery->id);
+            if ($fresh && $fresh->payload === null && $rawBody !== null && $rawBody !== '') {
+                // Only for a verified redelivery whose hash matched the recorded one, so the stored bytes are the bytes that were first accepted.
+                $fresh->forceFill(['payload' => $rawBody])->save();
+            }
+            // Only a job of the new generation may change the delivery; a late copy of an earlier job (the lost one, or a slow one) does nothing.
+            dispatch(new ProcessWebhookDelivery($delivery->id, $generation + 1));
+
+            return true;
+        });
     }
 
     /**

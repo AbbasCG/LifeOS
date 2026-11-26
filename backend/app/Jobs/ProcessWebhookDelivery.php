@@ -62,7 +62,7 @@ class ProcessWebhookDelivery implements ShouldQueue
         try {
             DB::transaction(function () {
                 $delivery = WebhookDelivery::with('endpoint')->whereKey($this->deliveryId)->lockForUpdate()->first();
-                if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true) || $delivery->processing_generation !== $this->generation) {
+                if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true) || (int) $delivery->processing_generation !== $this->generation) {
                     // Finished, or queued again since this job was dispatched: the newer job owns the delivery now.
                     return;
                 }
