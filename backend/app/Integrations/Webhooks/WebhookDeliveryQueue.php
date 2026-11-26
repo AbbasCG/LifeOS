@@ -59,6 +59,10 @@ class WebhookDeliveryQueue
      */
     public function refusal(WebhookDelivery $delivery, ?string $rawBody = null): ?string
     {
+        if (! $delivery->endpoint?->enabled) {
+            // Its job would only mark it failed again; it can be processed once the endpoint is enabled.
+            return 'the endpoint is disabled';
+        }
         if ($delivery->status !== 'failed' && ! $this->isStale($delivery)) {
             return in_array($delivery->status, ['accepted', 'retrying'], true)
                 ? "status is {$delivery->status} and its job is not overdue yet"

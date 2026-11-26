@@ -416,6 +416,40 @@ class WebhookRetryTest extends TestCase
         $this->assertSame(0, WebhookDelivery::where('status', 'failed')->count());
     }
 
+    public function test_disabling_the_endpoint_stops_pending_deliveries_without_losing_them(): void
+    {
+        $this->useDatabaseQueue();
+        $this->freezeTime();
+        $this->script->append('fail');
+        $this->send('evt-d1')->assertStatus(202);   // will be retrying when the endpoint is disabled
+        $this->send('evt-d2')->assertStatus(202);   // still accepted (its job waits) when the endpoint is disabled
+        $this->work();
+        $this->assertSame(['retrying', 'accepted'], [$this->delivery('evt-d1')->status, $this->delivery('evt-d2')->status]);
+
+        $this->endpoint->forceFill(['enabled' => false])->save();
+        $this->work();   // evt-d2's job
+        $this->travel(31)->seconds();
+        $this->work();   // evt-d1's released retry
+
+        foreach (['evt-d1', 'evt-d2'] as $id) {
+            $delivery = $this->delivery($id);
+            $this->assertSame(['failed', 'The endpoint is disabled.', null], [$delivery->status, $delivery->last_error, $delivery->next_attempt_at], $id);
+            $this->assertNotNull($delivery->payload, 'kept until the endpoint is enabled again');
+            $this->assertFalse(app(WebhookDeliveryQueue::class)->requeue($delivery), 'nothing is queued for a disabled endpoint');
+        }
+        $this->assertSame(['fail'], $this->runs->getArrayCopy(), 'no handler ran after the endpoint was disabled');
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->send('evt-d1')->assertNotFound();   // and the sender cannot reach it either
+
+        $this->endpoint->forceFill(['enabled' => true])->save();
+        $this->artisan('lifeos:webhooks:retry', ['--all' => true])->expectsOutputToContain('Queued 2')->assertSuccessful();
+        $this->work();
+        $this->work();
+        $this->assertSame(['processed', 'processed'], [$this->delivery('evt-d1')->status, $this->delivery('evt-d2')->status]);
+        $this->assertSame(['fail', 'ok', 'ok'], $this->runs->getArrayCopy());
+        $this->assertSame(2, Task::count(), 'each delivery applied once');
+    }
+
     public function test_requeueing_is_atomic_so_two_operators_queue_a_delivery_once(): void
     {
         $this->script->append('fail');

@@ -29,7 +29,7 @@ class RetryFailedWebhooks extends Command
         }
         $queued = 0;
         foreach ($deliveries as $delivery) {
-            $reason = ! $delivery->endpoint?->enabled ? 'the endpoint is disabled' : $queue->refusal($delivery);
+            $reason = $queue->refusal($delivery);
             if ($reason === null && $queue->requeue($delivery)) {
                 $queued++;
                 $this->line("#{$delivery->id}: queued again.");
