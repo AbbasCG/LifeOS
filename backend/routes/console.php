@@ -15,6 +15,9 @@ Schedule::command('lifeos:automations')->everyFifteenMinutes()->withoutOverlappi
 Schedule::command('lifeos:recommendations')->hourly()->withoutOverlapping();
 Schedule::command('lifeos:weekly-drafts')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('lifeos:goal-reviews')->hourly()->withoutOverlapping();
+// Re-queues webhook deliveries whose job was lost (queue outage, worker stopped before running it); never failed ones. The processing generation
+// makes a late copy of the lost job do nothing, so a delivery is still applied once.
+Schedule::command('lifeos:webhooks:retry --stuck')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('lifeos:integrations:prune')->dailyAt('03:20')->withoutOverlapping();
 // Registers releases only after a healthy deploy is confirmed; does nothing while DISCOVERY_AUTO_ACTIVATE is off.
 Schedule::command('lifeos:discovery:reconcile')->everyFiveMinutes()->withoutOverlapping();

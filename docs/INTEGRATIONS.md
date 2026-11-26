@@ -117,7 +117,10 @@ conditional UPDATE on a still runnable row, so it never overwrites `processed`, 
 `processing_generation` and queues a job carrying it; a job (its releases and its `failed()` hook included) only changes the delivery while
 the generation matches, so a late job from an earlier attempt does nothing. `processed` and `ignored` are final and never requeued. The
 requeue (status flip, payload restore, dispatch) is one transaction, so if the queue cannot be reached nothing changes and the delivery stays
-requeueable. Deploy order: the migration adding `processing_generation` runs before the queue worker restarts (the deploy script does this). `PermanentWebhookException` (or the synchronous queue) fails at once. A
+requeueable. With the database queue on the default connection the job row commits or rolls back with it; with Redis (or another queue)
+the push is not part of the PostgreSQL transaction, so a rollback after a successful push leaves a job whose generation the row never got,
+and it does nothing. A job lost after the commit leaves the delivery stuck: the scheduler runs `lifeos:webhooks:retry --stuck` every 15
+minutes, which queues stuck (overdue `accepted`/`retrying`) deliveries again under the next generation and never touches `failed` ones. Deploy order: the migration adding `processing_generation` runs before the queue worker restarts (the deploy script does this). `PermanentWebhookException` (or the synchronous queue) fails at once. A
 `failed` delivery keeps its encrypted payload until it is pruned. A delivery still `accepted` or `retrying` more than
 `stale_after_seconds` (1 hour) past its due time has lost its job and counts as stuck. `php artisan lifeos:webhooks:failed` lists failed,
 retrying and stuck deliveries (never payloads); `php artisan lifeos:webhooks:retry <id>…` (or `--all`) queues failed and stuck ones again,

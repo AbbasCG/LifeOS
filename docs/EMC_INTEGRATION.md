@@ -132,6 +132,8 @@ never touched. A deadline moved by EMC does not count as a postponement in LifeO
 
 - Diagnose: `php artisan lifeos:webhooks:failed`; process again: `php artisan lifeos:webhooks:retry <id>` (see `INTEGRATIONS.md`).
 - Temporary errors (database, lock timeout) are retried with backoff; an invalid payload fails at once.
+- A delivery whose queued job was lost (queue outage, worker stopped) is queued again automatically once it is overdue by
+  `stale_after_seconds` (1 hour): `lifeos:webhooks:retry --stuck` runs every 15 minutes. It is still applied once.
 - Disable an endpoint: set `webhook_endpoints.enabled = false`. EMC then gets `404`, and deliveries it had already accepted are not applied
   (they end `failed` with "The endpoint is disabled.", payload kept, and can be retried once it is enabled again; until then
   `lifeos:webhooks:retry` refuses them). An event that is already being applied when the endpoint is disabled finishes.

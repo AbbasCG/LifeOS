@@ -12,6 +12,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Models\WebhookDelivery;
 use App\Models\WebhookEndpoint;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
@@ -351,6 +352,94 @@ class WebhookRetryTest extends TestCase
         $this->instance(Dispatcher::class, $real);
         $this->send('evt-down')->assertStatus(202)->assertJson(['status' => 'requeued']);
         $this->assertSame(['processed', 1], [$this->delivery('evt-down')->status, $this->delivery('evt-down')->processing_generation]);
+    }
+
+    public function test_with_a_non_transactional_queue_a_push_followed_by_a_rollback_leaves_a_job_that_does_nothing(): void
+    {
+        // Queue::fake() keeps pushed jobs outside the database, as Redis does: rolling back PostgreSQL does not take them back.
+        $this->script->append('fail');
+        $this->send('evt-rb')->assertStatus(202);
+        Queue::fake();
+
+        DB::beginTransaction();
+        $this->assertTrue(app(WebhookDeliveryQueue::class)->requeue($this->delivery('evt-rb')));
+        DB::rollBack();   // e.g. the commit fails after the push succeeded
+
+        $orphan = Queue::pushed(ProcessWebhookDelivery::class)->sole();
+        $this->assertSame(['failed', 0, 1], [$this->delivery('evt-rb')->status, $this->delivery('evt-rb')->processing_generation, $orphan->generation]);
+        $orphan->handle();
+        $this->assertSame(['failed', 1], [$this->delivery('evt-rb')->status, $this->delivery('evt-rb')->attempts], 'the orphan job wrote nothing');
+        $this->assertSame(['fail'], $this->runs->getArrayCopy());
+
+        // Requeued again it gets generation 1 too, so two jobs now match: the row lock and the status still apply it once.
+        $this->assertTrue(app(WebhookDeliveryQueue::class)->requeue($this->delivery('evt-rb')));
+        Queue::pushed(ProcessWebhookDelivery::class)->each(fn (ProcessWebhookDelivery $job) => $job->handle());
+        $orphan->handle();
+        $this->assertSame('processed', $this->delivery('evt-rb')->status);
+        $this->assertSame(['fail', 'ok'], $this->runs->getArrayCopy(), 'the handler ran once more, not twice');
+        $this->assertSame(1, Task::count());
+    }
+
+    public function test_with_the_database_queue_the_job_is_rolled_back_together_with_the_requeue(): void
+    {
+        $this->useDatabaseQueue();
+        $this->script->append('fail');
+        $this->send('evt-dbq')->assertStatus(202);
+        $this->work();   // runs, fails; the synchronous fallback is not used, so it is retrying
+        $this->delivery('evt-dbq')->forceFill(['status' => 'failed', 'next_attempt_at' => null])->save();
+        DB::table('jobs')->delete();
+
+        DB::beginTransaction();
+        $this->assertTrue(app(WebhookDeliveryQueue::class)->requeue($this->delivery('evt-dbq')));
+        $this->assertSame(1, DB::table('jobs')->count(), 'pushed inside the transaction');
+        DB::rollBack();
+
+        $this->assertSame(0, DB::table('jobs')->count(), 'the job row went with the rollback');
+        $this->assertSame(['failed', 0], [$this->delivery('evt-dbq')->status, $this->delivery('evt-dbq')->processing_generation]);
+    }
+
+    public function test_a_delivery_whose_job_was_lost_after_the_requeue_is_recovered_by_the_scheduler_and_applied_once(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-lost')->assertStatus(202);
+        Queue::fake();   // the worker stops: the requeued job never runs
+        $this->send('evt-lost')->assertStatus(202)->assertJson(['status' => 'requeued']);
+        $lost = Queue::pushed(ProcessWebhookDelivery::class)->sole();
+        $this->assertSame(['accepted', 1], [$this->delivery('evt-lost')->status, $this->delivery('evt-lost')->processing_generation]);
+        $this->send('evt-lost')->assertStatus(202)->assertJson(['status' => 'duplicate']);   // queued, not overdue yet
+
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 0')->assertSuccessful();
+        $this->travel(2)->hours();
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 1')->assertSuccessful();
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 0')->assertSuccessful();
+        $recovery = Queue::pushed(ProcessWebhookDelivery::class)->last();
+        $this->assertSame([2, 2], [$recovery->generation, $this->delivery('evt-lost')->processing_generation]);
+
+        $lost->handle();   // the lost job turns up after all: an earlier generation, it does nothing
+        $this->assertSame('accepted', $this->delivery('evt-lost')->status);
+        $recovery->handle();
+        $recovery->handle();
+        $lost->failed(null);
+        $this->assertSame('processed', $this->delivery('evt-lost')->status);
+        $this->assertSame(['fail', 'ok'], $this->runs->getArrayCopy());
+        $this->assertSame(1, Task::count());
+    }
+
+    public function test_the_scheduled_recovery_never_retries_failed_deliveries_and_is_scheduled(): void
+    {
+        $this->script->append('permanent');
+        $this->send('evt-perm')->assertStatus(202);
+        $this->travel(2)->hours();
+        Queue::fake();
+
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 0')->assertSuccessful();
+        Queue::assertNothingPushed();
+        $this->assertSame('failed', $this->delivery('evt-perm')->status);
+
+        $scheduled = collect(app(Schedule::class)->events())->first(fn ($event) => str_contains((string) $event->command, 'lifeos:webhooks:retry --stuck'));
+        $this->assertNotNull($scheduled, 'the stuck-delivery recovery is scheduled');
+        $this->assertSame('*/15 * * * *', $scheduled->expression);
+        $this->assertTrue($scheduled->withoutOverlapping);
     }
 
     public function test_a_job_queued_before_generations_existed_runs_as_generation_zero(): void
