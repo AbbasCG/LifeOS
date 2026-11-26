@@ -110,8 +110,11 @@ class ScheduleConflictConcurrencyTest extends TestCase
         $this->assertSame('Lock', $waiter['wait_event_type']);
         $this->assertStringContainsString('users', $waiter['query'], 'the blocked statement is the user-row lock of the booking');
         $this->assertStringContainsString('for no key update', $waiter['query']);
-        $this->assertStringStartsWith('committed ', $output[1] ?? '');
-        $this->assertLessThanOrEqual($finishedAt, (float) substr($output[1], 10), 'B only finished after A had committed');
+        // before_commit is a lower bound read inside A's transaction, not A's COMMIT time. B was blocked on A's lock (the waiter line above), so
+        // it can only have finished after A's COMMIT, which is after before_commit. A B that did not wait would finish before it.
+        $this->assertMatchesRegularExpression('/^committed before_commit=(\d+\.\d+)$/', $output[1] ?? '');
+        $beforeCommit = (float) substr($output[1], strlen('committed before_commit='));
+        $this->assertGreaterThanOrEqual($beforeCommit, $finishedAt, 'B finished no earlier than the moment A started to commit');
 
         $response->assertUnprocessable()->assertJsonPath('conflict.code', 'schedule_conflict')->assertJsonPath('conflict.conflicts.0.title', 'First booker')
             ->assertJsonPath('conflict.conflicts.0.task_id', $a->id)->assertJsonPath('conflict.suggestion.starts_at', '2027-02-03T09:30:00Z');
@@ -125,9 +128,14 @@ class ScheduleConflictConcurrencyTest extends TestCase
         $this->startHolder('lockfree', $user, $a, 2);
 
         $response = $this->book($user, $b);
-        $this->finishHolder();
+        $finishedAt = microtime(true);
+        $output = $this->finishHolder();
 
         $response->assertCreated();
+        // The ordering check of the locked test is not vacuous: B, not blocked, finished while A's transaction was still open, i.e. before A's
+        // before_commit lower bound (A only reads it after waiting up to 2 s for a waiter that never comes).
+        $this->assertMatchesRegularExpression('/^committed before_commit=(\d+\.\d+)$/', end($output) ?: '');
+        $this->assertLessThan((float) substr(end($output), strlen('committed before_commit=')), $finishedAt);
         $events = CalendarEvent::orderBy('id')->get();
         $this->assertCount(2, $events, 'without the user lock both bookings read "free" and both were written');
         $this->assertTrue($events[0]->starts_at->equalTo($events[1]->starts_at) && $events[0]->ends_at->equalTo($events[1]->ends_at), 'in the very same slot');
@@ -145,7 +153,7 @@ class ScheduleConflictConcurrencyTest extends TestCase
         $output = $this->finishHolder();
 
         $this->assertStringStartsWith('waiter ', $output[0] ?? '', 'the booking was blocked on the task lock: '.json_encode($output));
-        $this->assertStringStartsWith('committed ', $output[1] ?? '');
+        $this->assertStringStartsWith('committed', $output[1] ?? '');
         $response->assertCreated();
         $this->assertSame(1, CalendarEvent::count());
         $this->assertSame(1, Task::where('title', 'Next occurrence')->count());
@@ -160,7 +168,7 @@ class ScheduleConflictConcurrencyTest extends TestCase
         $output = $this->finishHolder();
 
         $this->assertStringStartsWith('waiter ', $output[0] ?? '', 'the one-step save was blocked on the booking lock: '.json_encode($output));
-        $this->assertStringStartsWith('committed ', $output[1] ?? '');
+        $this->assertStringStartsWith('committed', $output[1] ?? '');
         $response->assertUnprocessable()->assertJsonPath('conflict.code', 'schedule_conflict')->assertJsonPath('conflict.conflicts.0.task_id', $a->id);
         $this->assertSame(0, Task::where('title', 'One-step racer')->count(), 'the task row was rolled back with the refused time');
         $this->assertSame(1, CalendarEvent::count(), 'one winner');
