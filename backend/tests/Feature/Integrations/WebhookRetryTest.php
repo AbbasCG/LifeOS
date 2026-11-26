@@ -215,10 +215,14 @@ class WebhookRetryTest extends TestCase
         $this->artisan('lifeos:webhooks:retry', ['--all' => true])->expectsOutputToContain('Queued 1')->assertSuccessful();
         Queue::assertPushed(ProcessWebhookDelivery::class, 2);
 
+        $requeued = Queue::pushed(ProcessWebhookDelivery::class);
+        $this->assertSame([1, 1], $requeued->map(fn ($job) => $job->generation)->values()->all(), 'each requeue starts a new generation');
         foreach (['evt-s1', 'evt-s2'] as $id) {
-            (new ProcessWebhookDelivery($this->delivery($id)->id))->handle();
-            (new ProcessWebhookDelivery($this->delivery($id)->id))->handle();   // a late copy of the lost job
+            (new ProcessWebhookDelivery($this->delivery($id)->id))->handle();   // the "lost" job turns up late: generation 0, does nothing
+            $this->assertSame('accepted', $this->delivery($id)->status);
         }
+        $requeued->each(fn (ProcessWebhookDelivery $job) => $job->handle());
+        $requeued->each(fn (ProcessWebhookDelivery $job) => $job->handle());   // a duplicate of the new job finds it processed
         $this->assertSame(['processed', 'processed'], WebhookDelivery::orderBy('id')->pluck('status')->all());
         $this->assertSame(2, count($this->runs));
         $this->assertSame(2, Task::count());
@@ -268,6 +272,52 @@ class WebhookRetryTest extends TestCase
             (new ProcessWebhookDelivery($delivery->id))->failed(null);
             $this->assertSame([$final, 'kept', 1], [$delivery->fresh()->status, $delivery->fresh()->last_error, $delivery->fresh()->attempts]);
         }
+    }
+
+    public function test_a_job_from_an_earlier_generation_can_neither_run_nor_record_a_failure_after_a_requeue(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-gen')->assertStatus(202);   // synchronous queue: the failed run is final
+        $delivery = $this->delivery('evt-gen');
+        $this->assertSame(['failed', 0], [$delivery->status, $delivery->processing_generation]);
+        Queue::fake();
+
+        $this->assertTrue(app(WebhookDeliveryQueue::class)->requeue($delivery));
+        $this->assertSame(['accepted', 1, 1], [$delivery->fresh()->status, $delivery->fresh()->processing_generation, $delivery->fresh()->attempts]);
+        $new = Queue::pushed(ProcessWebhookDelivery::class)->sole();
+        $this->assertSame(1, $new->generation);
+
+        // The first job (generation 0) turns up late: its run and its failed() hook leave the new attempt alone.
+        $old = new ProcessWebhookDelivery($delivery->id);
+        $old->handle();
+        $old->failed(new RuntimeException('Job timed out.'));
+        $this->assertSame(['accepted', 1, null], [$delivery->fresh()->status, $delivery->fresh()->attempts, $delivery->fresh()->processed_at]);
+        $this->assertSame(['fail'], $this->runs->getArrayCopy());
+
+        $new->handle();
+        $this->assertSame(['processed', 2], [$delivery->fresh()->status, $delivery->fresh()->attempts]);
+        $old->failed(null);
+        $new->failed(null);
+        $this->assertSame('processed', $delivery->fresh()->status, 'no job of any generation turns a processed delivery back');
+        $this->assertSame(1, Task::count());
+    }
+
+    public function test_a_processed_or_ignored_delivery_is_never_queued_again_even_from_a_stale_failed_copy(): void
+    {
+        $this->script->append('fail');
+        $this->send('evt-done')->assertStatus(202);
+        $staleCopy = $this->delivery('evt-done');   // read while it was failed, as an operator's list would be
+        $this->assertSame('failed', $staleCopy->status);
+        $this->send('evt-done')->assertStatus(202)->assertJson(['status' => 'requeued']);
+        $this->assertSame('processed', $this->delivery('evt-done')->status);
+        Queue::fake();
+
+        $this->assertFalse(app(WebhookDeliveryQueue::class)->requeue($staleCopy));
+        $this->artisan('lifeos:webhooks:retry', ['ids' => [$staleCopy->id]])->expectsOutputToContain('Queued 0')->assertSuccessful();
+        $this->delivery('evt-done')->forceFill(['status' => 'ignored'])->save();
+        $this->assertFalse(app(WebhookDeliveryQueue::class)->requeue($staleCopy));
+        Queue::assertNothingPushed();
+        $this->assertSame(['ignored', 1], [$this->delivery('evt-done')->status, $this->delivery('evt-done')->processing_generation]);
     }
 
     public function test_a_copy_of_the_job_for_a_delivery_that_is_already_processed_does_nothing(): void

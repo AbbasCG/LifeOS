@@ -5,20 +5,25 @@ namespace App\Integrations\Webhooks;
 use App\Jobs\ProcessWebhookDelivery;
 use App\Models\WebhookDelivery;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Puts a failed delivery back on the queue, exactly once. Used by `lifeos:webhooks:retry` and by the receiver when the sender redelivers a
  * failed event with the same bytes.
  *
  * Besides "failed", a delivery left "accepted" or "retrying" for longer than integrations.webhooks.stale_after_seconds past its due time is
- * also requeueable: its job was lost (the dispatch failed after the row was recorded, the queue was cleared). Queuing a second copy is safe
- * even if the first one is only late: ProcessWebhookDelivery takes the row lock and processes a delivery at most once.
+ * also requeueable: its job was lost (the dispatch failed after the row was recorded, the queue was cleared). Queuing a new job is safe
+ * even if the first one is only late: the new job carries the incremented generation, and the late one then neither runs the handlers nor
+ * records a failure.
  *
  * The status flip is a single conditional UPDATE on the status that was read, so two operators (or a retry and a redelivery) racing for the
- * same delivery queue it only once.
+ * same delivery queue it only once. It also increments processing_generation, so only the newly queued job may change the delivery.
  */
 class WebhookDeliveryQueue
 {
+    /** The only statuses that can be queued again; "processed" and "ignored" are final. */
+    private const REQUEUEABLE = ['failed', 'accepted', 'retrying'];
+
     /**
      * @param  string|null  $rawBody  the bytes of a verified redelivery (same sha256 as the stored payload), used when the payload is gone
      * @return bool whether this call queued the delivery again
@@ -28,10 +33,13 @@ class WebhookDeliveryQueue
         if ($this->refusal($delivery, $rawBody) !== null) {
             return false;
         }
-        // A requeued delivery is due now (next_attempt_at = now), which also makes the stale condition false for a second, racing caller.
-        $flipped = WebhookDelivery::whereKey($delivery->id)->where('status', $delivery->status)
+        $generation = (int) ($delivery->processing_generation ?? 0);   // a model fresh from create() has only the database default (0)
+        // A requeued delivery is due now (next_attempt_at = now), which also makes the stale condition false for a second, racing caller. The
+        // condition also covers the generation that was read: if anything queued it again in between, this call does nothing.
+        $flipped = WebhookDelivery::whereKey($delivery->id)->where('status', $delivery->status)->whereIn('status', self::REQUEUEABLE)
+            ->where('processing_generation', $generation)
             ->when($delivery->status !== 'failed', fn ($q) => $q->whereRaw('COALESCE(next_attempt_at, received_at) < ?', [$this->staleCutoff()]))
-            ->update(['status' => 'accepted', 'processed_at' => null, 'next_attempt_at' => now()]);
+            ->update(['status' => 'accepted', 'processed_at' => null, 'next_attempt_at' => now(), 'processing_generation' => DB::raw('processing_generation + 1')]);
         if ($flipped !== 1) {
             return false;
         }
@@ -40,7 +48,8 @@ class WebhookDeliveryQueue
             // Only for a verified redelivery whose hash matched the recorded one, so the stored bytes are the bytes that were first accepted.
             $fresh->forceFill(['payload' => $rawBody])->save();
         }
-        ProcessWebhookDelivery::dispatch($delivery->id);
+        // Only a job of the new generation may change the delivery; a late copy of an earlier job (the lost one, or a slow one) does nothing.
+        ProcessWebhookDelivery::dispatch($delivery->id, $generation + 1);
 
         return true;
     }

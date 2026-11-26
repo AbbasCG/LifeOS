@@ -24,6 +24,9 @@ use Throwable;
  * integrations.webhooks.backoff_seconds, up to integrations.webhooks.max_attempts runs. After the last run, or at once for a
  * PermanentWebhookException or on the synchronous queue (which cannot delay), it is "failed": its encrypted payload is kept so
  * `lifeos:webhooks:retry` (or a redelivery of the same bytes) can process it again. Only a redacted, shortened error is stored.
+ *
+ * Generations: each requeue increments webhook_deliveries.processing_generation and queues a job carrying the new value. A job (with its
+ * releases and its failed() hook) only touches the row while the generations match, so a late job from an earlier attempt does nothing.
  */
 class ProcessWebhookDelivery implements ShouldQueue
 {
@@ -38,8 +41,15 @@ class ProcessWebhookDelivery implements ShouldQueue
     /** Runs allowed for this job (read by the worker, so a worker started with --tries=1 still retries). */
     public int $tries;
 
-    public function __construct(public int $deliveryId)
+    /**
+     * The delivery's processing_generation when this job was queued. Declared with a default so a job serialized before the column existed
+     * unserializes as generation 0, which every existing row has.
+     */
+    public int $generation = 0;
+
+    public function __construct(public int $deliveryId, int $generation = 0)
     {
+        $this->generation = $generation;
         $this->tries = self::maxAttempts();
     }
 
@@ -48,7 +58,8 @@ class ProcessWebhookDelivery implements ShouldQueue
         try {
             DB::transaction(function () {
                 $delivery = WebhookDelivery::with('endpoint')->whereKey($this->deliveryId)->lockForUpdate()->first();
-                if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true)) {
+                if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true) || $delivery->processing_generation !== $this->generation) {
+                    // Finished, or queued again since this job was dispatched: the newer job owns the delivery now.
                     return;
                 }
                 if (! $delivery->endpoint?->enabled) {
@@ -129,18 +140,20 @@ class ProcessWebhookDelivery implements ShouldQueue
      *
      * One conditional UPDATE, never read-then-save: the row changes only while it is still runnable. If another copy of the job is processing
      * it right now, PostgreSQL makes this UPDATE wait for that row lock and then re-checks the condition on the committed row, so a delivery
-     * that became "processed" (or "ignored", or "failed") meanwhile is left as it is and this run is not released again.
+     * that became "processed" (or "ignored", or "failed") meanwhile is left as it is and this run is not released again. A job from an
+     * earlier generation (the delivery was queued again since) never writes either, failed() included.
      */
     private function recordFailure(?Throwable $e, bool $final): ?int
     {
         $delay = $final ? null : self::backoffAfter($this->attempts());
-        $written = WebhookDelivery::query()->whereKey($this->deliveryId)->whereIn('status', self::RUNNABLE)->update([
-            'status' => $final ? 'failed' : 'retrying',
-            'attempts' => DB::raw('CASE WHEN attempts >= '.self::MAX_COUNTER.' THEN '.self::MAX_COUNTER.' ELSE attempts + 1 END'),
-            'last_error' => self::describe($e),
-            'next_attempt_at' => $delay === null ? null : now()->addSeconds($delay),
-            'processed_at' => $final ? now() : null,
-        ]);
+        $written = WebhookDelivery::query()->whereKey($this->deliveryId)->whereIn('status', self::RUNNABLE)
+            ->where('processing_generation', $this->generation)->update([
+                'status' => $final ? 'failed' : 'retrying',
+                'attempts' => DB::raw('CASE WHEN attempts >= '.self::MAX_COUNTER.' THEN '.self::MAX_COUNTER.' ELSE attempts + 1 END'),
+                'last_error' => self::describe($e),
+                'next_attempt_at' => $delay === null ? null : now()->addSeconds($delay),
+                'processed_at' => $final ? now() : null,
+            ]);
 
         return $written === 1 ? $delay : null;
     }
