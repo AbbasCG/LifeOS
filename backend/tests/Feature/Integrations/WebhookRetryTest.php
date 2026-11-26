@@ -248,6 +248,28 @@ class WebhookRetryTest extends TestCase
         $this->assertSame(['failed', 'RuntimeException: Job timed out.'], [$delivery->fresh()->status, $delivery->fresh()->last_error]);
     }
 
+    public function test_the_worker_giving_up_late_never_overwrites_a_delivery_that_finished_meanwhile(): void
+    {
+        Queue::fake();
+        $this->send('evt-late')->assertStatus(202);
+        $delivery = $this->delivery('evt-late');
+        (new ProcessWebhookDelivery($delivery->id))->handle();
+        $processed = $delivery->fresh();
+        $this->assertSame(['processed', 1], [$processed->status, $processed->attempts]);
+
+        // A copy whose worker timed out reports its failure after another copy committed "processed".
+        (new ProcessWebhookDelivery($delivery->id))->failed(new RuntimeException('Job timed out.'));
+        $after = $delivery->fresh();
+        $this->assertSame(['processed', 1, null, null], [$after->status, $after->attempts, $after->last_error, $after->next_attempt_at]);
+        $this->assertSame($processed->processed_at->toIso8601String(), $after->processed_at->toIso8601String());
+
+        foreach (['ignored', 'failed'] as $final) {
+            $delivery->forceFill(['status' => $final, 'last_error' => 'kept'])->save();
+            (new ProcessWebhookDelivery($delivery->id))->failed(null);
+            $this->assertSame([$final, 'kept', 1], [$delivery->fresh()->status, $delivery->fresh()->last_error, $delivery->fresh()->attempts]);
+        }
+    }
+
     public function test_a_copy_of_the_job_for_a_delivery_that_is_already_processed_does_nothing(): void
     {
         $this->send('evt-6')->assertStatus(202);

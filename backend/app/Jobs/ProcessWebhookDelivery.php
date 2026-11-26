@@ -124,24 +124,24 @@ class ProcessWebhookDelivery implements ShouldQueue
     }
 
     /**
-     * Store the outcome of a failed run outside the rolled-back transaction. Returns the delay before the next run, or null when it was final.
+     * Store the outcome of a failed run outside the rolled-back transaction. Returns the delay before the next run, or null when it was final
+     * or when nothing was written.
+     *
+     * One conditional UPDATE, never read-then-save: the row changes only while it is still runnable. If another copy of the job is processing
+     * it right now, PostgreSQL makes this UPDATE wait for that row lock and then re-checks the condition on the committed row, so a delivery
+     * that became "processed" (or "ignored", or "failed") meanwhile is left as it is and this run is not released again.
      */
     private function recordFailure(?Throwable $e, bool $final): ?int
     {
-        $delivery = WebhookDelivery::find($this->deliveryId);
-        if (! $delivery || ! in_array($delivery->status, self::RUNNABLE, true)) {
-            return null;
-        }
-        $attempts = $delivery->attempts + 1;
         $delay = $final ? null : self::backoffAfter($this->attempts());
-        $delivery->forceFill([
+        $written = WebhookDelivery::query()->whereKey($this->deliveryId)->whereIn('status', self::RUNNABLE)->update([
             'status' => $final ? 'failed' : 'retrying',
-            'attempts' => min(self::MAX_COUNTER, $attempts),
+            'attempts' => DB::raw('CASE WHEN attempts >= '.self::MAX_COUNTER.' THEN '.self::MAX_COUNTER.' ELSE attempts + 1 END'),
             'last_error' => self::describe($e),
             'next_attempt_at' => $delay === null ? null : now()->addSeconds($delay),
             'processed_at' => $final ? now() : null,
-        ])->save();
+        ]);
 
-        return $delay;
+        return $written === 1 ? $delay : null;
     }
 }
