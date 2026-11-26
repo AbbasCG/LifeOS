@@ -29,7 +29,8 @@ test('Today shows the next prayer and the Ramadan note, the calendar draws praye
   try {
     await setPrefs(page, { ...MAKKAH })
     await page.goto('/')
-    await expect(page.getByTestId('next-prayer')).toHaveText(/^Next prayer: (Fajr|Dhuhr|Asr|Maghrib|Isha) \d\d:\d\d \(in (\d+ h )?\d+ min\)$/)
+    // untilWords: "12 min", "1 h 12 min", or "10 h" on a whole number of hours (no "0 min"), so the last form depends on when the test runs.
+    await expect(page.getByTestId('next-prayer')).toHaveText(/^Next prayer: (Fajr|Dhuhr|Asr|Maghrib|Isha) \d\d:\d\d \(in (\d+ h( \d+ min)?|\d+ min)\)$/)
     await expect(page.getByTestId('ramadan-note')).toHaveText(/^\s*Ramadan mode: work hours 10:00–15:00, iftar \d\d:\d\d$/)
 
     // Calendar: one read for the whole week, bands in the day and week views, nothing in the month view.
