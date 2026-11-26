@@ -33,6 +33,11 @@ return [
         'stale_after_seconds' => 3600,
     ],
 
+    'emc' => [
+        // Hosts allowed in a ticket's link (comma-separated, e.g. "emc.example.com"). Empty: any https host. A link elsewhere is dropped, never followed.
+        'allowed_url_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('EMC_ALLOWED_URL_HOSTS', ''))))),
+    ],
+
     // Manifest provider id => the config/services.php key that holds its OAuth client (environment fallback).
     'credential_map' => [
         'google' => 'google_calendar',

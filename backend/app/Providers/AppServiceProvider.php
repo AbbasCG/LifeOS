@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Integrations\Emc\EmcWebhookHandler;
 use App\Integrations\Manifest\ManifestRegistry;
 use App\Integrations\Vault\CredentialVault;
 use App\Models\User;
@@ -24,6 +25,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ManifestRegistry::class);
         $this->app->singleton(CredentialVault::class);
         $this->app->singleton(DiscoveryRegistry::class);
+        // Connectors that react to signed webhooks (see App\Jobs\ProcessWebhookDelivery). EMC tickets: docs/EMC_INTEGRATION.md.
+        $this->app->tag([EmcWebhookHandler::class], 'integrations.webhook_handlers');
     }
 
     public function boot(): void
