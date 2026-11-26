@@ -5,6 +5,7 @@ namespace App\Integrations\Webhooks;
 use App\Jobs\ProcessWebhookDelivery;
 use App\Models\WebhookDelivery;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -100,6 +101,25 @@ class WebhookDeliveryQueue
         $due = $delivery->next_attempt_at ?? $delivery->received_at;
 
         return $due !== null && $due->lessThan($this->staleCutoff());
+    }
+
+    /**
+     * Deliveries that can be queued again, filtered in SQL (status is indexed), so a caller can walk them in chunks instead of loading every
+     * accepted or retrying row (and its encrypted payload) into memory. With $withFailed, "failed" deliveries are included too.
+     *
+     * @return Builder<WebhookDelivery>
+     */
+    public function requeueable(bool $withFailed = false): Builder
+    {
+        $cutoff = $this->staleCutoff();
+
+        return WebhookDelivery::query()->where(function (Builder $q) use ($cutoff, $withFailed) {
+            $q->where(fn (Builder $stuck) => $stuck->whereIn('status', ['accepted', 'retrying'])
+                ->whereRaw('COALESCE(next_attempt_at, received_at) < ?', [$cutoff]));
+            if ($withFailed) {
+                $q->orWhere('status', 'failed');
+            }
+        });
     }
 
     private function staleCutoff(): CarbonImmutable

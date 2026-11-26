@@ -425,6 +425,57 @@ class WebhookRetryTest extends TestCase
         $this->assertSame(1, Task::count());
     }
 
+    public function test_the_stuck_recovery_filters_in_sql_reads_in_small_chunks_and_handles_a_bounded_batch_per_run(): void
+    {
+        $row = fn (string $id, string $status, $due) => ['webhook_endpoint_id' => $this->endpoint->id, 'delivery_id' => $id, 'payload_sha256' => hash('sha256', ''), 'size' => 0,
+            'payload' => null, 'status' => $status, 'received_at' => $due, 'next_attempt_at' => $due, 'attempts' => 0, 'processing_generation' => 0];
+        $old = now()->subHours(3);
+        $rows = [];
+        foreach (range(1, 520) as $i) {
+            $rows[] = $row("stuck-{$i}", $i % 2 ? 'accepted' : 'retrying', $old);
+        }
+        foreach (range(1, 30) as $i) {
+            $rows[] = $row("fresh-{$i}", 'accepted', now());   // its job is simply not due yet
+            $rows[] = $row("failed-{$i}", 'failed', $old);
+            $rows[] = $row("done-{$i}", 'processed', $old);
+        }
+        foreach (array_chunk($rows, 100) as $chunk) {
+            WebhookDelivery::insert($chunk);
+        }
+        Queue::fake();
+        DB::enableQueryLog();
+
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 500')->assertSuccessful();
+
+        $reads = collect(DB::getQueryLog())->pluck('query')->filter(fn ($q) => str_starts_with(strtolower($q), 'select') && str_contains($q, 'webhook_deliveries'));
+        DB::disableQueryLog();
+        $bulk = $reads->filter(fn ($q) => str_contains($q, 'COALESCE(next_attempt_at, received_at) <'));
+        $this->assertGreaterThanOrEqual(10, $bulk->count(), 'read in chunks');
+        $bulk->each(fn ($q) => $this->assertMatchesRegularExpression('/limit 50\b/i', $q, 'never more than one chunk of rows at a time'));
+        Queue::assertPushed(ProcessWebhookDelivery::class, 500);
+
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 20')->assertSuccessful();
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->expectsOutputToContain('Queued 0')->assertSuccessful();
+        $this->assertSame(0, WebhookDelivery::where('delivery_id', 'like', 'stuck-%')->where('processing_generation', '!=', 1)->count(), 'each stuck delivery requeued once');
+        $this->assertSame(0, WebhookDelivery::where('delivery_id', 'not like', 'stuck-%')->where('processing_generation', '!=', 0)->count(), 'fresh, failed and processed ones untouched');
+    }
+
+    public function test_the_stuck_recovery_skips_disabled_endpoints_so_they_never_use_up_the_batch(): void
+    {
+        ['endpoint' => $disabled] = app(WebhookEndpointService::class)->create('custom', $this->owner, 'Off', requireEventId: true);
+        $disabled->forceFill(['enabled' => false])->save();
+        $old = now()->subHours(3);
+        foreach ([$disabled, $this->endpoint] as $i => $endpoint) {
+            WebhookDelivery::create(['webhook_endpoint_id' => $endpoint->id, 'delivery_id' => "evt-off-{$i}", 'payload_sha256' => hash('sha256', ''), 'size' => 0,
+                'status' => 'accepted', 'received_at' => $old]);
+        }
+        Queue::fake();
+
+        $this->artisan('lifeos:webhooks:retry', ['--stuck' => true])->doesntExpectOutputToContain('the endpoint is disabled')->expectsOutputToContain('Queued 1')->assertSuccessful();
+        $this->assertSame(['accepted', 0], [$this->delivery('evt-off-0')->status, $this->delivery('evt-off-0')->processing_generation]);
+        $this->assertSame(1, $this->delivery('evt-off-1')->processing_generation);
+    }
+
     public function test_the_scheduled_recovery_never_retries_failed_deliveries_and_is_scheduled(): void
     {
         $this->script->append('permanent');
