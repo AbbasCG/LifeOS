@@ -86,7 +86,7 @@ Every event carries a **full snapshot** of the ticket as EMC sees it now, so any
 | `ticket.priority` | `low`, `normal`, `medium`, `high`, `urgent` or `critical` (case-insensitive). Mapped to LifeOS `low`, `medium`, `medium`, `high`, `urgent`, `urgent`; any other value becomes `medium`. |
 | `ticket.due_at` | Optional. ISO 8601 instant **with offset or `Z`** (a timed deadline), or `null`. |
 | `ticket.due_date` | Optional. `YYYY-MM-DD` (a deadline without a time: the end of that day in the user's LifeOS timezone), or `null`. Never together with `due_at`. Both null/absent = no deadline. |
-| `ticket.url` | Optional. `https://` only, ≤ 1000 chars. If `EMC_ALLOWED_URL_HOSTS` is set in LifeOS, the host must be in it; otherwise the link is dropped (the event still applies). |
+| `ticket.url` | Optional. `https://` only, ≤ 1000 chars, default port (443) only, no user name or password, and the host must be listed in LifeOS's `EMC_ALLOWED_URL_HOSTS` (exact host, case-insensitive; subdomains are not included). Anything else, and every link while that list is empty, is dropped; the event still applies. |
 | `ticket.assignee_id` | Optional, ≤ 200 chars. Recorded for diagnosis; not used for decisions in phase 1 (the endpoint already identifies the LifeOS user). |
 
 Unknown extra fields are ignored. A payload that breaks these rules is refused as a whole (no partial apply).
@@ -133,7 +133,10 @@ never touched. A deadline moved by EMC does not count as a postponement in LifeO
 - Diagnose: `php artisan lifeos:webhooks:failed`; process again: `php artisan lifeos:webhooks:retry <id>` (see `INTEGRATIONS.md`).
 - Temporary errors (database, lock timeout) are retried with backoff; an invalid payload fails at once.
 - Disable an endpoint: set `webhook_endpoints.enabled = false`. EMC then gets `404`, and deliveries it had already accepted are not applied
-  (they end `failed` with "The endpoint is disabled." and can be retried once it is enabled again).
+  (they end `failed` with "The endpoint is disabled.", payload kept, and can be retried once it is enabled again; until then
+  `lifeos:webhooks:retry` refuses them). An event that is already being applied when the endpoint is disabled finishes.
+- Before go-live set `EMC_ALLOWED_URL_HOSTS` to EMC's ticket host; without it tasks are created without the ticket link.
+- Failures are logged and stored without ticket content (see `INTEGRATIONS.md`, "Retries").
 
 ## 6. Open points to confirm with EMC
 
