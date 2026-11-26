@@ -10,6 +10,8 @@
  *   task-lock  what AutomationEngine / WeeklyReviewService do: lock the task row FOR UPDATE, then insert a task row (FK to the user).
  *
  * stdout lines: `locked`, `waiter <json>` (a backend blocked on a lock held by this transaction, seen from a THIRD connection), `committed <unix time>`.
+ * The time is taken inside the transaction once the waiter was seen, so it is before the COMMIT: a waiter is released by the COMMIT itself and can finish
+ * before this process has even returned from it, so a time read after the commit could be later than the waiter's finish.
  * The only waiting is on a database lock, with an upper bound of $argv[6] seconds (default 60) in case no waiter ever shows up.
  */
 
@@ -35,18 +37,19 @@ $say = function (string $line): void {
     fflush(STDOUT);
 };
 
-$waitForWaiter = function () use ($bound, $say): void {
+$committingAt = null;
+$waitForWaiter = function () use ($bound, $say, &$committingAt): void {
     $holder = (int) DB::selectOne('select pg_backend_pid() as pid')->pid;
     $deadline = microtime(true) + $bound;
     while (microtime(true) < $deadline) {
         $rows = DB::connection('monitor')->select("select pid, wait_event_type, wait_event, state, query from pg_stat_activity where wait_event_type = 'Lock' and ? = any (pg_blocking_pids(pid))", [$holder]);
         if ($rows) {
             $say('waiter '.json_encode($rows));
-
-            return;
+            break;
         }
         usleep(20000);
     }
+    $committingAt = microtime(true);   // still inside the transaction, so strictly before its COMMIT: a lower bound for when a waiter can go on
 };
 
 $user = User::findOrFail((int) $userId);
@@ -69,4 +72,4 @@ match ($mode) {
         Task::create(['user_id' => $user->id, 'title' => 'Next occurrence', 'status' => 'todo', 'priority' => 'medium']);
     }),
 };
-$say('committed '.sprintf('%.6f', microtime(true)));
+$say('committed '.sprintf('%.6f', $committingAt ?? microtime(true)));
