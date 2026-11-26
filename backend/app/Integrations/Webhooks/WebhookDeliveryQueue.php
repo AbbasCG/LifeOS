@@ -35,9 +35,14 @@ class WebhookDeliveryQueue
         }
         $generation = (int) ($delivery->processing_generation ?? 0);   // a model fresh from create() has only the database default (0)
 
-        // One transaction for the flip, the payload restore and the dispatch: if the queue is unreachable, nothing is changed, so the delivery
-        // stays requeueable (a redelivery is answered "requeued" again, not "duplicate"). A worker that picks the job up before the commit
-        // waits on the row lock this UPDATE holds and then sees the new generation.
+        // One transaction for the flip, the payload restore and the dispatch: if the dispatch throws (queue unreachable), nothing is changed, so
+        // the delivery stays requeueable (a redelivery is answered "requeued" again, not "duplicate").
+        //  - Database queue on the default connection: the job row is part of this transaction, so flip and job commit or roll back together.
+        //  - Redis or any other queue: the push is NOT rolled back with PostgreSQL. If this transaction rolls back after a successful push, the
+        //    job carries a generation the row never got and does nothing when it runs. A worker that picks it up before the commit waits on
+        //    the row lock this UPDATE holds, then sees the committed generation.
+        //  - The job is lost after the commit (worker or queue gone): the delivery is "stuck" and the scheduled `lifeos:webhooks:retry --stuck`
+        //    queues it again under the next generation.
         return DB::transaction(function () use ($delivery, $rawBody, $generation): bool {
             // A requeued delivery is due now (next_attempt_at = now), which also makes the stale condition false for a second, racing caller.
             // The condition also covers the generation that was read: if anything queued it again in between, this call does nothing.
