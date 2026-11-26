@@ -13,7 +13,11 @@ use App\Models\User;
 use App\Models\WebhookDelivery;
 use App\Models\WebhookEndpoint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use RuntimeException;
 use Tests\TestCase;
@@ -167,10 +171,31 @@ class WebhookRetryTest extends TestCase
 
         $delivery = $this->delivery('evt-3');
         $this->assertSame(['failed', 1], [$delivery->status, $delivery->attempts]);
-        $this->assertStringStartsWith('RuntimeException: EMC timed out.', $delivery->last_error);
-        $this->assertStringNotContainsString('sk_live_abcdefghijklmnop', $delivery->last_error);
-        $this->assertStringNotContainsString('hunter2', $delivery->last_error);
-        $this->assertLessThanOrEqual(500, mb_strlen($delivery->last_error));
+        // A handler's own exception message can carry ticket content or secrets, so only its class is kept.
+        $this->assertSame('RuntimeException', $delivery->last_error);
+    }
+
+    public function test_a_failed_run_is_logged_without_payload_content_sql_bindings_or_secrets_and_never_reported(): void
+    {
+        Exceptions::fake();
+        $logged = [];
+        Log::listen(function (MessageLogged $message) use (&$logged) {
+            $logged[] = $message->message.' '.json_encode($message->context);
+        });
+        $this->script->exchangeArray(['fail', 'query', 'permanent']);
+        $this->send('evt-l1')->assertStatus(202);
+        $this->send('evt-l2')->assertStatus(202);
+        $this->send('evt-l3')->assertStatus(202);
+
+        Exceptions::assertNothingReported();
+        $all = implode("\n", $logged);
+        $this->assertCount(3, $logged);
+        $this->assertStringContainsString('"error":"RuntimeException"', $all);
+        $this->assertStringContainsString('"error":"QueryException: SQLSTATE ', $all);
+        $this->assertStringContainsString('"error":"PermanentWebhookException: Unknown event type."', $all);
+        foreach (['sk_live_abcdefghijklmnop', 'hunter2', 'EMC timed out', 'confidential-ticket-text', 'no_such_table', 'insert into'] as $secret) {
+            $this->assertStringNotContainsString($secret, $all);
+        }
     }
 
     public function test_a_database_error_is_stored_without_its_sql_or_bound_values(): void
@@ -247,9 +272,9 @@ class WebhookRetryTest extends TestCase
         $this->send('evt-5')->assertStatus(202);
         $delivery = $this->delivery('evt-5');
 
-        (new ProcessWebhookDelivery($delivery->id))->failed(new RuntimeException('Job timed out.'));
+        (new ProcessWebhookDelivery($delivery->id))->failed(new TimeoutExceededException('App\\Jobs\\ProcessWebhookDelivery has timed out.'));
 
-        $this->assertSame(['failed', 'RuntimeException: Job timed out.'], [$delivery->fresh()->status, $delivery->fresh()->last_error]);
+        $this->assertSame(['failed', 'TimeoutExceededException: App\\Jobs\\ProcessWebhookDelivery has timed out.'], [$delivery->fresh()->status, $delivery->fresh()->last_error]);
     }
 
     public function test_the_worker_giving_up_late_never_overwrites_a_delivery_that_finished_meanwhile(): void

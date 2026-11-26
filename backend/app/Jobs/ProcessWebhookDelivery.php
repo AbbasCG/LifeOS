@@ -10,7 +10,10 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Jobs\SyncJob;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -23,7 +26,8 @@ use Throwable;
  * Retries: a handler that throws is treated as a temporary failure. The delivery becomes "retrying" and the job is released with the delays in
  * integrations.webhooks.backoff_seconds, up to integrations.webhooks.max_attempts runs. After the last run, or at once for a
  * PermanentWebhookException or on the synchronous queue (which cannot delay), it is "failed": its encrypted payload is kept so
- * `lifeos:webhooks:retry` (or a redelivery of the same bytes) can process it again. Only a redacted, shortened error is stored.
+ * `lifeos:webhooks:retry` (or a redelivery of the same bytes) can process it again. Only a description without payload content is stored
+ * and logged (see describe()); the exception itself is never reported.
  *
  * Generations: each requeue increments webhook_deliveries.processing_generation and queues a job carrying the new value. A job (with its
  * releases and its failed() hook) only touches the row while the generations match, so a late job from an earlier attempt does nothing.
@@ -83,7 +87,8 @@ class ProcessWebhookDelivery implements ShouldQueue
                 ])->save();
             });
         } catch (Throwable $e) {
-            report($e);
+            // Not report($e): an exception from a handler can carry ticket content, URLs or, in a QueryException, the SQL and its bound values.
+            Log::warning('Webhook delivery run failed.', ['delivery_id' => $this->deliveryId, 'generation' => $this->generation, 'error' => self::describe($e)]);
             $final = $e instanceof PermanentWebhookException || $this->job === null || $this->job instanceof SyncJob || $this->attempts() >= $this->tries;
             $delay = $this->recordFailure($e, $final);
             if ($delay !== null) {
@@ -119,8 +124,9 @@ class ProcessWebhookDelivery implements ShouldQueue
     }
 
     /**
-     * A short, redacted description of a failure that is safe to keep unencrypted. A database error carries the SQL and its bound values (which
-     * can be payload content), so only its class and SQLSTATE are kept.
+     * A short description of a failure that is safe to log and to keep unencrypted. Only messages LifeOS or the queue worker wrote themselves
+     * are kept (and still redacted); any other exception can carry payload content (a ticket title, a URL, a secret), so only its class is
+     * kept. A database error carries the SQL and its bound values, so only its class and SQLSTATE are kept.
      */
     private static function describe(?Throwable $e): string
     {
@@ -130,8 +136,11 @@ class ProcessWebhookDelivery implements ShouldQueue
         if ($e instanceof QueryException) {
             return class_basename($e).': SQLSTATE '.($e->errorInfo[0] ?? $e->getCode());
         }
+        if ($e instanceof PermanentWebhookException || $e instanceof MaxAttemptsExceededException || $e instanceof TimeoutExceededException) {
+            return mb_substr(class_basename($e).': '.SecretRedactor::scrub($e->getMessage()), 0, 500);
+        }
 
-        return mb_substr(class_basename($e).': '.SecretRedactor::scrub($e->getMessage()), 0, 500);
+        return class_basename($e);
     }
 
     /**
